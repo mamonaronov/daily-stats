@@ -1,0 +1,49 @@
+"""Router assembly. One dispatcher, one bot."""
+
+from __future__ import annotations
+
+from aiogram import Router
+
+from handlers import (
+    activity,
+    admin,
+    alcohol,
+    caffeine,
+    cigarettes,
+    custom_metrics,
+    day_review,
+    history,
+    menu,
+    mood,
+    notes,
+    settings,
+    sleep,
+    snus,
+    start,
+    statistics,
+    time_pick,
+    wellbeing,
+)
+
+
+def setup_routers() -> Router:
+    root = Router(name="root")
+    root.include_router(start.router)
+    root.include_router(menu.router)
+    root.include_router(admin.router)
+    root.include_router(time_pick.router)
+    root.include_router(cigarettes.router)
+    root.include_router(snus.router)
+    root.include_router(sleep.router)
+    root.include_router(mood.router)
+    root.include_router(wellbeing.router)
+    root.include_router(caffeine.router)
+    root.include_router(alcohol.router)
+    root.include_router(activity.router)
+    root.include_router(notes.router)
+    root.include_router(history.router)
+    root.include_router(statistics.router)
+    root.include_router(settings.router)
+    root.include_router(custom_metrics.router)
+    root.include_router(day_review.router)
+    return root

@@ -1,0 +1,17 @@
+services:
+  bot:
+    build: .
+    image: daily-stats-bot:latest
+    container_name: daily-stats-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    stop_grace_period: 30s
