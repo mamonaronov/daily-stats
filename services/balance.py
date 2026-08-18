@@ -14,7 +14,7 @@ async def credit(
     telegram_id: int,
     amount: float,
     *,
-    comment: str,
+    comment: str | None,
     performed_by: int,
     idempotency_key: str | None = None,
 ) -> tuple[bool, float, float]:
@@ -35,7 +35,7 @@ async def debit(
     telegram_id: int,
     amount: float,
     *,
-    comment: str,
+    comment: str | None,
     performed_by: int | None,
     idempotency_key: str | None = None,
     paid_until_date: str | None = None,
@@ -60,7 +60,7 @@ async def refund(
     telegram_id: int,
     amount: float,
     *,
-    comment: str,
+    comment: str | None,
     performed_by: int,
 ) -> tuple[bool, float, float]:
     if amount <= 0:
@@ -79,7 +79,7 @@ async def set_balance(
     telegram_id: int,
     value: float,
     *,
-    comment: str,
+    comment: str | None,
     performed_by: int,
 ) -> tuple[bool, float, float]:
     return await repo.apply_balance_change(
@@ -96,7 +96,7 @@ async def adjust(
     telegram_id: int,
     delta: float,
     *,
-    comment: str,
+    comment: str | None,
     performed_by: int,
 ) -> tuple[bool, float, float]:
     return await repo.apply_balance_change(

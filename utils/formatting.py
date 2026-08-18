@@ -105,6 +105,18 @@ def score_text(score: int) -> str:
     return f"{SCORE_EMOJI.get(score, '')} {SCORE_LABELS.get(score, str(score))}".strip()
 
 
+def _days_ru(n: int) -> str:
+    n = abs(int(n))
+    if 11 <= n % 100 <= 14:
+        return "дней"
+    last = n % 10
+    if last == 1:
+        return "день"
+    if 2 <= last <= 4:
+        return "дня"
+    return "дней"
+
+
 def paid_days(balance: float, daily_price: float) -> str:
     if daily_price <= 0:
         return "безлимит"
@@ -112,6 +124,16 @@ def paid_days(balance: float, daily_price: float) -> str:
         return "0"
     days = int(balance // daily_price)
     return str(days)
+
+
+def balance_runway(balance: float, daily_price: float) -> str:
+    days = paid_days(balance, daily_price)
+    if days == "безлимит":
+        return "безлимит"
+    count = int(days)
+    if count <= 0:
+        return "уже не хватает"
+    return f"хватит ещё ~{count} {_days_ru(count)}"
 
 
 def timedelta_human(delta: timedelta) -> str:

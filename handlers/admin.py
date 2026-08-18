@@ -19,6 +19,7 @@ from keyboards.main import (
     admin_root_kb,
     admin_user_kb,
     cancel_kb,
+    skip_comment_kb,
     users_page_kb,
     with_nav,
 )
@@ -26,7 +27,7 @@ from services import balance as balance_svc
 from services.statistics import render_stats
 from states.diary import AdminSG
 from utils.callbacks import NAV_ADMIN
-from utils.formatting import money, paid_days
+from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
 
@@ -59,7 +60,7 @@ def _card(user: User, entries_count: int, last_entry: str | None) -> str:
         f"Пояс: {user.timezone}\n"
         f"Баланс: {money(user.balance)}\n"
         f"Стоимость: {money(user.daily_price)} / день\n"
-        f"Оплаченных дней: ~{paid_days(user.balance, user.daily_price)}\n"
+        f"{balance_runway(user.balance, user.daily_price).capitalize()}\n"
         f"Оплачено до: {user.paid_until_date or '—'}\n"
         f"Статус аккаунта: {status}\n"
         f"Записей: {entries_count}\n"
@@ -200,17 +201,19 @@ async def admin_amount(message: Message, state: FSMContext, config: Config, repo
         return
     await state.update_data(amount=amount)
     await state.set_state(AdminSG.comment)
-    await message.answer("Комментарий к операции:", reply_markup=cancel_kb())
+    await message.answer("Комментарий к операции? Можно пропустить.", reply_markup=skip_comment_kb())
 
 
-@router.message(AdminSG.comment)
-async def admin_comment(message: Message, state: FSMContext, config: Config, repo: Repo, is_owner: bool) -> None:
-    if not await _owner(message, config):
-        return
+async def _apply_admin_op(
+    event: CallbackQuery | Message,
+    state: FSMContext,
+    config: Config,
+    repo: Repo,
+    comment: str | None,
+) -> None:
     data = await state.get_data()
     target = int(data["target_id"])
     amount = float(data["amount"])
-    comment = (message.text or "").strip()
     action = data["admin_action"]
     try:
         if action == "credit":
@@ -220,13 +223,35 @@ async def admin_comment(message: Message, state: FSMContext, config: Config, rep
         elif action == "set":
             await balance_svc.set_balance(repo, target, amount, comment=comment, performed_by=config.owner_id)
     except Exception as exc:
-        await message.answer(f"Ошибка: {exc}")
+        text = f"Ошибка: {exc}"
+        if isinstance(event, CallbackQuery):
+            await event.answer(text, show_alert=True)
+        else:
+            await event.answer(text)
         return
     await state.clear()
     user = await repo.get_user(target)
-    await message.answer("Операция записана в журнал.")
+    if isinstance(event, Message):
+        await event.answer("Операция записана в журнал.")
     if user:
-        await _send_card(message, repo, user)
+        await _send_card(event, repo, user)
+    elif isinstance(event, CallbackQuery):
+        await event.answer("Операция записана")
+        await safe_edit(event.message, "Операция записана в журнал.", admin_root_kb())
+
+
+@router.callback_query(F.data == "wb:skip", AdminSG.comment)
+async def admin_skip_comment(cb: CallbackQuery, state: FSMContext, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    await _apply_admin_op(cb, state, config, repo, None)
+
+
+@router.message(AdminSG.comment)
+async def admin_comment(message: Message, state: FSMContext, config: Config, repo: Repo) -> None:
+    if not await _owner(message, config):
+        return
+    await _apply_admin_op(message, state, config, repo, (message.text or "").strip() or None)
 
 
 @router.message(AdminSG.price)

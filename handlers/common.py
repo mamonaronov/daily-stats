@@ -10,17 +10,16 @@ from database.models import User
 from database.queries import Repo
 from keyboards.main import cancel_kb, main_menu
 from services.users import access_message, can_write, write_block_message
-from utils.formatting import money, paid_days
+from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
 
 
 def menu_text(user: User, config: Config) -> str:
-    days = paid_days(user.balance, user.daily_price)
     write_ok = "доступны" if can_write(user) else "временно недоступны"
     return (
         f"📓 <b>Дневник</b>\n\n"
         f"Привет, {user.display_name}!\n"
-        f"💰 Баланс: {money(user.balance)} · {money(user.daily_price)}/день · ~{days} дн.\n"
+        f"💰 Баланс: {money(user.balance)} · {money(user.daily_price)}/день · {balance_runway(user.balance, user.daily_price)}\n"
         f"Новые записи: {write_ok}\n\n"
         f"Выберите действие:"
     )
