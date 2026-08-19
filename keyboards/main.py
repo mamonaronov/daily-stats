@@ -209,7 +209,7 @@ def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
     for key, label in options:
         mark = "☑" if key in selected else "☐"
         b.row(_btn(f"{mark} {label}", f"stm:{key}"))
-    b.row(_btn("📈 Текст", "stv:text"), _btn("🖼 График", "stv:chart"))
+    b.row(_btn("📝 Текст", "stv:text"), _btn("📈 График", "stv:chart"))
     return with_nav(b, NAV_STATS)
 
 
