@@ -161,3 +161,99 @@ async def test_sleep_wake_can_be_logged_later(repo):
     assert rec.wake_time is not None
     assert rec.quality == 4
     assert rec.duration_minutes == 8 * 60
+
+
+@pytest.mark.asyncio
+async def test_admin_sql_and_table_browser(repo):
+    from database.queries import SqlError
+
+    user = await repo.create_user(21, "owner", "Owner", None, "UTC", 10, "23:00")
+    await repo.add_cigarette(user.telegram_id, to_iso(now_utc()))
+    names = await repo.list_table_names()
+    assert "users" in names
+    assert "cigarettes" in names
+    tables = dict(await repo.list_tables_with_counts())
+    assert tables["cigarettes"] == 1
+    schema = await repo.table_schema("users")
+    assert any(col["name"] == "telegram_id" and col["pk"] for col in schema)
+    page = await repo.table_page("cigarettes", 0, 10)
+    assert page["total"] == 1
+    assert page["columns"][0] == "id"
+    result = await repo.run_sql("SELECT telegram_id, username FROM users ORDER BY telegram_id")
+    assert result["keyword"] == "SELECT"
+    assert result["rows"][0][0] == 21
+    inserted = await repo.run_sql("INSERT INTO notes (telegram_id, body, occurred_at, created_at) VALUES (21, 'hi', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')")
+    assert inserted["keyword"] == "INSERT"
+    assert inserted["rowcount"] == 1
+    with pytest.raises(SqlError, match="ATTACH"):
+        await repo.run_sql("ATTACH DATABASE ':memory:' AS other")
+    with pytest.raises(SqlError, match="не найдена"):
+        await repo.table_page("not_a_table")
+    with pytest.raises(SqlError, match="Некорректное"):
+        await repo.table_page("users; DROP TABLE users")
+    report = await repo.integrity_report()
+    assert "ok" in report.lower()
+    dump = await repo.schema_dump()
+    assert "CREATE TABLE" in dump
+
+
+@pytest.mark.asyncio
+async def test_purge_content_keeps_only_bot_runtime_rows(repo):
+    owner = await repo.create_user(1, "owner", "Owner", None, "UTC", 15.5, "22:30")
+    other = await repo.create_user(22, "other", "Other", None, "UTC", 10, "23:00")
+    await repo.apply_balance_change(owner.telegram_id, "credit", delta=100, comment="pay", performed_by=1)
+    await repo.add_cigarette(owner.telegram_id, to_iso(now_utc()))
+    await repo.add_note(other.telegram_id, "wipe me", to_iso(now_utc()))
+    await repo.insert_vpn_sample(to_iso(now_utc()), True, 42, "node", "sub", None)
+    await repo.upsert_reminder(owner.telegram_id, to_iso(now_utc()), enabled=1)
+    await repo.upsert_reminder(other.telegram_id, to_iso(now_utc()), enabled=1)
+    await repo.db._set_system("marker", "keep-me")
+
+    deleted = await repo.purge_content(owner.telegram_id)
+    assert deleted["users"] == 1
+    assert deleted["cigarettes"] >= 1
+    assert deleted["notes"] >= 1
+    assert deleted["balance_operations"] >= 1
+    assert deleted["vpn_latency_samples"] >= 1
+    assert deleted["reminders"] == 1
+
+    kept = await repo.get_user(owner.telegram_id)
+    assert kept is not None
+    assert kept.timezone == "UTC"
+    assert kept.default_sleep_time == "22:30"
+    assert await repo.get_user(other.telegram_id) is None
+    assert await repo.count_user_entries(owner.telegram_id) == 0
+    assert await repo.get_reminder(owner.telegram_id) is not None
+    assert await repo.get_reminder(other.telegram_id) is None
+    marker = await repo.fetchone("SELECT value FROM system_info WHERE key = ?", ("marker",))
+    assert marker is not None and marker["value"] == "keep-me"
+    remaining = dict(await repo.list_tables_with_counts())
+    assert remaining["users"] == 1
+    assert remaining["user_settings"] == 1
+    assert remaining["cigarettes"] == 0
+    async with repo.conn.execute("PRAGMA foreign_keys") as cur:
+        row = await cur.fetchone()
+    assert int(row[0]) == 1
+
+
+def test_admin_db_keyboards_callback_limit():
+    from keyboards.main import admin_db_kb, admin_table_kb, admin_tables_kb
+
+    tables = [("custom_metric_values", 12), ("users", 1)]
+    keyboards = [admin_db_kb(), admin_tables_kb(tables), admin_table_kb("custom_metric_values", 10, 30, 10)]
+    for kb in keyboards:
+        datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        assert all(data and len(data.encode()) <= 64 for data in datas)
+    table_datas = [btn.callback_data for row in admin_tables_kb(tables).inline_keyboard for btn in row]
+    assert "ad:tp:custom_metric_values:0" in table_datas
+
+
+def test_format_sql_grid_and_csv():
+    from handlers.admin_db import format_sql_grid, rows_to_csv
+
+    grid = format_sql_grid(["id", "name"], [(1, None), (2, "ok")])
+    assert "NULL" in grid
+    assert "id" in grid
+    csv_text = rows_to_csv(["id", "name"], [(1, None), (2, "ok")])
+    assert csv_text.splitlines()[0] == "id,name"
+    assert ",ok" in csv_text

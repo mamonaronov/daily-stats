@@ -74,3 +74,5 @@ class AdminSG(StatesGroup):
     amount = State()
     comment = State()
     price = State()
+    sql = State()
+    purge_confirm = State()

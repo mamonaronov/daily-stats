@@ -7,6 +7,7 @@ from aiogram import Router
 from handlers import (
     activity,
     admin,
+    admin_db,
     alcohol,
     caffeine,
     cigarettes,
@@ -31,6 +32,7 @@ def setup_routers() -> Router:
     root.include_router(start.router)
     root.include_router(menu.router)
     root.include_router(admin.router)
+    root.include_router(admin_db.router)
     root.include_router(time_pick.router)
     root.include_router(cigarettes.router)
     root.include_router(snus.router)

@@ -300,7 +300,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.row(_btn("👥 Пользователи", "ad:users"), _btn("🔎 Поиск", "ad:search"))
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
     b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🛡 VPN", "ad:vpn"))
-    b.row(_btn("⚙️ Настройки", "ad:cfg"))
+    b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
     return with_nav(b, NAV_MAIN)
 
 
@@ -332,6 +332,44 @@ def admin_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "ads:today"), _btn("7 дней", "ads:7"), _btn("30 дней", "ads:30"))
     b.row(_btn("👑 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_db_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("📋 Таблицы", "ad:tbls"), _btn("📄 Схема", "ad:dsch"))
+    b.row(_btn("⌨️ SQL-запрос", "ad:sql"), _btn("🩺 Целостность", "ad:dint"))
+    b.row(_btn("🧹 Очистить базу", "ad:clr"))
+    b.row(_btn("👑 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_tables_kb(tables: list[tuple[str, int]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for name, count in tables:
+        b.row(_btn(f"{name} · {count}", f"ad:tp:{name}:0"))
+    b.row(_btn("🗄 База", "ad:dbe"), _btn("👑 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_table_kb(name: str, offset: int, total: int, page: int = 10) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    nav: list[InlineKeyboardButton] = []
+    if offset > 0:
+        nav.append(_btn("«", f"ad:tp:{name}:{max(0, offset - page)}"))
+    if offset + page < total:
+        nav.append(_btn("»", f"ad:tp:{name}:{offset + page}"))
+    if nav:
+        b.row(*nav)
+    b.row(_btn("📄 Скачать CSV", f"ad:tf:{name}"))
+    b.row(_btn("📋 Таблицы", "ad:tbls"), _btn("🗄 База", "ad:dbe"))
+    return b.as_markup()
+
+
+def admin_sql_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("⌨️ Ещё запрос", "ad:sql"))
+    b.row(_btn("🗄 База", "ad:dbe"), _btn("👑 Админка", NAV_ADMIN))
     return b.as_markup()
 
 

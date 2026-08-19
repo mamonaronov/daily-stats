@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Iterable
@@ -47,6 +48,43 @@ def _count_ge(values: list[int], threshold: int | None) -> int:
 
 
 logger = logging.getLogger(__name__)
+
+IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SQL_COMMENT_RE = re.compile(r"(--[^\n]*|/\*.*?\*/)", re.DOTALL)
+
+KEEP_TABLES = frozenset({"system_info"})
+OWNER_SCOPED_TABLES = frozenset({"users", "user_settings", "reminders"})
+PURGE_CONFIRM_PHRASE = "ОЧИСТИТЬ БАЗУ"
+
+
+class SqlError(ValueError):
+    """Invalid admin SQL or table identifier."""
+
+
+def quote_ident(name: str) -> str:
+    if not IDENT_RE.fullmatch(name):
+        raise SqlError("Некорректное имя таблицы")
+    return f'"{name}"'
+
+
+def sql_leading_keyword(sql: str) -> str:
+    text = _SQL_COMMENT_RE.sub(" ", sql).strip()
+    if not text:
+        return ""
+    return text.split(None, 1)[0].upper().rstrip(";")
+
+
+def assert_sql_allowed(sql: str) -> str:
+    keyword = sql_leading_keyword(sql)
+    if not keyword:
+        raise SqlError("Пустой запрос")
+    if keyword in {"ATTACH", "DETACH"}:
+        raise SqlError("ATTACH и DETACH запрещены")
+    stripped = _SQL_COMMENT_RE.sub(" ", sql).strip()
+    if keyword == "VACUUM" and re.search(r"\bINTO\b", stripped, re.IGNORECASE):
+        raise SqlError("VACUUM INTO запрещён")
+    return keyword
+
 
 USER_SELECT = """
 SELECT u.telegram_id, u.username, u.first_name, u.last_name, u.registered_at,
@@ -1302,3 +1340,161 @@ class Repo:
             item["p99_count"] = _count_ge(values, p99_ms)
             item["p99_9_count"] = _count_ge(values, p99_9_ms)
         return result
+
+    # --- admin database editor ---
+
+    async def list_table_names(self) -> list[str]:
+        rows = await self.fetchall(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+            """
+        )
+        return [str(row["name"]) for row in rows]
+
+    async def list_tables_with_counts(self) -> list[tuple[str, int]]:
+        result: list[tuple[str, int]] = []
+        for name in await self.list_table_names():
+            quoted = quote_ident(name)
+            row = await self.fetchone(f"SELECT COUNT(*) AS c FROM {quoted}")
+            result.append((name, int(row["c"]) if row else 0))
+        return result
+
+    async def _require_table(self, name: str) -> str:
+        quoted = quote_ident(name)
+        row = await self.fetchone(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (name,),
+        )
+        if row is None:
+            raise SqlError("Таблица не найдена")
+        return quoted
+
+    async def table_schema(self, name: str) -> list[dict[str, Any]]:
+        quoted = await self._require_table(name)
+        rows = await self.fetchall(f"PRAGMA table_info({quoted})")
+        return [dict(row) for row in rows]
+
+    async def table_indexes(self, name: str) -> list[str]:
+        await self._require_table(name)
+        rows = await self.fetchall(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL",
+            (name,),
+        )
+        return [str(row["sql"]) for row in rows]
+
+    async def schema_dump(self) -> str:
+        rows = await self.fetchall(
+            """
+            SELECT type, name, sql FROM sqlite_master
+            WHERE sql IS NOT NULL
+            ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name
+            """
+        )
+        parts = [str(row["sql"]).rstrip() + ";" for row in rows if row["sql"]]
+        return "\n\n".join(parts) + ("\n" if parts else "")
+
+    async def table_page(
+        self, name: str, offset: int = 0, limit: int = 10
+    ) -> dict[str, Any]:
+        quoted = await self._require_table(name)
+        count_row = await self.fetchone(f"SELECT COUNT(*) AS c FROM {quoted}")
+        total = int(count_row["c"]) if count_row else 0
+        offset = max(0, int(offset))
+        limit = max(1, int(limit))
+        async with self.conn.execute(
+            f"SELECT * FROM {quoted} ORDER BY rowid LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cur:
+            columns = [item[0] for item in (cur.description or [])]
+            rows = [tuple(row) for row in await cur.fetchall()]
+        return {"name": name, "columns": columns, "rows": rows, "total": total, "offset": offset}
+
+    async def table_export(self, name: str, limit: int = 5000) -> dict[str, Any]:
+        quoted = await self._require_table(name)
+        count_row = await self.fetchone(f"SELECT COUNT(*) AS c FROM {quoted}")
+        total = int(count_row["c"]) if count_row else 0
+        async with self.conn.execute(
+            f"SELECT * FROM {quoted} ORDER BY rowid LIMIT ?",
+            (max(1, int(limit)),),
+        ) as cur:
+            columns = [item[0] for item in (cur.description or [])]
+            rows = [tuple(row) for row in await cur.fetchall()]
+        return {"name": name, "columns": columns, "rows": rows, "total": total}
+
+    async def integrity_report(self) -> str:
+        rows = await self.fetchall("PRAGMA integrity_check")
+        if not rows:
+            return "нет ответа"
+        return "\n".join(str(row[0]) for row in rows)
+
+    async def run_sql(self, sql: str, *, max_rows: int = 200) -> dict[str, Any]:
+        sql = sql.strip()
+        if sql.endswith(";"):
+            sql = sql[:-1].rstrip()
+        keyword = assert_sql_allowed(sql)
+        try:
+            async with self.conn.execute(sql) as cur:
+                description = cur.description
+                if description is not None:
+                    columns = [item[0] for item in description]
+                    fetched = await cur.fetchmany(max_rows + 1)
+                    truncated = len(fetched) > max_rows
+                    rows = [tuple(row) for row in fetched[:max_rows]]
+                    rowcount = cur.rowcount
+                    await self.conn.commit()
+                    return {
+                        "keyword": keyword,
+                        "columns": columns,
+                        "rows": rows,
+                        "rowcount": rowcount,
+                        "truncated": truncated,
+                    }
+                rowcount = cur.rowcount
+            await self.conn.commit()
+            return {
+                "keyword": keyword,
+                "columns": [],
+                "rows": [],
+                "rowcount": rowcount,
+                "truncated": False,
+            }
+        except Exception:
+            await self.conn.rollback()
+            raise
+
+    async def purge_content(self, owner_id: int) -> dict[str, int]:
+        tables = await self.list_table_names()
+        deleted: dict[str, int] = {}
+        wiped: list[str] = []
+        await self.conn.commit()
+        await self.conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            await self.conn.execute("BEGIN IMMEDIATE")
+            for name in tables:
+                if name in KEEP_TABLES:
+                    continue
+                quoted = quote_ident(name)
+                if name in OWNER_SCOPED_TABLES:
+                    cur = await self.conn.execute(
+                        f"DELETE FROM {quoted} WHERE telegram_id != ?",
+                        (owner_id,),
+                    )
+                else:
+                    cur = await self.conn.execute(f"DELETE FROM {quoted}")
+                    wiped.append(name)
+                deleted[name] = int(cur.rowcount or 0)
+            seq = await self.fetchone(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'"
+            )
+            if seq is not None:
+                for name in wiped:
+                    await self.conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (name,))
+            await self.conn.commit()
+        except Exception:
+            await self.conn.rollback()
+            raise
+        finally:
+            await self.conn.execute("PRAGMA foreign_keys=ON")
+        return deleted

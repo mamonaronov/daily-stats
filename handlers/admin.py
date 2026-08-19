@@ -83,9 +83,10 @@ def _card(user: User, entries_count: int, last_entry: str | None) -> str:
 
 
 @router.callback_query(F.data == NAV_ADMIN)
-async def admin_root(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+async def admin_root(cb: CallbackQuery, state: FSMContext, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
+    await state.clear()
     counts = await repo.user_stats_counts()
     text = (
         "👑 <b>Админ-панель</b>\n\n"
