@@ -381,7 +381,7 @@ def test_timeline_down_has_nan_ping_but_keeps_time():
     from datetime import timezone
 
     from database.models import VpnLatencySample
-    from services.vpn_charts import samples_to_timeline
+    from services.vpn_charts import SIGNAL_NO_PING, samples_to_timeline
 
     samples = [
         VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 120, "s3 | A | n1", "sub3", None),
@@ -391,6 +391,7 @@ def test_timeline_down_has_nan_ping_but_keeps_time():
     points = samples_to_timeline(samples, color_by_sub=False)
     assert points[0].ping_ms == 120
     assert math.isnan(points[1].ping_ms)
+    assert points[1].signal == SIGNAL_NO_PING
     assert points[1].down is True
     assert points[1].time.tzinfo == timezone.utc
     assert points[1].time.hour == 10
@@ -418,8 +419,8 @@ def test_downsample_keeps_outages():
             )
         )
     points = downsample_timeline(samples_to_timeline(samples, color_by_sub=False), max_ok=8, max_down=8)
-    assert any(point.down for point in points)
-    assert any(not point.down for point in points)
+    assert any(point.signal is not None for point in points)
+    assert any(point.signal is None for point in points)
 
 
 def test_render_vpn_charts_png_and_down_only():
@@ -448,3 +449,115 @@ def test_render_vpn_charts_png_and_down_only():
     assert len(only_time) == 1
     assert "Пинг по времени" in only_time[0][0]
     assert only_time[0][1].startswith(b"\x89PNG")
+    width, _height = _png_size(only_time[0][1])
+    assert width >= 3500
+
+
+def _png_size(data: bytes) -> tuple[int, int]:
+    import struct
+
+    assert data[12:16] == b"IHDR"
+    return struct.unpack(">II", data[16:24])
+
+
+def test_classify_vpn_signal_kinds():
+    from services.vpn_charts import (
+        SIGNAL_NO_PING,
+        SIGNAL_SERVICE_DOWN,
+        classify_vpn_signal,
+    )
+
+    assert classify_vpn_signal(ok=True, latency_ms=80, error=None) is None
+    assert classify_vpn_signal(ok=False, latency_ms=8000, error="timeout") == SIGNAL_NO_PING
+    assert classify_vpn_signal(ok=True, latency_ms=None, error=None) == SIGNAL_NO_PING
+    assert (
+        classify_vpn_signal(ok=False, latency_ms=8000, error="mihomo_unreachable:ClientConnectorError")
+        == SIGNAL_SERVICE_DOWN
+    )
+    assert classify_vpn_signal(ok=True, latency_ms=90, error="mihomo_timeout") == SIGNAL_SERVICE_DOWN
+    assert (
+        classify_vpn_signal(ok=False, latency_ms=8000, error="mihomo_unreachable:OSError; timeout")
+        == SIGNAL_SERVICE_DOWN
+    )
+
+
+def test_fill_server_off_gaps_between_and_around_window():
+    from datetime import datetime, timezone
+
+    from database.models import VpnLatencySample
+    from services.vpn_charts import SIGNAL_SERVER_OFF, fill_server_off_gaps, samples_to_timeline
+
+    utc = timezone.utc
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 100, "n1", "sub1", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 1, 110, "n1", "sub1", None),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 1, 90, "n1", "sub1", None),
+        VpnLatencySample(4, "2026-08-19T10:02:00+00:00", 1, 95, "n1", "sub1", None),
+        VpnLatencySample(5, "2026-08-19T10:02:10+00:00", 1, 80, "n1", "sub1", None),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    filled = fill_server_off_gaps(
+        points,
+        window_start=datetime(2026, 8, 19, 9, 58, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 5, tzinfo=utc),
+    )
+    off = [point for point in filled if point.signal == SIGNAL_SERVER_OFF]
+    assert len(off) >= 4
+    assert any(point.time.hour == 9 for point in off)
+    assert any(point.time.minute == 0 and point.time.second >= 20 for point in off)
+    assert any(point.time.minute >= 2 for point in off)
+
+
+def test_server_palette_avoids_signal_colors():
+    from services.vpn_charts import _palette, _server_colors
+
+    for count in (1, 2, 4, 8, 24, 80):
+        keys = [f"node-{i}" for i in range(count)]
+        colors = _palette(keys)
+        assert len({colors[key] for key in keys}) == count
+        for key in keys:
+            r, g, b = colors[key][:3]
+            red_orange = r >= 0.72 and b <= 0.40 and g <= 0.55
+            yellow = r >= 0.75 and g >= 0.65 and b <= 0.40
+            orange = r >= 0.80 and 0.35 <= g <= 0.70 and b <= 0.35
+            assert not red_orange, (key, count, r, g, b)
+            assert not yellow, (key, count, r, g, b)
+            assert not orange, (key, count, r, g, b)
+        assert _server_colors(count) == [colors[key] for key in keys]
+
+
+def test_server_colors_spread_then_pack():
+    import math
+
+    from services.vpn_charts import _server_colors
+
+    def min_dist(values: list[tuple[float, float, float]]) -> float:
+        return min(
+            math.dist(values[i], values[j])
+            for i in range(len(values))
+            for j in range(i + 1, len(values))
+        )
+
+    two = _server_colors(2)
+    four = _server_colors(4)
+    twenty = _server_colors(20)
+    assert min_dist(two) > 0.7
+    assert min_dist(two) > min_dist(four)
+    assert min_dist(four) > min_dist(twenty)
+    assert len(_server_colors(1)) == 1
+    assert _server_colors(0) == []
+
+
+def test_timeline_keeps_service_down_and_no_ping():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import SIGNAL_NO_PING, SIGNAL_SERVICE_DOWN, samples_to_timeline
+
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 120, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 0, None, None, None, "mihomo_unreachable:ClientConnectorError"),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 0, 8000, "s1 | B | n2", "sub1", "timeout"),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    assert points[0].signal is None
+    assert points[1].signal == SIGNAL_SERVICE_DOWN
+    assert points[2].signal == SIGNAL_NO_PING

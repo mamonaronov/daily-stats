@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InputMediaPhoto, Message
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import Config
@@ -634,11 +634,13 @@ async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> Non
     if not charts:
         await safe_send(cb.message.answer, "Нет данных для графиков.")
         return
-    media = [
-        InputMediaPhoto(media=png_file(png, f"vpn-{index}.png"), caption=caption[:1024])
-        for index, (caption, png) in enumerate(charts)
-    ]
-    await safe_send(cb.message.answer_media_group, media)
+    for caption, png in charts:
+        filename = "vpn-timeline.png" if caption.startswith("Пинг по времени") else "vpn-distribution.png"
+        await safe_send(
+            cb.message.answer_document,
+            png_file(png, filename),
+            caption=caption[:1024],
+        )
 
 
 @router.callback_query(F.data.startswith("advl:"))
