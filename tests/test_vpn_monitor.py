@@ -183,6 +183,8 @@ async def test_vpn_sample_summary(repo):
     assert int(top[0]["samples"]) == 2
     assert int(top[0]["min_ms"]) == 100
     assert int(top[0]["max_ms"]) == 200
+    assert int(top[0]["p95_ms"]) == 200
+    assert int(top[0]["p95_count"]) == 1
     assert int(top[0]["p99_ms"]) == 200
     assert int(top[0]["p99_count"]) == 1
     assert int(top[0]["p99_9_ms"]) == 200
@@ -192,11 +194,15 @@ async def test_vpn_sample_summary(repo):
     assert int(top_subs[0]["samples"]) == 2
     assert int(top_subs[0]["min_ms"]) == 100
     assert int(top_subs[0]["max_ms"]) == 200
+    assert int(top_subs[0]["p95_ms"]) == 200
+    assert int(top_subs[0]["p95_count"]) == 1
     assert int(top_subs[0]["p99_ms"]) == 200
     assert int(top_subs[0]["p99_count"]) == 1
     assert int(top_subs[1]["samples"]) == 1
     assert int(top_subs[1]["fail_count"]) == 1
     assert top_subs[1]["avg_ms"] is None
+    assert top_subs[1]["p95_ms"] is None
+    assert int(top_subs[1]["p95_count"]) == 0
     assert top_subs[1]["p99_ms"] is None
     assert int(top_subs[1]["p99_count"]) == 0
 
@@ -254,6 +260,8 @@ async def test_vpn_percentiles_and_tail_counts(repo):
     assert int(summary["p99_9_ms"]) == 100
     assert summary["p99_9_count"] == 1
     top = await repo.vpn_top_nodes(start, end)
+    assert int(top[0]["p95_ms"]) == 95
+    assert int(top[0]["p95_count"]) == 6
     assert int(top[0]["p99_ms"]) == 99
     assert int(top[0]["p99_count"]) == 2
     assert int(top[0]["p99_9_ms"]) == 100
@@ -261,10 +269,46 @@ async def test_vpn_percentiles_and_tail_counts(repo):
     top_subs = await repo.vpn_top_subscriptions(start, end)
     assert top_subs[0]["subscription"] == "sub1"
     assert int(top_subs[0]["samples"]) == 100
+    assert int(top_subs[0]["p95_ms"]) == 95
+    assert int(top_subs[0]["p95_count"]) == 6
     assert int(top_subs[0]["p99_ms"]) == 99
     assert int(top_subs[0]["p99_count"]) == 2
     assert int(top_subs[0]["p99_9_ms"]) == 100
     assert int(top_subs[0]["p99_9_count"]) == 1
+
+
+def test_vpn_top_item_lines_layout():
+    from handlers.admin import _vpn_top_item_lines
+
+    lines = _vpn_top_item_lines(
+        {
+            "samples": 1147,
+            "avg_ms": 97.4,
+            "p95_ms": 448.2,
+            "p95_count": 12,
+        },
+        "<code>s4 | Sweden | [*CIDR]-05</code>",
+    )
+    assert lines == [
+        "• <code>s4 | Sweden | [*CIDR]-05</code>",
+        "\t1147 раз, avg 97 мс,",
+        "\tp95 448 мс (12 зам.)",
+    ]
+
+
+async def test_vpn_top_nodes_limit_five(repo):
+    start = "2026-08-19T10:00:00+00:00"
+    for i in range(6):
+        await repo.insert_vpn_sample(
+            f"2026-08-19T10:00:{i:02d}+00:00",
+            True,
+            50 + i,
+            f"node-{i}",
+            "sub1",
+            None,
+        )
+    top = await repo.vpn_top_nodes(start, "2026-08-19T11:00:00+00:00")
+    assert len(top) == 5
 
 
 async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):

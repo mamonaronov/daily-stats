@@ -479,19 +479,15 @@ def _bucket_line(label: str, count: int, measured: int, interval: int) -> str:
     return f"{label}: {seconds_human(count * interval)} ({pct})"
 
 
-def _vpn_top_item_lines(row: dict, title_html: str, note: str = "") -> list[str]:
-    fails = int(row["fail_count"] or 0)
-    fail_bit = f", ошибок {fails}" if fails else ""
-    tail = f" ({note}{fail_bit})" if note else fail_bit
+def _vpn_top_item_lines(row: dict, title_html: str) -> list[str]:
     return [
-        f"• {title_html} — {int(row['samples'])} раз, "
-        f"avg {_ms(row['avg_ms'])} мс, min {_ms(row['min_ms'])} / max {_ms(row['max_ms'])} мс{tail}",
-        f"  p99 {_ms(row['p99_ms'])} мс ({int(row['p99_count'])} зам.), "
-        f"p99.9 {_ms(row['p99_9_ms'])} мс ({int(row['p99_9_count'])} зам.)",
+        f"• {title_html}",
+        f"\t{int(row['samples'])} раз, avg {_ms(row['avg_ms'])} мс,",
+        f"\tp95 {_ms(row['p95_ms'])} мс ({int(row['p95_count'])} зам.)",
     ]
 
 
-def _append_vpn_top(lines: list[str], heading: str, rows: list[dict], title_note) -> None:
+def _append_vpn_top(lines: list[str], heading: str, rows: list[dict], title_html) -> None:
     if not rows:
         return
     lines.append("")
@@ -499,8 +495,7 @@ def _append_vpn_top(lines: list[str], heading: str, rows: list[dict], title_note
     for i, row in enumerate(rows):
         if i:
             lines.append("")
-        title_html, note = title_note(row)
-        lines.extend(_vpn_top_item_lines(row, title_html, note))
+        lines.extend(_vpn_top_item_lines(row, title_html(row)))
 
 
 async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, top: str = "n") -> str:
@@ -567,8 +562,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
             top_subs,
             lambda row: (
                 f"{html.escape(subscription_label(row['subscription']))} "
-                f"(<code>{html.escape(row['subscription'] or '—')}</code>)",
-                "",
+                f"(<code>{html.escape(row['subscription'] or '—')}</code>)"
             ),
         )
     else:
@@ -577,10 +571,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
             lines,
             "Топ нод:",
             top_nodes,
-            lambda row: (
-                f"<code>{html.escape(row['node_name'] or '—')}</code>",
-                html.escape(subscription_label(row["subscription"])),
-            ),
+            lambda row: f"<code>{html.escape(row['node_name'] or '—')}</code>",
         )
     if not config.vpn_monitor_enabled:
         lines.append("")

@@ -50,10 +50,13 @@ def _count_ge(values: list[int], threshold: int | None) -> int:
 def _apply_vpn_tail_stats(items: list[dict[str, Any]], grouped: dict[Any, list[int]], key) -> None:
     for item in items:
         values = sorted(grouped.get(key(item), []))
+        p95_ms = _latency_percentile(values, 0.95)
         p99_ms = _latency_percentile(values, 0.99)
         p99_9_ms = _latency_percentile(values, 0.999)
+        item["p95_ms"] = p95_ms
         item["p99_ms"] = p99_ms
         item["p99_9_ms"] = p99_9_ms
+        item["p95_count"] = _count_ge(values, p95_ms)
         item["p99_count"] = _count_ge(values, p99_ms)
         item["p99_9_count"] = _count_ge(values, p99_9_ms)
 
@@ -1305,7 +1308,7 @@ class Repo:
         )
         return row["latency_ms"] if row else None
 
-    async def vpn_top_nodes(self, start: str, end: str, limit: int = 8) -> list[dict[str, Any]]:
+    async def vpn_top_nodes(self, start: str, end: str, limit: int = 5) -> list[dict[str, Any]]:
         rows = await self.fetchall(
             """
             SELECT
@@ -1349,7 +1352,7 @@ class Repo:
         _apply_vpn_tail_stats(result, grouped, lambda item: (item["node_name"], item["subscription"]))
         return result
 
-    async def vpn_top_subscriptions(self, start: str, end: str, limit: int = 8) -> list[dict[str, Any]]:
+    async def vpn_top_subscriptions(self, start: str, end: str, limit: int = 5) -> list[dict[str, Any]]:
         rows = await self.fetchall(
             """
             SELECT
