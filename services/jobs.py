@@ -75,7 +75,8 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
             max_instances=1,
             coalesce=True,
             misfire_grace_time=max(1, config.vpn_monitor_interval_seconds - 1),
-            next_run_time=datetime.now(timezone.utc),
+            next_run_time=datetime.now(timezone.utc)
+            + timedelta(seconds=max(5, config.vpn_monitor_interval_seconds)),
         )
         logger.info(
             "VPN monitor enabled interval=%ss group=%s",

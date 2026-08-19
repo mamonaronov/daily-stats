@@ -11,6 +11,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -33,6 +34,9 @@ from utils.uptime import mark_bot_started
 
 logger = logging.getLogger("bot")
 
+_POLLING_RETRY_INITIAL = 2.0
+_POLLING_RETRY_MAX = 30.0
+
 
 def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
     if not proxy_url:
@@ -46,6 +50,33 @@ def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
         ) from exc
     logger.info("telegram_proxy_enabled")
     return session
+
+
+async def _start_polling_with_retry(
+    dp: Dispatcher,
+    bot: Bot,
+    stop: asyncio.Event,
+    *,
+    initial_delay: float = _POLLING_RETRY_INITIAL,
+    max_delay: float = _POLLING_RETRY_MAX,
+) -> None:
+    """Retry the initial Telegram handshake; a SOCKS TLS reset must not kill the process."""
+    delay = initial_delay
+    while not stop.is_set():
+        try:
+            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            return
+        except TelegramNetworkError as exc:
+            logger.warning("Telegram network error, retry in %.0fs: %s", delay, exc)
+            try:
+                await bot.session.close()
+            except Exception:
+                logger.exception("Failed to reset bot session after network error")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=delay)
+                return
+            except asyncio.TimeoutError:
+                delay = min(delay * 2, max_delay)
 
 
 async def _on_error(event, bot: Bot, config) -> None:
@@ -144,8 +175,10 @@ async def run() -> None:
         await notify_owner(bot, config, format_alert("scheduler", "Ошибка запуска задач", exc=exc))
 
     loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
 
     def _ask_stop() -> None:
+        stop.set()
         loop.create_task(dp.stop_polling())
 
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -156,7 +189,7 @@ async def run() -> None:
 
     logger.info("Polling started")
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await _start_polling_with_retry(dp, bot, stop)
     finally:
         await graceful_shutdown(bot, db, scheduler, config)
 

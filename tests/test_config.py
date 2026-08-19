@@ -41,3 +41,4 @@ def test_bot_session_socks5():
     session = _bot_session("socks5://127.0.0.1:11808")
     assert isinstance(session, AiohttpSession)
     assert session.proxy is not None
+    assert session.proxy == "socks5://127.0.0.1:11808"

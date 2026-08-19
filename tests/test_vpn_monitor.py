@@ -324,6 +324,23 @@ def test_vpn_monitor_config_from_env(monkeypatch):
     assert cfg.vpn_log_keep_days == 31
 
 
+def test_vpn_monitor_job_is_not_scheduled_immediately(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    from services.jobs import setup_scheduler
+    from tests.conftest import make_config
+
+    before = datetime.now(timezone.utc)
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    setup_scheduler(scheduler, bot=object(), repo=object(), db=object(), config=make_config(tmp_path))
+    job = scheduler.get_job("vpn_monitor")
+    assert job is not None
+    assert job.next_run_time is not None
+    assert job.next_run_time >= before + timedelta(seconds=5)
+
+
 def test_admin_vpn_kb_callback_limit():
     from keyboards.main import admin_vpn_kb
 
