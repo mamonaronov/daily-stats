@@ -12,9 +12,9 @@
 # Add a subscription: duplicate a subN block, set unique name / url / path / prefix.
 # AUTO already includes every provider — do not edit proxy-groups.
 #
-# ~500 nodes: probes every 10 minutes. First download uses DIRECT; if the
-# subscription URL is blocked, save the YAML into path: once, later refreshes
-# can use proxy: AUTO.
+# ~500 nodes: url-test every 2 minutes, switch if another node is >=50ms faster.
+# First download uses DIRECT; if the subscription URL is blocked, save the YAML
+# into path: once, later refreshes can use proxy: AUTO.
 
 mixed-port: 10808
 bind-address: 127.0.0.1
@@ -24,7 +24,7 @@ log-level: info
 ipv6: false
 unified-delay: true
 tcp-concurrent: true
-keep-alive-interval: 30
+keep-alive-interval: 15
 find-process-mode: off
 geodata-mode: false
 geo-auto-update: false
@@ -66,7 +66,7 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 600
+      interval: 120
       timeout: 4000
       lazy: false
       expected-status: 204
@@ -90,7 +90,7 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 600
+      interval: 120
       timeout: 4000
       lazy: false
       expected-status: 204
@@ -114,7 +114,7 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 600
+      interval: 120
       timeout: 4000
       lazy: false
       expected-status: 204
@@ -138,7 +138,7 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 600
+      interval: 120
       timeout: 4000
       lazy: false
       expected-status: 204
@@ -162,7 +162,7 @@ proxy-providers:
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
-      interval: 600
+      interval: 120
       timeout: 4000
       lazy: false
       expected-status: 204
@@ -248,30 +248,29 @@ proxy-groups:
     type: url-test
     include-all-providers: true
     url: https://www.gstatic.com/generate_204
-    interval: 600
+    interval: 120
     timeout: 4000
-    tolerance: 150
+    tolerance: 50
     lazy: false
     max-failed-times: 3
     expected-status: 204
     exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
-  - name: FALLBACK
-    type: fallback
-    include-all-providers: true
-    url: https://www.gstatic.com/generate_204
-    interval: 600
-    timeout: 4000
-    lazy: false
-    max-failed-times: 3
-    expected-status: 204
-    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+  # - name: FALLBACK
+  #   type: fallback
+  #   include-all-providers: true
+  #   url: https://www.gstatic.com/generate_204
+  #   interval: 600
+  #   timeout: 4000
+  #   lazy: false
+  #   max-failed-times: 3
+  #   expected-status: 204
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
   - name: PROXY
     type: select
     proxies:
       - AUTO
-      - FALLBACK
       - DIRECT
 
 rules:
