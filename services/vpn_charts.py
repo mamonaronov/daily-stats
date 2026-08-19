@@ -15,7 +15,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import hsv_to_rgb
 from matplotlib.dates import DateFormatter
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.ticker import FixedLocator
 
 from database.models import VpnLatencySample
 from database.queries import Repo
@@ -32,9 +34,38 @@ _BG = "#111318"
 _FG = "#e8eaed"
 _GRID = "#3a3f4b"
 _AXIS = "#8b919a"
-_CHART_DPI = 360
+_CHART_DPI = 620
+_DIST_DPI = 800
+_MAX_PNG_BYTES = 1_000_000
 _DEFAULT_STEP = timedelta(seconds=10)
 _GAP_FACTOR = 3.0
+_CURVE_STEPS = 20
+_AVG_LINE = "#e879f9"
+_PING_CEILINGS = (50.0, 100.0, 200.0, 500.0, 1000.0)
+_PING_MAJORS = (
+    0.0,
+    10.0,
+    25.0,
+    50.0,
+    75.0,
+    100.0,
+    150.0,
+    200.0,
+    250.0,
+    300.0,
+    400.0,
+    500.0,
+    750.0,
+    1000.0,
+)
+_PING_MINOR_STEPS = (
+    (50.0, 5.0),
+    (100.0, 10.0),
+    (200.0, 25.0),
+    (500.0, 50.0),
+    (1000.0, 100.0),
+    (float("inf"), 1000.0),
+)
 # Safe hue arc: green → cyan → blue → violet. Avoids red / orange / yellow signals.
 _HUE_LO = 0.36
 _HUE_HI = 0.80
@@ -215,20 +246,218 @@ def downsample_timeline(points: list[TimelinePoint], max_ok: int = _MAX_TIMELINE
     return [points[i] for i in keep]
 
 
-def _png(fig) -> bytes:
+def _densify_curve(
+    xs: list[float],
+    ys: list[float],
+    steps: int = _CURVE_STEPS,
+    *,
+    lerp_x: bool = False,
+) -> tuple[list[float], list[float]]:
+    """Catmull-Rom interpolation so polylines read as round curves, not corners."""
+    n = len(xs)
+    if n < 3 or steps < 2:
+        return xs, ys
+    out_x: list[float] = []
+    out_y: list[float] = []
+    for i in range(n - 1):
+        p0x, p0y = (xs[i - 1], ys[i - 1]) if i > 0 else (xs[i], ys[i])
+        p1x, p1y = xs[i], ys[i]
+        p2x, p2y = xs[i + 1], ys[i + 1]
+        p3x, p3y = (xs[i + 2], ys[i + 2]) if i + 2 < n else (xs[i + 1], ys[i + 1])
+        count = steps + 1 if i == n - 2 else steps
+        for s in range(count):
+            t = s / steps
+            t2 = t * t
+            t3 = t2 * t
+            if lerp_x:
+                x = p1x + (p2x - p1x) * t
+            else:
+                x = 0.5 * (
+                    (2.0 * p1x)
+                    + (-p0x + p2x) * t
+                    + (2.0 * p0x - 5.0 * p1x + 4.0 * p2x - p3x) * t2
+                    + (-p0x + 3.0 * p1x - 3.0 * p2x + p3x) * t3
+                )
+            y = 0.5 * (
+                (2.0 * p1y)
+                + (-p0y + p2y) * t
+                + (2.0 * p0y - 5.0 * p1y + 4.0 * p2y - p3y) * t2
+                + (-p0y + 3.0 * p1y - 3.0 * p2y + p3y) * t3
+            )
+            out_x.append(x)
+            out_y.append(max(0.0, y))
+    return out_x, out_y
+
+
+def _chaikin(xs: list[float], ys: list[float], iterations: int = 4) -> tuple[list[float], list[float]]:
+    """Corner-cutting: turns a polyline into a strongly rounded curve."""
+    if len(xs) < 3 or iterations <= 0:
+        return xs, ys
+    for _ in range(iterations):
+        nx = [xs[0]]
+        ny = [ys[0]]
+        for i in range(len(xs) - 1):
+            nx.append(0.75 * xs[i] + 0.25 * xs[i + 1])
+            ny.append(0.75 * ys[i] + 0.25 * ys[i + 1])
+            nx.append(0.25 * xs[i] + 0.75 * xs[i + 1])
+            ny.append(0.25 * ys[i] + 0.75 * ys[i + 1])
+        nx.append(xs[-1])
+        ny.append(ys[-1])
+        xs, ys = nx, ny
+    return xs, [max(0.0, y) for y in ys]
+
+
+def _curve_times(times: list[datetime], values: list[float], steps: int = _CURVE_STEPS) -> tuple[list[datetime], list[float]]:
+    if len(times) < 3:
+        return times, values
+    tz = times[0].tzinfo
+    xs, ys = _chaikin([item.timestamp() for item in times], values, iterations=4)
+    return [datetime.fromtimestamp(x, tz=tz) for x in xs], ys
+
+
+def _finite_ping_segments(points: list[TimelinePoint], gap: timedelta) -> list[list[TimelinePoint]]:
+    segments: list[list[TimelinePoint]] = []
+    current: list[TimelinePoint] = []
+    for point in points:
+        if math.isnan(point.ping_ms):
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        if current and point.time - current[-1].time > gap:
+            segments.append(current)
+            current = []
+        current.append(point)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def smooth_ping_series(times: list[datetime], values: list[float]) -> list[float]:
+    """Median then Gaussian-in-time: follows typical ping, not spikes."""
+    n = len(values)
+    if n == 0:
+        return []
+    if n < 5:
+        return list(values)
+    span = max((times[-1] - times[0]).total_seconds(), 1.0)
+    sigma = min(20 * 60.0, max(30.0, span * 0.045))
+    ts = [item.timestamp() for item in times]
+    med_half = sigma * 0.7
+    robust: list[float] = []
+    start = 0
+    for i, t0 in enumerate(ts):
+        while start < n and ts[start] < t0 - med_half:
+            start += 1
+        end = i
+        while end < n and ts[end] <= t0 + med_half:
+            end += 1
+        window = values[start:end]
+        window.sort()
+        robust.append(window[len(window) // 2] if window else values[i])
+    out: list[float] = []
+    start = 0
+    limit = 3.0 * sigma
+    for i, t0 in enumerate(ts):
+        while start < n and ts[start] < t0 - limit:
+            start += 1
+        acc = 0.0
+        wsum = 0.0
+        for j in range(start, n):
+            delta = ts[j] - t0
+            if delta > limit:
+                break
+            weight = math.exp(-0.5 * (delta / sigma) ** 2)
+            acc += robust[j] * weight
+            wsum += weight
+        out.append(acc / wsum if wsum else robust[i])
+    return out
+
+
+def nice_ping_ymax(raw: float) -> float:
+    """Snap the Y top to 50/100/200/500/1000, then every 1000 ms above that."""
+    raw = max(float(raw), 50.0)
+    for cap in _PING_CEILINGS:
+        if raw <= cap + 1e-6:
+            return cap
+    return float(math.ceil(raw / 1000.0) * 1000.0)
+
+
+def ping_y_ticks(ymax: float) -> tuple[list[float], list[float]]:
+    """Labeled familiar ping values; above 1000 ms majors are every 1000."""
+    ymax = nice_ping_ymax(ymax)
+    skip: set[float] = set()
+    if ymax > 200:
+        skip.update({10.0, 75.0, 150.0, 250.0, 300.0, 400.0, 750.0})
+    if ymax > 500:
+        skip.add(25.0)
+    majors = [tick for tick in _PING_MAJORS if tick <= min(ymax, 1000.0) + 1e-6 and tick not in skip]
+    extra = 2000.0
+    while extra <= ymax + 1e-6:
+        majors.append(extra)
+        extra += 1000.0
+    if ymax not in {round(v, 6) for v in majors}:
+        majors.append(ymax)
+        majors.sort()
+    major_set = {round(v, 6) for v in majors}
+
+    minors = [0.0]
+    y = 0.0
+    idx = 0
+    while y < ymax - 1e-9:
+        while idx < len(_PING_MINOR_STEPS) - 1 and y >= _PING_MINOR_STEPS[idx][0]:
+            idx += 1
+        y = round(y + _PING_MINOR_STEPS[idx][1], 6)
+        if y <= ymax + 1e-6 and round(y, 6) not in major_set:
+            minors.append(y)
+        elif y > ymax + 1e-6:
+            break
+    minors = [tick for tick in minors if round(tick, 6) not in major_set]
+    return majors, minors
+
+
+def _fit_png(data: bytes, max_bytes: int = _MAX_PNG_BYTES) -> bytes:
+    if len(data) <= max_bytes:
+        return data
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(data))
+    if image.mode not in {"RGB", "RGBA"}:
+        image = image.convert("RGB")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG", optimize=True, compress_level=9)
+    blob = buf.getvalue()
+    if len(blob) <= max_bytes:
+        return blob
+    scale = min(0.98, math.sqrt(max_bytes / max(len(blob), 1)) * 0.99)
+    for _ in range(8):
+        width = max(64, int(image.width * scale))
+        height = max(64, int(image.height * scale))
+        buf = io.BytesIO()
+        image.resize((width, height), Image.Resampling.LANCZOS).save(
+            buf, format="PNG", optimize=True, compress_level=9
+        )
+        blob = buf.getvalue()
+        if len(blob) <= max_bytes:
+            return blob
+        scale *= math.sqrt(max_bytes / max(len(blob), 1)) * 0.98
+    return blob
+
+
+def _png(fig, *, dpi: int = _CHART_DPI) -> bytes:
     buf = io.BytesIO()
     fig.savefig(
         buf,
         format="png",
-        dpi=_CHART_DPI,
+        dpi=dpi,
         bbox_inches="tight",
         pad_inches=0.28,
         facecolor=fig.get_facecolor(),
         edgecolor="none",
+        pil_kwargs={"compress_level": 9},
     )
     plt.close(fig)
-    buf.seek(0)
-    return buf.read()
+    return _fit_png(buf.getvalue())
 
 
 def _apply_dark(fig, *axes) -> None:
@@ -296,18 +525,18 @@ def _smooth_density_curve(values: list[int]) -> tuple[list[float], list[float]]:
     if hi <= lo:
         return [lo - 2.0, lo, lo + 2.0], [0.0, float(n), 0.0]
     unique = len(set(values))
-    n_bins = min(72, max(16, unique * 2 if unique < 40 else int(math.sqrt(n) * 2)))
+    n_bins = min(96, max(20, unique * 2 if unique < 40 else int(math.sqrt(n) * 2)))
     span = hi - lo
     pad = max(span * 0.12, 1.0)
     xmin, xmax = lo - pad, hi + pad
-    n_full = max(n_bins + 8, 24)
+    n_full = max(n_bins * 12, 420)
     width = (xmax - xmin) / n_full
     counts = [0.0] * n_full
     for value in values:
         idx = min(n_full - 1, max(0, int((float(value) - xmin) / width)))
         counts[idx] += 1.0
-    sigma = 1.6
-    radius = 6
+    sigma = 5.2
+    radius = 18
     kernel = [math.exp(-0.5 * (i / sigma) ** 2) for i in range(-radius, radius + 1)]
     ksum = sum(kernel) or 1.0
     kernel = [k / ksum for k in kernel]
@@ -320,6 +549,7 @@ def _smooth_density_curve(values: list[int]) -> tuple[list[float], list[float]]:
                 acc += counts[src] * weight
         smooth[i] = acc
     xs = [xmin + width * (i + 0.5) for i in range(n_full)]
+    xs, smooth = _densify_curve(xs, smooth, steps=8)
     return xs, smooth
 
 
@@ -360,7 +590,7 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     fig, ax = plt.subplots(figsize=(16.0, 8.0))
     _apply_dark(fig, ax)
     ax.fill_between(xs, ys, color="#3b82f6", alpha=0.32, linewidth=0, zorder=1)
-    ax.plot(xs, ys, color="#7dd3fc", linewidth=2.8, zorder=2)
+    ax.plot(xs, ys, color="#7dd3fc", linewidth=3.0, solid_capstyle="round", zorder=2)
     markers = (
         (stats.mean, "#60a5fa", "-", f"среднее {stats.mean:.0f} мс"),
         (stats.median, "#4ade80", "--", f"медиана {stats.median:.0f} мс"),
@@ -373,7 +603,7 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     ax.set_title(f"Распределение пинга · среднее / медиана / мода · {period_title}")
     ax.set_ylim(bottom=0)
     _style_legend(ax.legend(loc="upper right", fontsize=10))
-    return _png(fig)
+    return _png(fig, dpi=_DIST_DPI)
 
 
 def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, color_by_sub: bool) -> bytes:
@@ -394,17 +624,76 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
             alpha = 0.50
         ax.axvspan(start, end, color=color, alpha=alpha, linewidth=0, zorder=1)
 
-    xs = [point.time for point in points]
-    ys = [point.ping_ms for point in points]
-    ax.plot(xs, ys, color="#e2e8f0", linewidth=1.55, alpha=0.95, zorder=3)
+    gap = step * _GAP_FACTOR
+    ping_handles: list = []
+    for segment in _finite_ping_segments(points, gap):
+        xs = [point.time for point in segment]
+        ys = [point.ping_ms for point in segment]
+        if len(segment) >= 3:
+            xs, ys = _curve_times(xs, ys)
+        line = ax.plot(
+            xs,
+            ys,
+            color="#e2e8f0",
+            linewidth=1.85,
+            alpha=0.92,
+            zorder=3,
+            solid_capstyle="round",
+            solid_joinstyle="round",
+        )[0]
+        if not ping_handles:
+            ping_handles.append(line)
+
+    finite = [point for point in points if not math.isnan(point.ping_ms)]
+    avg_handle = None
+    if len(finite) >= 2:
+        avg_times = [point.time for point in finite]
+        avg_values = smooth_ping_series(avg_times, [point.ping_ms for point in finite])
+
+        def _plot_avg(seg_t: list[datetime], seg_y: list[float]):
+            nonlocal avg_handle
+            if len(seg_t) < 2:
+                return
+            if len(seg_t) >= 3:
+                seg_t, seg_y = _curve_times(seg_t, seg_y, steps=12)
+            handle = ax.plot(
+                seg_t,
+                seg_y,
+                color=_AVG_LINE,
+                linewidth=2.7,
+                alpha=0.95,
+                zorder=5,
+                solid_capstyle="round",
+            )[0]
+            if avg_handle is None:
+                avg_handle = handle
+
+        split_t: list[datetime] = []
+        split_y: list[float] = []
+        prev_t: datetime | None = None
+        for time, value in zip(avg_times, avg_values):
+            if prev_t is not None and time - prev_t > gap:
+                _plot_avg(split_t, split_y)
+                split_t, split_y = [], []
+            split_t.append(time)
+            split_y.append(value)
+            prev_t = time
+        _plot_avg(split_t, split_y)
 
     ping_fail_x = [point.time for point in points if point.signal == SIGNAL_NO_PING]
     if ping_fail_x:
         ax.scatter(ping_fail_x, [0] * len(ping_fail_x), marker="|", s=110, color=_SIGNAL_COLORS[SIGNAL_NO_PING], zorder=4)
 
     ping_values = [point.ping_ms for point in points if not math.isnan(point.ping_ms)]
-    ymax = max(ping_values) * 1.12 if ping_values else 100.0
-    ax.set_ylim(bottom=0, top=max(ymax, 50))
+    ymax = nice_ping_ymax(max(ping_values) if ping_values else 80.0)
+    majors, minors = ping_y_ticks(ymax)
+    ax.set_ylim(bottom=0, top=ymax)
+    ax.yaxis.set_major_locator(FixedLocator(majors))
+    ax.yaxis.set_minor_locator(FixedLocator(minors))
+    ax.tick_params(axis="y", which="major", length=6)
+    ax.tick_params(axis="y", which="minor", length=3.4, colors=_AXIS)
+    ax.grid(True, axis="y", which="major", color=_GRID, alpha=0.75)
+    ax.grid(True, axis="y", which="minor", color=_GRID, alpha=0.28, linewidth=0.55)
     span = (points[-1].time - points[0].time).total_seconds() if len(points) > 1 else 0
     ax.xaxis.set_major_formatter(_time_formatter(span))
     ax.set_ylabel("Пинг, мс")
@@ -424,6 +713,14 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
                     label=_SIGNAL_LABELS[signal],
                 )
             )
+    if ping_handles:
+        ping_handles[0].set_label("пинг")
+        handles.append(ping_handles[0])
+    if avg_handle is not None:
+        avg_handle.set_label("сглаженный пинг")
+        handles.append(avg_handle)
+    elif len(finite) >= 2:
+        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=2.7, label="сглаженный пинг"))
     if handles:
         _style_legend(
             ax.legend(

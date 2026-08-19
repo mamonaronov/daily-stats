@@ -467,7 +467,66 @@ def test_render_vpn_charts_png_and_down_only():
     assert "Пинг по времени" in only_time[0][0]
     assert only_time[0][1].startswith(b"\x89PNG")
     width, _height = _png_size(only_time[0][1])
-    assert width >= 3500
+    assert width >= 6000
+    for _caption, png in charts + only_time:
+        assert len(png) <= 1_000_000
+
+
+def test_ping_y_ticks_familiar_values():
+    from services.vpn_charts import nice_ping_ymax, ping_y_ticks
+
+    assert nice_ping_ymax(80) == 100
+    assert nice_ping_ymax(340) == 500
+    assert nice_ping_ymax(510) == 1000
+    assert nice_ping_ymax(1001) == 2000
+    assert nice_ping_ymax(2300) == 3000
+    assert nice_ping_ymax(3000) == 3000
+    majors, minors = ping_y_ticks(340)
+    for mark in (0, 50, 100, 200, 500):
+        assert mark in majors
+    assert 10 in minors or 10 in majors
+    assert 25 in minors or 25 in majors
+    highs = [tick for tick in majors if tick >= 100]
+    lows = [tick for tick in minors if tick <= 50]
+    assert lows
+    assert highs[1] - highs[0] >= 50
+    high = [tick for tick in ping_y_ticks(2300)[0] if tick >= 1000]
+    assert high == [1000, 2000, 3000]
+    majors, minors = ping_y_ticks(340)
+    for mark in (0, 50, 100, 200, 500):
+        assert mark in majors
+    assert 10 in minors or 10 in majors
+    assert 25 in minors or 25 in majors
+    highs = [tick for tick in majors if tick >= 100]
+    lows = [tick for tick in minors if tick <= 50]
+    assert lows
+    assert highs[1] - highs[0] >= 50
+
+
+def test_smooth_ping_series_ignores_spikes():
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import smooth_ping_series
+
+    start = datetime(2026, 8, 19, 10, tzinfo=timezone.utc)
+    times = [start + timedelta(seconds=10 * i) for i in range(80)]
+    values = [80.0] * 80
+    values[40] = 800.0
+    smooth = smooth_ping_series(times, values)
+    assert max(smooth) < 200
+    assert 70 <= smooth[40] <= 120
+
+
+def test_densify_curve_rounds_corners():
+    from services.vpn_charts import _chaikin, _densify_curve
+
+    xs, ys = _densify_curve([0.0, 1.0, 2.0], [0.0, 10.0, 0.0], steps=10)
+    assert len(xs) > 10
+    assert any(3.0 < y < 9.5 for y in ys)
+    cx, cy = _chaikin([0.0, 1.0, 2.0], [0.0, 10.0, 0.0], iterations=3)
+    assert len(cx) > 6
+    peak = max(cy)
+    assert 6.0 < peak < 10.0
 
 
 def _png_size(data: bytes) -> tuple[int, int]:
