@@ -1,9 +1,8 @@
-# Copy to /etc/systemd/system/daily-stats.service
+# Installed by ./deploy.sh (WorkingDirectory is rewritten to the repo path).
+# Manual:
 #   sudo cp deploy/daily-stats.service /etc/systemd/system/daily-stats.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now daily-stats.service
-#
-# Edit WorkingDirectory if the repo lives elsewhere.
 
 [Unit]
 Description=Daily Stats Telegram bot

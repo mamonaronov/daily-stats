@@ -86,10 +86,22 @@ Telegram  →  aiogram Dispatcher  →  handlers  →  services  →  SQLite (ai
 
 ## Быстрый запуск
 
+На машине с Docker, systemd и mihomo достаточно применить конфиги из репозитория:
+
 ```bash
 cp .env.example .env
 # Заполните BOT_TOKEN, OWNER_TELEGRAM_ID, OWNER_CONTACT
 
+chmod +x deploy.sh
+./deploy.sh
+docker compose logs -f bot
+```
+
+`./deploy.sh` ставит mihomo (`11808` / `19090`), systemd-юниты, `docker-compose.override.yml` и поднимает контейнер. Пакет: `yay -S mihomo`. Нужен sudo.
+
+Вручную, без скрипта:
+
+```bash
 mkdir -p data backups
 # Если контейнер не может писать в volume:
 # sudo chown -R 1000:1000 data backups
@@ -118,10 +130,23 @@ docker compose down        # контейнер останавливается, 
 
 ## Прокси (блокировки Telegram)
 
-Если Telegram недоступен с сервера, нужны **два** уровня обхода: SOCKS5 для Telegram API (aiogram) и HTTP(S)-прокси для остального исходящего трафика контейнера.
+Если Telegram недоступен с сервера, бот ходит через **отдельный** mihomo на хосте, а не через личный v2rayN.
 
-1. Запустите v2rayN / Xray на хосте. Обычно SOCKS слушает `10808`, HTTP — `10808` (mixed) или `10809`.
-2. Сгенерируйте override: скрипт сам находит порты и пишет `docker-compose.override.yml`.
+Порты специально разведены, чтобы оба клиента могли работать одновременно:
+
+| Клиент | Назначение | Порты |
+|---|---|---|
+| v2rayN | ваш трафик | SOCKS/HTTP `10808` / `10809` |
+| mihomo | только бот | mixed `11808`, API `19090` |
+
+1. Порты берутся из `deploy/mihomo/config.yaml`, а не с `10808` v2rayN.
+2. Примените всё сразу:
+
+```bash
+./deploy.sh
+```
+
+Только override (без systemd/mihomo):
 
 ```bash
 chmod +x generate-docker-override.sh
@@ -136,19 +161,19 @@ services:
   bot:
     network_mode: host
     environment:
-      HTTP_PROXY: http://127.0.0.1:10808
-      HTTPS_PROXY: http://127.0.0.1:10808
+      HTTP_PROXY: http://127.0.0.1:11808
+      HTTPS_PROXY: http://127.0.0.1:11808
       NO_PROXY: localhost,127.0.0.1
-      ALL_PROXY: socks5://127.0.0.1:10808
-      TELEGRAM_PROXY_URL: socks5://127.0.0.1:10808
+      ALL_PROXY: socks5://127.0.0.1:11808
+      TELEGRAM_PROXY_URL: socks5://127.0.0.1:11808
 ```
 
-`network_mode: host` нужен, чтобы `127.0.0.1:10808` внутри контейнера был тем же портом, что слушает Xray на машине. Файл override не коммитится.
+`network_mode: host` нужен, чтобы `127.0.0.1:11808` внутри контейнера был тем же портом, что слушает mihomo на машине. Файл override не коммитится.
 
 Проверка:
 
 ```bash
-curl -s --max-time 5 -x "socks5://127.0.0.1:10808" https://api.telegram.org
+curl -s --max-time 5 -x "socks5://127.0.0.1:11808" https://api.telegram.org
 docker compose logs -f | grep telegram_proxy
 ```
 
@@ -179,7 +204,7 @@ docker compose logs -f | grep telegram_proxy
 | `BILLING_CHECK_MINUTES` | нет | `15` | Интервал проверки ежедневных списаний |
 | `REMINDER_CHECK_MINUTES` | нет | `1` | Интервал проверки напоминаний |
 | `LOG_LEVEL` | нет | `INFO` | Уровень JSON-логов |
-| `TELEGRAM_PROXY_URL` | нет | пусто | SOCKS5 для Telegram API, например `socks5://127.0.0.1:10808`. Пусто, если Telegram доступен напрямую |
+| `TELEGRAM_PROXY_URL` | нет | пусто | SOCKS5 для Telegram API, например `socks5://127.0.0.1:11808` (mihomo). Пусто, если Telegram доступен напрямую |
 
 Секреты в исходный код не зашиваются. В логи не пишутся токен и похожие строки.
 
@@ -243,6 +268,13 @@ Docker-логи ограничены: `max-size: 10m`, `max-file: 5`.
 1. Убедитесь, что есть свежий backup в `./backups` (или остановите бота — shutdown сам сделает копию).
 2. На сервер положите новый код / загрузите image.
 3. Соберите и перезапустите, **тот же volume** `./data`:
+
+```bash
+./deploy.sh
+docker compose logs -f bot
+```
+
+Или вручную:
 
 ```bash
 docker compose stop bot
@@ -393,7 +425,8 @@ docker compose logs -f bot
 ```text
 bot.py                 точка входа, один Bot(), polling, shutdown-backup
 config.py              окружение, REQUIRED_DB_VERSION, TELEGRAM_PROXY_URL
-generate-docker-override.sh  host-network + HTTP(S)_PROXY + TELEGRAM_PROXY_URL
+deploy.sh              применяет mihomo, systemd, override и поднимает бота
+generate-docker-override.sh  host-network + HTTP(S)_PROXY из mihomo config.yaml
 handlers/              Telegram-сценарии (FSM, inline-кнопки)
 services/              биллинг, статистика, графики, напоминания, записи
 database/              WAL, миграции, backup, параметризованный Repo

@@ -1,13 +1,12 @@
 # Mihomo (Clash Meta) — headless client for Daily Stats bot.
-# Copy to /etc/mihomo/config.yaml. Mixed port 10808 matches docker-compose.override.yml.
+# Copy to /etc/mihomo/config.yaml.
+# Ports are offset from v2rayN defaults so both can run on the same host:
+#   v2rayN  SOCKS/HTTP  10808 / 10809
+#   mihomo  mixed       11808
+#   mihomo  API         19090
 #
-# Install (Arch):
-#   yay -S mihomo
-#   sudo mkdir -p /etc/mihomo/providers
-#   sudo cp deploy/mihomo/config.yaml /etc/mihomo/config.yaml
-#   sudo cp deploy/mihomo/mihomo.service /etc/systemd/system/mihomo.service
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now mihomo
+# Apply (preferred): ./deploy.sh
+# Install mihomo once (Arch): yay -S mihomo
 #
 # Add a subscription: duplicate a subN block, set unique name / url / path / prefix.
 # AUTO already includes every provider — do not edit proxy-groups.
@@ -16,7 +15,7 @@
 # First download uses DIRECT; if the subscription URL is blocked, save the YAML
 # into path: once, later refreshes can use proxy: AUTO.
 
-mixed-port: 10808
+mixed-port: 11808
 bind-address: 127.0.0.1
 allow-lan: false
 mode: rule
@@ -30,7 +29,7 @@ geodata-mode: false
 geo-auto-update: false
 global-client-fingerprint: chrome
 
-external-controller: 127.0.0.1:9090
+external-controller: 127.0.0.1:19090
 secret: "8176598712630598761082765412765789012506456781928765078960"
 
 profile:
