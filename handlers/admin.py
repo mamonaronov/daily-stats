@@ -479,13 +479,37 @@ def _bucket_line(label: str, count: int, measured: int, interval: int) -> str:
     return f"{label}: {seconds_human(count * interval)} ({pct})"
 
 
-async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None) -> str:
+def _vpn_top_item_lines(row: dict, title_html: str, note: str = "") -> list[str]:
+    fails = int(row["fail_count"] or 0)
+    fail_bit = f", ошибок {fails}" if fails else ""
+    tail = f" ({note}{fail_bit})" if note else fail_bit
+    return [
+        f"• {title_html} — {int(row['samples'])} раз, "
+        f"avg {_ms(row['avg_ms'])} мс, min {_ms(row['min_ms'])} / max {_ms(row['max_ms'])} мс{tail}",
+        f"  p99 {_ms(row['p99_ms'])} мс ({int(row['p99_count'])} зам.), "
+        f"p99.9 {_ms(row['p99_9_ms'])} мс ({int(row['p99_9_count'])} зам.)",
+    ]
+
+
+def _append_vpn_top(lines: list[str], heading: str, rows: list[dict], title_note) -> None:
+    if not rows:
+        return
+    lines.append("")
+    lines.append(heading)
+    for i, row in enumerate(rows):
+        if i:
+            lines.append("")
+        title_html, note = title_note(row)
+        lines.extend(_vpn_top_item_lines(row, title_html, note))
+
+
+async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, top: str = "n") -> str:
     delta, title = VPN_PERIODS.get(period_key, VPN_PERIODS["24h"])
     end = now or now_utc()
     start = end - delta
+    start_iso, end_iso = to_iso(start), to_iso(end)
     latest = await repo.latest_vpn_sample()
-    summary = await repo.vpn_latency_summary(to_iso(start), to_iso(end))
-    top = await repo.vpn_top_nodes(to_iso(start), to_iso(end), limit=5)
+    summary = await repo.vpn_latency_summary(start_iso, end_iso)
     live_now, live_err = await fetch_auto_now(config)
     live_node, live_sub = parse_node(live_now)
     interval = max(1, config.vpn_monitor_interval_seconds)
@@ -524,7 +548,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None) 
             f"Средняя: {_ms(summary['avg_ms'])} мс",
             f"Минимум: {_ms(summary['min_ms'])} мс",
             f"Максимум: {_ms(summary['max_ms'])} мс",
-            f"p95: {_ms(summary['p95_ms'])} мс",
+            _pct_line("p95", summary["p95_ms"], summary["p95_count"]),
             _pct_line("p99", summary["p99_ms"], summary["p99_count"]),
             _pct_line("p99.9", summary["p99_9_ms"], summary["p99_9_count"]),
             "",
@@ -535,31 +559,50 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None) 
             _bucket_line("&gt; 1 с", summary["ge_1000"], measured, interval),
         ]
     )
-    if top:
-        lines.append("")
-        lines.append("Топ нод:")
-        for i, row in enumerate(top):
-            if i:
-                lines.append("")
-            name = html.escape(row["node_name"] or "—")
-            sub = html.escape(subscription_label(row["subscription"]))
-            avg = _ms(row["avg_ms"])
-            min_ms = _ms(row["min_ms"])
-            max_ms = _ms(row["max_ms"])
-            fails = int(row["fail_count"] or 0)
-            fail_bit = f", ошибок {fails}" if fails else ""
-            lines.append(
-                f"• <code>{name}</code> — {int(row['samples'])} раз, "
-                f"avg {avg} мс, min {min_ms} / max {max_ms} мс ({sub}{fail_bit})"
-            )
-            lines.append(
-                f"  p99 {_ms(row['p99_ms'])} мс ({int(row['p99_count'])} зам.), "
-                f"p99.9 {_ms(row['p99_9_ms'])} мс ({int(row['p99_9_count'])} зам.)"
-            )
+    if top == "s":
+        top_subs = await repo.vpn_top_subscriptions(start_iso, end_iso, limit=5)
+        _append_vpn_top(
+            lines,
+            "Топ подписок:",
+            top_subs,
+            lambda row: (
+                f"{html.escape(subscription_label(row['subscription']))} "
+                f"(<code>{html.escape(row['subscription'] or '—')}</code>)",
+                "",
+            ),
+        )
+    else:
+        top_nodes = await repo.vpn_top_nodes(start_iso, end_iso, limit=5)
+        _append_vpn_top(
+            lines,
+            "Топ нод:",
+            top_nodes,
+            lambda row: (
+                f"<code>{html.escape(row['node_name'] or '—')}</code>",
+                html.escape(subscription_label(row["subscription"])),
+            ),
+        )
     if not config.vpn_monitor_enabled:
         lines.append("")
         lines.append("Монитор выключен (VPN_MONITOR_ENABLED=0).")
     return "\n".join(lines)
+
+
+def _vpn_period(period_key: str | None) -> tuple[str, timedelta, str]:
+    key = period_key if period_key in VPN_PERIODS else "24h"
+    delta, title = VPN_PERIODS[key]
+    return key, delta, title
+
+
+def _parse_vpn_view(data: str | None) -> tuple[str, str]:
+    period, top = "24h", "n"
+    if data and data.startswith("adv:"):
+        parts = data.split(":")
+        if len(parts) >= 2:
+            period = parts[1] if parts[1] in VPN_PERIODS else "24h"
+        if len(parts) >= 3 and parts[2] in {"n", "s"}:
+            top = parts[2]
+    return period, top
 
 
 @router.callback_query(F.data == "ad:vpn")
@@ -567,23 +610,29 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None) 
 async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
-    period = cb.data.split(":", 1)[1] if cb.data.startswith("adv:") else "24h"
-    if period not in VPN_PERIODS:
-        period = "24h"
-    now = now_utc()
-    delta, title = VPN_PERIODS[period]
-    start = now - delta
-    text = await _vpn_report(repo, config, period, now=now)
+    period, top = _parse_vpn_view(cb.data)
+    text = await _vpn_report(repo, config, period, top=top)
     await cb.answer()
-    await safe_edit(cb.message, text, admin_vpn_kb(period))
+    await safe_edit(cb.message, text, admin_vpn_kb(period, top))
+
+
+@router.callback_query(F.data.startswith("advc:"))
+async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    _period, delta, title = _vpn_period(cb.data.split(":", 1)[1] if cb.data else None)
+    await cb.answer("Строю графики")
     if cb.message is None:
         return
+    now = now_utc()
     try:
-        charts = await build_vpn_charts(repo, to_iso(start), to_iso(now), title)
+        charts = await build_vpn_charts(repo, to_iso(now - delta), to_iso(now), title)
     except Exception:
         logger.exception("VPN charts failed")
+        await safe_send(cb.message.answer, "Не удалось построить графики.")
         return
     if not charts:
+        await safe_send(cb.message.answer, "Нет данных для графиков.")
         return
     media = [
         InputMediaPhoto(media=png_file(png, f"vpn-{index}.png"), caption=caption[:1024])
@@ -592,29 +641,34 @@ async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     await safe_send(cb.message.answer_media_group, media)
 
 
+@router.callback_query(F.data.startswith("advl:"))
 @router.callback_query(F.data == "ad:vpnlog")
 async def admin_vpn_log(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
+    raw = cb.data.split(":", 1)[1] if cb.data and cb.data.startswith("advl:") else "24h"
+    period, delta, title = _vpn_period(raw)
     end = now_utc()
-    start = end - timedelta(hours=24)
+    start = end - delta
     start_iso, end_iso = to_iso(start), to_iso(end)
     db_samples = await repo.list_vpn_samples(start_iso, end_iso)
     payload = vpn_samples_as_dicts(db_samples)
     if not payload:
         payload = collect_vpn_log_entries(config.vpn_log_dir, start_iso, end_iso)
     if not payload:
-        await cb.answer("За последние сутки логов нет", show_alert=True)
+        await cb.answer(f"За {title} логов нет", show_alert=True)
         return
-    text = format_vpn_log(payload, start_iso, end_iso)
-    filename = f"vpn-24h-{end.strftime('%Y%m%d-%H%M')}.txt"
+    owner = await repo.get_user(config.owner_id)
+    tz_name = owner.timezone if owner and owner.timezone else config.default_timezone
+    text = format_vpn_log(payload, start_iso, end_iso, tz_name=tz_name)
+    filename = f"vpn-{period}-{end.strftime('%Y%m%d-%H%M')}.txt"
     await cb.answer("Отправляю файл")
     if cb.message is None:
         return
     sent = await safe_send(
         cb.message.answer_document,
         text_file(text, filename),
-        caption=f"VPN-логи за последние сутки · {len(payload)} записей",
+        caption=f"VPN-логи за {title} · {len(payload)} записей",
     )
     if sent is None:
-        await safe_edit(cb.message, "Не удалось отправить файл логов.", admin_vpn_kb())
+        await safe_edit(cb.message, "Не удалось отправить файл логов.", admin_vpn_kb(period))

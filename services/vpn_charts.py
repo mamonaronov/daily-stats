@@ -13,6 +13,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.colors import hsv_to_rgb
 from matplotlib.dates import DateFormatter
 from matplotlib.patches import Patch
 
@@ -27,7 +28,12 @@ plt.rcParams["axes.unicode_minus"] = False
 _MAX_TIMELINE_OK = 1800
 _MAX_TIMELINE_DOWN = 1500
 _MAX_LEGEND_NODES = 16
-_DOWN_COLOR = (0.82, 0.82, 0.82, 0.55)
+_DOWN_COLOR = (0.95, 0.16, 0.22, 1.0)
+_BG = "#111318"
+_FG = "#e8eaed"
+_GRID = "#3a3f4b"
+_AXIS = "#8b919a"
+_CHART_DPI = 220
 
 
 @dataclass(slots=True)
@@ -115,20 +121,81 @@ def downsample_timeline(points: list[TimelinePoint], max_ok: int = _MAX_TIMELINE
 
 def _png(fig) -> bytes:
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=_CHART_DPI, bbox_inches="tight", facecolor=fig.get_facecolor(), edgecolor="none")
     plt.close(fig)
     buf.seek(0)
     return buf.read()
 
 
+def _apply_dark(fig, *axes) -> None:
+    fig.patch.set_facecolor(_BG)
+    for ax in axes:
+        ax.set_facecolor(_BG)
+        ax.tick_params(colors=_FG, labelsize=9)
+        ax.xaxis.label.set_color(_FG)
+        ax.yaxis.label.set_color(_FG)
+        ax.title.set_color(_FG)
+        for spine in ax.spines.values():
+            spine.set_color(_AXIS)
+        ax.grid(True, axis="y", color=_GRID, alpha=0.75)
+
+
+def _style_legend(legend) -> None:
+    if legend is None:
+        return
+    frame = legend.get_frame()
+    frame.set_facecolor("#1c1f26")
+    frame.set_edgecolor(_GRID)
+    for text in legend.get_texts():
+        text.set_color(_FG)
+
+
 def _palette(keys: list[str]) -> dict[str, tuple]:
-    cmap = matplotlib.colormaps["tab20"]
-    n = 20
     colors: dict[str, tuple] = {}
-    for i, key in enumerate(keys):
-        colors[key] = cmap((i % n) / (n - 1))
+    i = 0
+    for key in keys:
+        if key == "выкл":
+            continue
+        hue = (i * 0.618033988749895) % 1.0
+        rgb = hsv_to_rgb((hue, 0.90, 0.98))
+        colors[key] = (float(rgb[0]), float(rgb[1]), float(rgb[2]))
+        i += 1
     colors["выкл"] = _DOWN_COLOR
     return colors
+
+
+def _smooth_density_curve(values: list[int]) -> tuple[list[float], list[float]]:
+    lo = float(min(values))
+    hi = float(max(values))
+    n = len(values)
+    if hi <= lo:
+        return [lo - 2.0, lo, lo + 2.0], [0.0, float(n), 0.0]
+    unique = len(set(values))
+    n_bins = min(72, max(16, unique * 2 if unique < 40 else int(math.sqrt(n) * 2)))
+    span = hi - lo
+    pad = max(span * 0.12, 1.0)
+    xmin, xmax = lo - pad, hi + pad
+    n_full = max(n_bins + 8, 24)
+    width = (xmax - xmin) / n_full
+    counts = [0.0] * n_full
+    for value in values:
+        idx = min(n_full - 1, max(0, int((float(value) - xmin) / width)))
+        counts[idx] += 1.0
+    sigma = 1.6
+    radius = 6
+    kernel = [math.exp(-0.5 * (i / sigma) ** 2) for i in range(-radius, radius + 1)]
+    ksum = sum(kernel) or 1.0
+    kernel = [k / ksum for k in kernel]
+    smooth = [0.0] * n_full
+    for i in range(n_full):
+        acc = 0.0
+        for j, weight in enumerate(kernel):
+            src = i + j - radius
+            if 0 <= src < n_full:
+                acc += counts[src] * weight
+        smooth[i] = acc
+    xs = [xmin + width * (i + 0.5) for i in range(n_full)]
+    return xs, smooth
 
 
 def _merged_spans(points: list[TimelinePoint]) -> list[tuple[datetime, datetime, str, bool]]:
@@ -167,64 +234,50 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     if stats is None:
         raise ValueError("no latencies")
     mode_note = " (~10 мс)" if stats.mode_binned else ""
-    fig, (ax_bar, ax_hist) = plt.subplots(2, 1, figsize=(8.5, 7.2), height_ratios=[1, 1.35])
-    labels = ["Среднее", "Медиана", f"Мода{mode_note}"]
-    heights = [stats.mean, stats.median, stats.mode]
-    bar_colors = ["#3b82f6", "#16a34a", "#ea580c"]
-    bars = ax_bar.bar(labels, heights, color=bar_colors, width=0.55)
-    ax_bar.set_ylabel("мс")
-    ax_bar.set_title(f"Среднее / медиана / мода · {period_title}")
-    ax_bar.grid(True, axis="y", alpha=0.3)
-    for bar, value in zip(bars, heights):
-        ax_bar.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height(),
-            f"{value:.0f} мс",
-            ha="center",
-            va="bottom",
-            fontsize=9,
-        )
-    bins = min(40, max(8, len(set(values))))
-    ax_hist.hist(values, bins=bins, color="#93c5fd", edgecolor="#1e3a5f", alpha=0.9)
-    ax_hist.axvline(stats.mean, color="#3b82f6", linewidth=2, label=f"среднее {stats.mean:.0f}")
-    ax_hist.axvline(stats.median, color="#16a34a", linewidth=2, linestyle="--", label=f"медиана {stats.median:.0f}")
-    ax_hist.axvline(
-        stats.mode,
-        color="#ea580c",
-        linewidth=2,
-        linestyle=":",
-        label=f"мода {stats.mode:.0f} ({stats.mode_count}×)",
+    xs, ys = _smooth_density_curve(values)
+    fig, ax = plt.subplots(figsize=(11.2, 6.2))
+    _apply_dark(fig, ax)
+    ax.fill_between(xs, ys, color="#3b82f6", alpha=0.32, linewidth=0, zorder=1)
+    ax.plot(xs, ys, color="#7dd3fc", linewidth=2.6, zorder=2)
+    markers = (
+        (stats.mean, "#60a5fa", "-", f"среднее {stats.mean:.0f} мс"),
+        (stats.median, "#4ade80", "--", f"медиана {stats.median:.0f} мс"),
+        (stats.mode, "#fb923c", ":", f"мода {stats.mode:.0f} мс ({stats.mode_count}×){mode_note}"),
     )
-    ax_hist.set_xlabel("Пинг, мс")
-    ax_hist.set_ylabel("замеров")
-    ax_hist.set_title("Распределение пинга")
-    ax_hist.grid(True, axis="y", alpha=0.3)
-    ax_hist.legend(loc="upper right", fontsize=8)
-    fig.tight_layout()
+    for x, color, style, label in markers:
+        ax.axvline(x, color=color, linewidth=2.2, linestyle=style, label=label, zorder=3)
+    ax.set_xlabel("Пинг, мс")
+    ax.set_ylabel("замеров")
+    ax.set_title(f"Распределение пинга · среднее / медиана / мода · {period_title}")
+    ax.set_ylim(bottom=0)
+    _style_legend(ax.legend(loc="upper right", fontsize=9))
     return _png(fig)
 
 
 def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, color_by_sub: bool) -> bytes:
-    fig, ax = plt.subplots(figsize=(10.5, 5.4))
+    fig, ax = plt.subplots(figsize=(12.4, 6.0))
+    _apply_dark(fig, ax)
     keys = []
     for point in points:
         if point.color_key not in keys:
             keys.append(point.color_key)
     colors = _palette(keys)
     for start, end, key, down in _merged_spans(points):
-        color = _DOWN_COLOR if down and key == "выкл" else colors.get(key, _DOWN_COLOR)
-        alpha = 0.18 if down else 0.10
-        ax.axvspan(start, end, color=color, alpha=alpha, linewidth=0)
         if down:
-            ax.axvspan(start, end, color="#ef4444", alpha=0.08, linewidth=0)
+            color = _DOWN_COLOR
+            alpha = 0.62
+        else:
+            color = colors.get(key, _DOWN_COLOR)
+            alpha = 0.50
+        ax.axvspan(start, end, color=color, alpha=alpha, linewidth=0, zorder=1)
 
     xs = [point.time for point in points]
     ys = [point.ping_ms for point in points]
-    ax.plot(xs, ys, color="#1f2937", linewidth=1.1, alpha=0.85, zorder=3)
+    ax.plot(xs, ys, color="#e2e8f0", linewidth=1.45, alpha=0.95, zorder=3)
 
     down_x = [point.time for point in points if point.down]
     if down_x:
-        ax.scatter(down_x, [0] * len(down_x), marker="|", s=70, color="#b91c1c", zorder=4, label="выкл (без пинга)")
+        ax.scatter(down_x, [0] * len(down_x), marker="|", s=90, color="#fb7185", zorder=4, label="выкл (без пинга)")
 
     ping_values = [point.ping_ms for point in points if not math.isnan(point.ping_ms)]
     ymax = max(ping_values) * 1.12 if ping_values else 100.0
@@ -235,13 +288,20 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
     ax.set_xlabel("Время (UTC)")
     color_note = "цвет фона — подписка" if color_by_sub else "цвет фона — сервер"
     ax.set_title(f"Пинг по времени · {period_title}\n{color_note}; выкл — время есть, пинга нет")
-    ax.grid(True, axis="y", alpha=0.3)
     legend_keys = [key for key in keys if key != "выкл"][:_MAX_LEGEND_NODES]
-    handles = [Patch(facecolor=colors[key], edgecolor="none", alpha=0.45, label=key) for key in legend_keys]
+    handles = [Patch(facecolor=colors[key], edgecolor="none", alpha=0.85, label=key) for key in legend_keys]
     if down_x:
-        handles.append(Patch(facecolor="#ef4444", edgecolor="none", alpha=0.35, label="выкл (без пинга)"))
+        handles.append(Patch(facecolor=_DOWN_COLOR, edgecolor="none", alpha=0.90, label="выкл (без пинга)"))
     if handles:
-        ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=min(3, len(handles)), fontsize=8)
+        _style_legend(
+            ax.legend(
+                handles=handles,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.22),
+                ncol=min(3, len(handles)),
+                fontsize=8,
+            )
+        )
     fig.autofmt_xdate(rotation=35)
     return _png(fig)
 

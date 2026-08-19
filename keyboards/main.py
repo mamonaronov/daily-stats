@@ -373,14 +373,31 @@ def admin_sql_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def admin_vpn_kb(period: str = "24h") -> InlineKeyboardMarkup:
+_VPN_SPAN_LABELS = {
+    "5m": "5 мин",
+    "1h": "час",
+    "24h": "сутки",
+    "7d": "неделю",
+    "30d": "месяц",
+}
+
+
+def admin_vpn_kb(period: str = "24h", top: str = "n") -> InlineKeyboardMarkup:
+    if top not in {"n", "s"}:
+        top = "n"
     b = InlineKeyboardBuilder()
     rows = (
         (("5m", "5 мин"), ("1h", "1 ч"), ("24h", "сутки")),
         (("7d", "неделя"), ("30d", "месяц")),
     )
     for labels in rows:
-        b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}") for key, label in labels])
-    b.row(_btn("📄 Логи за сутки", "ad:vpnlog"))
+        b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}:{top}") for key, label in labels])
+    b.row(
+        _btn(("• " if top == "n" else "") + "Ноды", f"adv:{period}:n"),
+        _btn(("• " if top == "s" else "") + "Подписки", f"adv:{period}:s"),
+    )
+    span = _VPN_SPAN_LABELS.get(period, "сутки")
+    b.row(_btn(f"📄 Логи за {span}", f"advl:{period}"))
+    b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
     b.row(_btn("👑 Админка", NAV_ADMIN))
     return b.as_markup()

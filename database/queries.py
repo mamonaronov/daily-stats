@@ -47,6 +47,17 @@ def _count_ge(values: list[int], threshold: int | None) -> int:
     return sum(1 for value in values if value >= threshold)
 
 
+def _apply_vpn_tail_stats(items: list[dict[str, Any]], grouped: dict[Any, list[int]], key) -> None:
+    for item in items:
+        values = sorted(grouped.get(key(item), []))
+        p99_ms = _latency_percentile(values, 0.99)
+        p99_9_ms = _latency_percentile(values, 0.999)
+        item["p99_ms"] = p99_ms
+        item["p99_9_ms"] = p99_9_ms
+        item["p99_count"] = _count_ge(values, p99_ms)
+        item["p99_9_count"] = _count_ge(values, p99_9_ms)
+
+
 logger = logging.getLogger(__name__)
 
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -1220,6 +1231,7 @@ class Repo:
         p95_ms = None
         p99_ms = None
         p99_9_ms = None
+        p95_count = 0
         p99_count = 0
         p99_9_count = 0
         if measured > 0:
@@ -1244,15 +1256,17 @@ class Repo:
             counts = await self.fetchone(
                 """
                 SELECT
+                    COALESCE(SUM(CASE WHEN latency_ms >= ? THEN 1 ELSE 0 END), 0) AS p95_count,
                     COALESCE(SUM(CASE WHEN latency_ms >= ? THEN 1 ELSE 0 END), 0) AS p99_count,
                     COALESCE(SUM(CASE WHEN latency_ms >= ? THEN 1 ELSE 0 END), 0) AS p99_9_count
                 FROM vpn_latency_samples
                 WHERE latency_ms IS NOT NULL
                   AND measured_at >= ? AND measured_at < ?
                 """,
-                (p99_ms, p99_9_ms, start, end),
+                (p95_ms, p99_ms, p99_9_ms, start, end),
             )
             if counts:
+                p95_count = int(counts["p95_count"])
                 p99_count = int(counts["p99_count"])
                 p99_9_count = int(counts["p99_9_count"])
         return {
@@ -1266,6 +1280,7 @@ class Repo:
             "p95_ms": p95_ms,
             "p99_ms": p99_ms,
             "p99_9_ms": p99_9_ms,
+            "p95_count": p95_count,
             "p99_count": p99_count,
             "p99_9_count": p99_9_count,
             "lt_100": int(row["lt_100"]) if row else 0,
@@ -1331,14 +1346,47 @@ class Repo:
         grouped: dict[tuple[Any, Any], list[int]] = defaultdict(list)
         for sample in lat_rows:
             grouped[(sample["node_name"], sample["subscription"])].append(int(sample["latency_ms"]))
-        for item in result:
-            values = sorted(grouped.get((item["node_name"], item["subscription"]), []))
-            p99_ms = _latency_percentile(values, 0.99)
-            p99_9_ms = _latency_percentile(values, 0.999)
-            item["p99_ms"] = p99_ms
-            item["p99_9_ms"] = p99_9_ms
-            item["p99_count"] = _count_ge(values, p99_ms)
-            item["p99_9_count"] = _count_ge(values, p99_9_ms)
+        _apply_vpn_tail_stats(result, grouped, lambda item: (item["node_name"], item["subscription"]))
+        return result
+
+    async def vpn_top_subscriptions(self, start: str, end: str, limit: int = 8) -> list[dict[str, Any]]:
+        rows = await self.fetchall(
+            """
+            SELECT
+                subscription,
+                COUNT(*) AS samples,
+                AVG(CASE WHEN ok = 1 THEN latency_ms END) AS avg_ms,
+                MIN(CASE WHEN ok = 1 THEN latency_ms END) AS min_ms,
+                MAX(CASE WHEN ok = 1 THEN latency_ms END) AS max_ms,
+                SUM(CASE WHEN ok = 1 THEN 0 ELSE 1 END) AS fail_count
+            FROM vpn_latency_samples
+            WHERE measured_at >= ? AND measured_at < ?
+            GROUP BY subscription
+            ORDER BY samples DESC
+            LIMIT ?
+            """,
+            (start, end, limit),
+        )
+        result = [dict(r) for r in rows]
+        if not result:
+            return result
+
+        clauses = ["(subscription IS ?)"] * len(result)
+        params: list[Any] = [start, end, *[item["subscription"] for item in result]]
+        lat_rows = await self.fetchall(
+            f"""
+            SELECT subscription, latency_ms
+            FROM vpn_latency_samples
+            WHERE measured_at >= ? AND measured_at < ?
+              AND ok = 1 AND latency_ms IS NOT NULL
+              AND ({" OR ".join(clauses)})
+            """,
+            params,
+        )
+        grouped: dict[Any, list[int]] = defaultdict(list)
+        for sample in lat_rows:
+            grouped[sample["subscription"]].append(int(sample["latency_ms"]))
+        _apply_vpn_tail_stats(result, grouped, lambda item: item["subscription"])
         return result
 
     # --- admin database editor ---

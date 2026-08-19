@@ -123,7 +123,24 @@ def test_collect_vpn_log_entries_filters_last_day(tmp_path):
     assert "FAIL" in text
     assert "timeout" in text
     assert "too-new" not in text
+    assert "18.08.2026 20:10:00" in text
+    assert "2026-08-18T20:10:00+00:00" in text
+    assert "19.08.2026 10:00:00" in text
+    assert "2026-08-19T10:00:00+00:00" in text
+    assert "18 августа 2026, 20:06:00" in text
+    fail_line = next(line for line in text.splitlines() if "FAIL" in line and "timeout" in line)
+    assert fail_line.index("19.08.2026 10:00:00") < fail_line.index("FAIL")
+    assert fail_line.index("FAIL") < fail_line.index("8000ms")
+    assert fail_line.index("8000ms") < fail_line.index("timeout")
+    assert fail_line.index("timeout") < fail_line.index("s1 | NL")
+    assert fail_line.index("s1 | NL") < fail_line.index("sub1")
+    assert fail_line.index("sub1") < fail_line.index("2026-08-19T10:00:00+00:00")
+    assert "время" in text and "нода" in text
     assert text.endswith("\n")
+    moscow = format_vpn_log(entries, start, end, tz_name="Europe/Moscow")
+    assert "19.08.2026 13:00:00" in moscow
+    assert "2026-08-19T10:00:00+00:00" in moscow
+    assert "Europe/Moscow" in moscow
 
 
 async def test_list_vpn_samples_window(repo):
@@ -170,6 +187,18 @@ async def test_vpn_sample_summary(repo):
     assert int(top[0]["p99_count"]) == 1
     assert int(top[0]["p99_9_ms"]) == 200
     assert int(top[0]["p99_9_count"]) == 1
+    top_subs = await repo.vpn_top_subscriptions(start, "2026-08-19T11:00:00+00:00")
+    assert [row["subscription"] for row in top_subs] == ["sub3", "sub1"]
+    assert int(top_subs[0]["samples"]) == 2
+    assert int(top_subs[0]["min_ms"]) == 100
+    assert int(top_subs[0]["max_ms"]) == 200
+    assert int(top_subs[0]["p99_ms"]) == 200
+    assert int(top_subs[0]["p99_count"]) == 1
+    assert int(top_subs[1]["samples"]) == 1
+    assert int(top_subs[1]["fail_count"]) == 1
+    assert top_subs[1]["avg_ms"] is None
+    assert top_subs[1]["p99_ms"] is None
+    assert int(top_subs[1]["p99_count"]) == 0
 
 
 async def test_vpn_latency_buckets(repo):
@@ -218,6 +247,9 @@ async def test_vpn_percentiles_and_tail_counts(repo):
     # 1..100; p99 = ceil(99)-1 → 99, tail >= 99 = 2
     assert int(summary["p99_ms"]) == 99
     assert summary["p99_count"] == 2
+    # p95 OFFSET = CAST(99*0.95)=94 → value 95, tail >= 95 = 6
+    assert int(summary["p95_ms"]) == 95
+    assert summary["p95_count"] == 6
     # p99.9 = ceil(99.9)-1 → 100, tail >= 100 = 1
     assert int(summary["p99_9_ms"]) == 100
     assert summary["p99_9_count"] == 1
@@ -226,6 +258,13 @@ async def test_vpn_percentiles_and_tail_counts(repo):
     assert int(top[0]["p99_count"]) == 2
     assert int(top[0]["p99_9_ms"]) == 100
     assert int(top[0]["p99_9_count"]) == 1
+    top_subs = await repo.vpn_top_subscriptions(start, end)
+    assert top_subs[0]["subscription"] == "sub1"
+    assert int(top_subs[0]["samples"]) == 100
+    assert int(top_subs[0]["p99_ms"]) == 99
+    assert int(top_subs[0]["p99_count"]) == 2
+    assert int(top_subs[0]["p99_9_ms"]) == 100
+    assert int(top_subs[0]["p99_9_count"]) == 1
 
 
 async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):
@@ -290,10 +329,22 @@ def test_admin_vpn_kb_callback_limit():
 
     kb = admin_vpn_kb("24h")
     datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-    assert "adv:24h" in datas
-    assert "adv:5m" in datas
-    assert "ad:vpnlog" in datas
+    assert "adv:24h:n" in datas
+    assert "adv:5m:n" in datas
+    assert "adv:24h:s" in datas
+    assert "advl:24h" in datas
+    assert "advc:24h" in datas
     assert all(len(data.encode()) <= 64 for data in datas)
+
+    week = admin_vpn_kb("7d", "s")
+    week_datas = [btn.callback_data for row in week.inline_keyboard for btn in row]
+    assert "adv:7d:s" in week_datas
+    assert "advl:7d" in week_datas
+    assert "advc:7d" in week_datas
+    labels = [btn.text for row in week.inline_keyboard for btn in row]
+    assert any(text and "Логи за неделю" in text for text in labels)
+    assert any(text and "Картинки за неделю" in text for text in labels)
+    assert any(text and text.startswith("• Подписки") for text in labels)
 
 
 def test_short_node_name():
