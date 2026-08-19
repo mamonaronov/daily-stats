@@ -456,6 +456,10 @@ def _ms(value) -> str:
     return str(int(round(value)))
 
 
+def _pct_line(label: str, value, count: int) -> str:
+    return f"{label}: {_ms(value)} мс ({count} зам.)"
+
+
 def _bucket_line(label: str, count: int, measured: int, interval: int) -> str:
     pct = f"{(count / measured * 100):.1f}%".replace(".", ",") if measured else "—"
     return f"{label}: {seconds_human(count * interval)} ({pct})"
@@ -507,6 +511,8 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str) -> str:
             f"Минимум: {_ms(summary['min_ms'])} мс",
             f"Максимум: {_ms(summary['max_ms'])} мс",
             f"p95: {_ms(summary['p95_ms'])} мс",
+            _pct_line("p99", summary["p99_ms"], summary["p99_count"]),
+            _pct_line("p99.9", summary["p99_9_ms"], summary["p99_9_count"]),
             "",
             f"Время в диапазонах (тик {interval} с):",
             _bucket_line("&lt; 100 мс", summary["lt_100"], measured, interval),
@@ -518,13 +524,24 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str) -> str:
     if top:
         lines.append("")
         lines.append("Топ нод:")
-        for row in top:
+        for i, row in enumerate(top):
+            if i:
+                lines.append("")
             name = html.escape(row["node_name"] or "—")
             sub = html.escape(subscription_label(row["subscription"]))
             avg = _ms(row["avg_ms"])
+            min_ms = _ms(row["min_ms"])
+            max_ms = _ms(row["max_ms"])
             fails = int(row["fail_count"] or 0)
             fail_bit = f", ошибок {fails}" if fails else ""
-            lines.append(f"• <code>{name}</code> — {int(row['samples'])} раз, avg {avg} мс ({sub}{fail_bit})")
+            lines.append(
+                f"• <code>{name}</code> — {int(row['samples'])} раз, "
+                f"avg {avg} мс, min {min_ms} / max {max_ms} мс ({sub}{fail_bit})"
+            )
+            lines.append(
+                f"  p99 {_ms(row['p99_ms'])} мс ({int(row['p99_count'])} зам.), "
+                f"p99.9 {_ms(row['p99_9_ms'])} мс ({int(row['p99_9_count'])} зам.)"
+            )
     if not config.vpn_monitor_enabled:
         lines.append("")
         lines.append("Монитор выключен (VPN_MONITOR_ENABLED=0).")

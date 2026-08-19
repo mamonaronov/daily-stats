@@ -86,9 +86,19 @@ async def test_vpn_sample_summary(repo):
     assert summary["ge_100"] == 3
     assert summary["ge_500"] == 1
     assert summary["ge_1000"] == 1
+    assert int(summary["p99_ms"]) == 8000
+    assert summary["p99_count"] == 1
+    assert int(summary["p99_9_ms"]) == 8000
+    assert summary["p99_9_count"] == 1
     top = await repo.vpn_top_nodes(start, "2026-08-19T11:00:00+00:00")
     assert top[0]["subscription"] == "sub3"
     assert int(top[0]["samples"]) == 2
+    assert int(top[0]["min_ms"]) == 100
+    assert int(top[0]["max_ms"]) == 200
+    assert int(top[0]["p99_ms"]) == 200
+    assert int(top[0]["p99_count"]) == 1
+    assert int(top[0]["p99_9_ms"]) == 200
+    assert int(top[0]["p99_9_count"]) == 1
 
 
 async def test_vpn_latency_buckets(repo):
@@ -118,6 +128,33 @@ async def test_vpn_latency_buckets(repo):
     assert summary["ge_1000"] == 2
     assert int(summary["min_ms"]) == 50
     assert int(summary["max_ms"]) == 8000
+
+
+async def test_vpn_percentiles_and_tail_counts(repo):
+    start = "2026-08-19T10:00:00+00:00"
+    for i in range(100):
+        minute, second = divmod(i, 60)
+        await repo.insert_vpn_sample(
+            f"2026-08-19T10:{minute:02d}:{second:02d}+00:00",
+            True,
+            i + 1,
+            "n",
+            "sub1",
+            None,
+        )
+    end = "2026-08-19T12:00:00+00:00"
+    summary = await repo.vpn_latency_summary(start, end)
+    # 1..100; p99 = ceil(99)-1 → 99, tail >= 99 = 2
+    assert int(summary["p99_ms"]) == 99
+    assert summary["p99_count"] == 2
+    # p99.9 = ceil(99.9)-1 → 100, tail >= 100 = 1
+    assert int(summary["p99_9_ms"]) == 100
+    assert summary["p99_9_count"] == 1
+    top = await repo.vpn_top_nodes(start, end)
+    assert int(top[0]["p99_ms"]) == 99
+    assert int(top[0]["p99_count"]) == 2
+    assert int(top[0]["p99_9_ms"]) == 100
+    assert int(top[0]["p99_9_count"]) == 1
 
 
 async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):
