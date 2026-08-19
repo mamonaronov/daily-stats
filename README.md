@@ -61,7 +61,7 @@
 ```text
 Telegram  →  aiogram Dispatcher  →  handlers  →  services  →  SQLite (aiosqlite, WAL)
                                       ↑
-                               APScheduler (списания, напоминания, backup)
+                               APScheduler (списания, напоминания, backup, бэкап в Telegram)
 ```
 
 - Слой БД: `database/` — подключение, WAL, миграции, backup/restore, параметризованные запросы
@@ -199,8 +199,10 @@ docker compose logs -f | grep telegram_proxy
 | `REMINDER_FALLBACK_TIME` | нет | `20:45` | Время напоминания, если нет 3 ночей сна |
 | `DB_PATH` | нет | `/app/data/database.sqlite3` | Путь к БД **внутри контейнера** |
 | `BACKUP_PATH` | нет | `/app/backups` | Каталог backup внутри контейнера |
-| `BACKUP_INTERVAL_HOURS` | нет | `6` | Период автоматического backup |
-| `BACKUP_KEEP` | нет | `14` | Сколько копий хранить |
+| `BACKUP_INTERVAL_HOURS` | нет | `6` | Период автоматического backup на диск |
+| `BACKUP_KEEP` | нет | `14` | Сколько копий на диске хранить |
+| `TELEGRAM_BACKUP_INTERVAL_HOURS` | нет | `12` | Минимум часов между беззвучными архивами владельцу (0 — выкл). Отсчёт от последней успешной отправки |
+| `TELEGRAM_BACKUP_ROOT` | нет | корень приложения | Откуда брать `.env` и конфиги для архива. В Docker — `/host` |
 | `BILLING_CHECK_MINUTES` | нет | `15` | Интервал проверки ежедневных списаний |
 | `REMINDER_CHECK_MINUTES` | нет | `1` | Интервал проверки напоминаний |
 | `LOG_LEVEL` | нет | `INFO` | Уровень JSON-логов |
@@ -213,6 +215,7 @@ docker compose logs -f | grep telegram_proxy
 ```text
 ./data     →  /app/data
 ./backups  →  /app/backups
+.          →  /host (только чтение: .env и конфиги для бэкапа в Telegram)
 ```
 
 ---
@@ -250,7 +253,7 @@ SQLite + aiosqlite, режим **WAL**, `foreign_keys=ON`, `busy_timeout=5000`, 
 
 Backup идёт через SQLite Online Backup API: в копию попадают и страницы из WAL, последние записи не теряются.
 
-Когда создаётся копия:
+Когда создаётся копия на диск:
 
 - по расписанию (`BACKUP_INTERVAL_HOURS`)
 - перед миграциями (`pre_migrate_...`)
@@ -258,6 +261,8 @@ Backup идёт через SQLite Online Backup API: в копию попада�
 - при ошибке старта, если возможно — `crash_...`
 
 Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются.
+
+Отдельно владельцу в этот же бот уходит архив `.tar.gz` (сжатие **pigz**): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.override.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10:10:10_{short-hash}_{тема-коммита}_db{версия}.tar.gz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_HOURS`, по умолчанию **12 часов**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает отправку. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
 
 Docker-логи ограничены: `max-size: 10m`, `max-file: 5`.
 
@@ -447,7 +452,7 @@ backups/               резервные копии на диске хоста
 
 ## Тесты
 
-Покрыты: идемпотентность списания, догон пропущенных дней, WAL и `user_version`, backup, изоляция данных пользователей, право на запись при `paid_until_date`, границы дня в `Europe/Moscow`, среднее время сна вокруг полуночи, время напоминания, корреляция, длительность ночного сна, срок шайбы снюса.
+Покрыты: идемпотентность списания, догон пропущенных дней, WAL и `user_version`, backup, беззвучный бэкап в Telegram, изоляция данных пользователей, право на запись при `paid_until_date`, границы дня в `Europe/Moscow`, среднее время сна вокруг полуночи, время напоминания, корреляция, длительность ночного сна, срок шайбы снюса.
 
 На хосте с Python 3.11+:
 

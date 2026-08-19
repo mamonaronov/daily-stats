@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 
 REQUIRED_DB_VERSION = 4
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 class ConfigError(RuntimeError):
@@ -76,6 +77,8 @@ class Config:
     mihomo_proxy_group: str = "AUTO"
     vpn_log_dir: Path | None = None
     vpn_log_keep_days: int = 31
+    telegram_backup_interval_hours: int = 12
+    telegram_backup_root: Path = PROJECT_ROOT
 
 
 def load_config() -> Config:
@@ -113,4 +116,6 @@ def load_config() -> Config:
         mihomo_proxy_group=os.getenv("MIHOMO_PROXY_GROUP", "AUTO").strip() or "AUTO",
         vpn_log_dir=Path(os.getenv("VPN_LOG_DIR", str(db_path.parent / "vpn"))),
         vpn_log_keep_days=_int("VPN_LOG_KEEP_DAYS", 31),
+        telegram_backup_interval_hours=max(0, _int("TELEGRAM_BACKUP_INTERVAL_HOURS", 12)),
+        telegram_backup_root=Path(os.getenv("TELEGRAM_BACKUP_ROOT", "").strip() or str(PROJECT_ROOT)),
     )

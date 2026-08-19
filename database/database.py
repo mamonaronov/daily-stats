@@ -136,11 +136,10 @@ class Database:
             raise DatabaseError(f"Migrations finished at {final}, required {required}")
         logger.info("Migrations complete, version=%s", final)
 
-    async def backup(self, prefix: str = "backup") -> Path:
-        """Online backup via SQLite Backup API — includes WAL pages."""
-        self.backup_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = self.backup_dir / _backup_name(prefix)
-        tmp_path = dest_path.with_suffix(".tmp")
+    async def backup_to(self, dest_path: Path) -> Path:
+        """Write a consistent SQLite snapshot to dest_path (includes WAL pages)."""
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = dest_path.with_name(dest_path.name + ".tmp")
         try:
             dest = await aiosqlite.connect(tmp_path)
             try:
@@ -148,14 +147,24 @@ class Database:
             finally:
                 await dest.close()
             tmp_path.replace(dest_path)
+            return dest_path
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    async def backup(self, prefix: str = "backup") -> Path:
+        """Online backup via SQLite Backup API — includes WAL pages."""
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = self.backup_dir / _backup_name(prefix)
+        try:
+            await self.backup_to(dest_path)
             await self._set_system("last_backup_at", to_iso(now_utc()))
             await self._set_system("last_backup_path", str(dest_path))
             logger.info("Backup created: %s", dest_path.name)
             self._rotate_backups()
             return dest_path
         except Exception:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
+            dest_path.unlink(missing_ok=True)
             logger.exception("Backup failed")
             raise
 
@@ -178,6 +187,17 @@ class Database:
         if not files:
             return None
         return max(files, key=lambda p: p.stat().st_mtime)
+
+    async def get_system(self, key: str) -> str | None:
+        try:
+            async with self.conn.execute(
+                "SELECT value FROM system_info WHERE key = ?",
+                (key,),
+            ) as cur:
+                row = await cur.fetchone()
+            return str(row[0]) if row and row[0] is not None else None
+        except Exception:
+            return None
 
     async def _set_system(self, key: str, value: str) -> None:
         try:

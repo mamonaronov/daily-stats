@@ -1,4 +1,4 @@
-"""Periodic jobs: billing, reminders, backup, cleanup."""
+"""Periodic jobs: billing, reminders, backup, telegram backup, cleanup."""
 
 from __future__ import annotations
 
@@ -18,6 +18,29 @@ from services.reminders import refresh_user_reminder, user_filled_day_review
 from utils.time import now_utc, to_iso, user_today
 
 logger = logging.getLogger(__name__)
+
+_TELEGRAM_BACKUP_START_DELAY = timedelta(seconds=5)
+_TELEGRAM_BACKUP_RETRY = timedelta(minutes=15)
+
+
+def _schedule_telegram_backup_at(
+    scheduler: AsyncIOScheduler,
+    bot: Bot,
+    db: Database,
+    config: Config,
+    when: datetime,
+) -> None:
+    grace = max(3600, config.telegram_backup_interval_hours * 3600)
+    scheduler.add_job(
+        telegram_backup_job,
+        "date",
+        run_date=when,
+        id="telegram_backup",
+        replace_existing=True,
+        kwargs={"scheduler": scheduler, "db": db, "bot": bot, "config": config},
+        misfire_grace_time=grace,
+        next_run_time=when,
+    )
 
 
 def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Database, config: Config) -> None:
@@ -51,6 +74,14 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         max_instances=1,
         coalesce=True,
     )
+    if config.telegram_backup_interval_hours > 0:
+        _schedule_telegram_backup_at(
+            scheduler,
+            bot,
+            db,
+            config,
+            datetime.now(timezone.utc) + _TELEGRAM_BACKUP_START_DELAY,
+        )
     scheduler.add_job(
         cleanup_job,
         "interval",
@@ -152,6 +183,47 @@ async def backup_job(db: Database, bot: Bot, config: Config) -> None:
     except Exception as exc:
         logger.exception("Scheduled backup failed")
         await notify_owner(bot, config, format_alert("backup", "Сбой резервного копирования", exc=exc))
+
+
+async def telegram_backup_job(
+    scheduler: AsyncIOScheduler,
+    db: Database,
+    bot: Bot,
+    config: Config,
+) -> None:
+    from services.telegram_backup import (
+        last_telegram_backup_at,
+        next_telegram_backup_at,
+        send_telegram_backup,
+        telegram_backup_due,
+    )
+
+    interval = config.telegram_backup_interval_hours
+    try:
+        last = await last_telegram_backup_at(db)
+        if not telegram_backup_due(last, interval):
+            when = next_telegram_backup_at(last, interval)
+            logger.info("Telegram backup not due, next at %s", when.isoformat())
+            _schedule_telegram_backup_at(scheduler, bot, db, config, when)
+            return
+        await send_telegram_backup(db, bot, config)
+        when = now_utc() + timedelta(hours=interval)
+        logger.info("Telegram backup next at %s", when.isoformat())
+        _schedule_telegram_backup_at(scheduler, bot, db, config, when)
+    except Exception as exc:
+        logger.exception("Telegram backup failed")
+        await notify_owner(
+            bot,
+            config,
+            format_alert("telegram_backup", "Сбой отправки бэкапа в Telegram", exc=exc),
+        )
+        _schedule_telegram_backup_at(
+            scheduler,
+            bot,
+            db,
+            config,
+            now_utc() + _TELEGRAM_BACKUP_RETRY,
+        )
 
 
 async def cleanup_job(repo: Repo) -> None:

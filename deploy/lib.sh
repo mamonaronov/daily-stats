@@ -31,6 +31,17 @@ load_mihomo_settings() {
   MIHOMO_API_URL="http://${MIHOMO_CONTROLLER}"
 }
 
+load_git_version() {
+  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    GIT_COMMIT="$(git -C "$ROOT" rev-parse --short HEAD)"
+    GIT_COMMIT_TITLE="$(git -C "$ROOT" log -1 --pretty=%s)"
+  else
+    GIT_COMMIT="unknown"
+    GIT_COMMIT_TITLE="unknown"
+  fi
+  export GIT_COMMIT GIT_COMMIT_TITLE
+}
+
 write_docker_override() {
   local out="${1:-$ROOT/docker-compose.override.yml}"
   cat > "$out" <<EOF

@@ -99,6 +99,10 @@ mkdir -p "$ROOT/data" "$ROOT/backups"
 echo "==> writing docker-compose.override.yml"
 write_docker_override "$ROOT/docker-compose.override.yml"
 
+echo "==> git commit for image"
+load_git_version
+echo "    ${GIT_COMMIT} ${GIT_COMMIT_TITLE}"
+
 if [[ "$SKIP_MIHOMO" -eq 0 ]]; then
   echo "==> installing mihomo config and unit"
   run_sudo mkdir -p /etc/mihomo/providers

@@ -1,14 +1,21 @@
 services:
   bot:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        GIT_COMMIT_TITLE: ${GIT_COMMIT_TITLE:-unknown}
     image: daily-stats-bot:latest
     container_name: daily-stats-bot
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      TELEGRAM_BACKUP_ROOT: /host
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
+      - .:/host:ro
     logging:
       driver: json-file
       options:

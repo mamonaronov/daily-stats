@@ -423,11 +423,16 @@ async def admin_stats(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 async def admin_cfg(cb: CallbackQuery, config: Config) -> None:
     if not await _owner(cb, config):
         return
+    if config.telegram_backup_interval_hours > 0:
+        tg_backup = f"каждые {config.telegram_backup_interval_hours} ч, без звука"
+    else:
+        tg_backup = "выкл"
     text = (
         "⚙️ <b>Настройки сервиса</b>\n\n"
         f"Пояс по умолчанию: {config.default_timezone}\n"
         f"Цена по умолчанию: {money(config.default_daily_price)}/день\n"
-        f"Backup каждые {config.backup_interval_hours} ч, хранить {config.backup_keep}\n"
+        f"Backup на диск каждые {config.backup_interval_hours} ч, хранить {config.backup_keep}\n"
+        f"Бэкап в Telegram: {tg_backup}\n"
         f"Напоминание: за {config.reminder_hours_before_sleep} ч до сна\n"
         f"Fallback: {config.reminder_fallback_time}\n"
         f"Контакт: {config.owner_contact}\n"
