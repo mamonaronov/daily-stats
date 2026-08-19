@@ -547,6 +547,22 @@ def test_ping_y_ticks_familiar_values():
     assert highs[1] - highs[0] >= 50
 
 
+def test_central_chart_ping_axis_uses_timeline_ticks():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from services.vpn_charts import _apply_ping_ticks, ping_y_ticks
+
+    fig, ax = plt.subplots()
+    _apply_ping_ticks(ax, 80, axis="x")
+    majors, _minors = ping_y_ticks(80)
+    assert list(ax.get_xticks()) == majors
+    assert ax.get_xlim() == (0.0, 100.0)
+    plt.close(fig)
+
+
 def test_smooth_ping_series_ignores_spikes():
     from datetime import datetime, timedelta, timezone
 

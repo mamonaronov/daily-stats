@@ -416,6 +416,23 @@ def ping_y_ticks(ymax: float) -> tuple[list[float], list[float]]:
     return majors, minors
 
 
+def _apply_ping_ticks(ax, ymax: float, *, axis: str = "y") -> None:
+    """Familiar ping majors plus finer minors, matching the timeline Y axis."""
+    ymax = nice_ping_ymax(ymax)
+    majors, minors = ping_y_ticks(ymax)
+    locator_axis = ax.yaxis if axis == "y" else ax.xaxis
+    locator_axis.set_major_locator(FixedLocator(majors))
+    locator_axis.set_minor_locator(FixedLocator(minors))
+    ax.tick_params(axis=axis, which="major", length=6)
+    ax.tick_params(axis=axis, which="minor", length=3.4, colors=_AXIS)
+    ax.grid(True, axis=axis, which="major", color=_GRID, alpha=0.75)
+    ax.grid(True, axis=axis, which="minor", color=_GRID, alpha=0.28, linewidth=0.55)
+    if axis == "y":
+        ax.set_ylim(bottom=0, top=ymax)
+    else:
+        ax.set_xlim(left=0, right=ymax)
+
+
 def _fit_png(data: bytes, max_bytes: int = _MAX_PNG_BYTES) -> bytes:
     if len(data) <= max_bytes:
         return data
@@ -602,6 +619,7 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     ax.set_ylabel("замеров")
     ax.set_title(f"Распределение пинга · среднее / медиана / мода · {period_title}")
     ax.set_ylim(bottom=0)
+    _apply_ping_ticks(ax, max(values), axis="x")
     _style_legend(ax.legend(loc="upper right", fontsize=10))
     return _png(fig, dpi=_DIST_DPI)
 
@@ -685,15 +703,7 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
         ax.scatter(ping_fail_x, [0] * len(ping_fail_x), marker="|", s=110, color=_SIGNAL_COLORS[SIGNAL_NO_PING], zorder=4)
 
     ping_values = [point.ping_ms for point in points if not math.isnan(point.ping_ms)]
-    ymax = nice_ping_ymax(max(ping_values) if ping_values else 80.0)
-    majors, minors = ping_y_ticks(ymax)
-    ax.set_ylim(bottom=0, top=ymax)
-    ax.yaxis.set_major_locator(FixedLocator(majors))
-    ax.yaxis.set_minor_locator(FixedLocator(minors))
-    ax.tick_params(axis="y", which="major", length=6)
-    ax.tick_params(axis="y", which="minor", length=3.4, colors=_AXIS)
-    ax.grid(True, axis="y", which="major", color=_GRID, alpha=0.75)
-    ax.grid(True, axis="y", which="minor", color=_GRID, alpha=0.28, linewidth=0.55)
+    _apply_ping_ticks(ax, max(ping_values) if ping_values else 80.0, axis="y")
     span = (points[-1].time - points[0].time).total_seconds() if len(points) > 1 else 0
     ax.xaxis.set_major_formatter(_time_formatter(span))
     ax.set_ylabel("Пинг, мс")
