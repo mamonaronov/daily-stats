@@ -73,6 +73,19 @@ def test_duration_human_days():
     assert duration_human(45) == "45 мин"
 
 
+def test_hours_kb_includes_past_hours_and_date_shortcuts():
+    from keyboards.main import hours_kb
+
+    kb = hours_kb(date_shortcuts=True)
+    data = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert "hr:0" in data
+    assert "hr:7" in data
+    assert "hr:23" in data
+    assert "hdt:today" in data
+    assert "hdt:yesterday" in data
+    assert "hdt:calendar" in data
+
+
 def test_cigarette_stats_text():
     from database.models import Cigarette, User
 

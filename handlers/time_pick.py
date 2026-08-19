@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -175,7 +175,14 @@ async def pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     await state.update_data(picked_date=day.isoformat())
     await state.set_state(TimePickSG.hour)
     await cb.answer()
-    await safe_edit(cb.message, f"Дата: {day.isoformat()}\nВыберите час:", hours_kb())
+    data = await state.get_data()
+    await safe_edit(
+        cb.message,
+        f"Дата: {day.isoformat()}\nВыберите час — можно уже прошедший:"
+        if data.get("time_date_shortcuts")
+        else f"Дата: {day.isoformat()}\nВыберите час:",
+        hours_kb(date_shortcuts=bool(data.get("time_date_shortcuts"))),
+    )
 
 
 @router.callback_query(F.data.startswith("calm:"), TimePickSG.date)
@@ -186,6 +193,42 @@ async def change_month(cb: CallbackQuery, db_user: User | None) -> None:
     year, month = int(ym[:4]), int(ym[5:7])
     await cb.answer()
     await safe_edit(cb.message, "Выберите дату:", calendar_kb(year, month))
+
+
+def _hours_prompt(day: date, today: date) -> str:
+    if day == today:
+        label = "сегодня"
+    elif day == today - timedelta(days=1):
+        label = "вчера"
+    else:
+        label = day.isoformat()
+    return f"Дата: {day.isoformat()} ({label})\nВыберите час — можно уже прошедший:"
+
+
+@router.callback_query(F.data.startswith("hdt:"), TimePickSG.hour)
+async def hour_date_shortcut(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    token = cb.data.split(":", 1)[1]
+    data = await state.get_data()
+    tz = data.get("tz") or user.timezone
+    today = user_today(tz)
+    if token == "calendar":
+        await state.set_state(TimePickSG.date)
+        await cb.answer()
+        await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month))
+        return
+    if token == "today":
+        day = today
+    elif token == "yesterday":
+        day = today - timedelta(days=1)
+    else:
+        await cb.answer()
+        return
+    await state.update_data(picked_date=day.isoformat())
+    await cb.answer()
+    await safe_edit(cb.message, _hours_prompt(day, today), hours_kb(date_shortcuts=True))
 
 
 @router.callback_query(F.data.startswith("hr:"), TimePickSG.hour)

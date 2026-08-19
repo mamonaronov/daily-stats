@@ -77,17 +77,35 @@ async def require_writable(event: CallbackQuery | Message, user: User | None) ->
     return user
 
 
-async def start_time_pick(cb: CallbackQuery, state: FSMContext, purpose: str, extra: dict | None = None) -> None:
+async def start_time_pick(
+    cb: CallbackQuery,
+    state: FSMContext,
+    purpose: str,
+    extra: dict | None = None,
+    *,
+    skip_date: bool = False,
+) -> None:
     from datetime import date
 
-    from keyboards.main import calendar_kb
+    from keyboards.main import calendar_kb, hours_kb
     from states.diary import TimePickSG
     from utils.time import user_today
 
-    payload = {"time_purpose": purpose, **(extra or {})}
-    await state.set_state(TimePickSG.date)
-    await state.update_data(**payload)
     user_tz = extra.get("tz") if extra else None
     today = user_today(user_tz) if user_tz else date.today()
+    payload = {"time_purpose": purpose, "picked_date": today.isoformat(), **(extra or {})}
+    if skip_date:
+        payload["time_date_shortcuts"] = True
+        await state.set_state(TimePickSG.hour)
+        await state.update_data(**payload)
+        await cb.answer()
+        await safe_edit(
+            cb.message,
+            f"Дата: {today.isoformat()} (сегодня)\nВыберите час — можно уже прошедший:",
+            hours_kb(date_shortcuts=True),
+        )
+        return
+    await state.set_state(TimePickSG.date)
+    await state.update_data(**payload)
     await cb.answer()
     await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month))

@@ -19,6 +19,7 @@ class TimePickSG(StatesGroup):
 
 class SleepSG(StatesGroup):
     quality = State()
+    when = State()
 
 
 class WellbeingSG(StatesGroup):

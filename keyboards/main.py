@@ -160,10 +160,12 @@ def calendar_kb(year: int, month: int, prefix: str = "cal") -> InlineKeyboardMar
     return b.as_markup()
 
 
-def hours_kb(prefix: str = "hr") -> InlineKeyboardMarkup:
+def hours_kb(prefix: str = "hr", *, date_shortcuts: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for hour in range(0, 24, 4):
         b.row(*[_btn(f"{h:02d}", f"{prefix}:{h}") for h in range(hour, hour + 4)])
+    if date_shortcuts:
+        b.row(_btn("Сегодня", "hdt:today"), _btn("Вчера", "hdt:yesterday"), _btn("📅 Дата", "hdt:calendar"))
     b.row(_btn("⌨️ Ввести вручную", f"{prefix}:manual"))
     b.row(_btn("✖️ Отмена", NAV_CANCEL))
     return b.as_markup()
