@@ -41,6 +41,14 @@ async def add_cigarette(repo: Repo, user: User, when: datetime) -> tuple[int | N
     return item_id, None
 
 
+async def add_fooling(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked
+    item_id = await repo.add_fooling(user.telegram_id, to_iso(when))
+    return item_id, None
+
+
 async def add_sleep_bed(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:

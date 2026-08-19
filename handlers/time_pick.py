@@ -37,6 +37,8 @@ async def _finish(
     error = None
     if purpose == "cig":
         item_id, error = await entries.add_cigarette(repo, user, when)
+    elif purpose == "fool":
+        item_id, error = await entries.add_fooling(repo, user, when)
     elif purpose == "slp_bed":
         item_id, error = await entries.add_sleep_bed(repo, user, when)
         await refresh_user_reminder(repo, user, config)
@@ -148,6 +150,7 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
         return None
     mapping = {
         "cig": repo.update_cigarette_time,
+        "fool": repo.update_fooling_time,
         "mood": lambda i, t, v: repo.update_mood(i, t, occurred_at=v),
         "wb": lambda i, t, v: repo.update_wellbeing(i, t, occurred_at=v),
         "caf": lambda i, t, v: repo.update_caffeine(i, t, occurred_at=v),

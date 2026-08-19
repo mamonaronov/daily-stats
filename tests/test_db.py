@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 3
+    assert version == config.required_db_version == 4
 
 
 @pytest.mark.asyncio
@@ -52,6 +52,19 @@ async def test_user_isolation(repo):
     assert len(cigs_a) == 1
     assert len(cigs_b) == 0
     stolen = await repo.get_cigarette(cigs_a[0].id, b.telegram_id)
+    assert stolen is None
+
+
+@pytest.mark.asyncio
+async def test_fooling_isolation(repo):
+    a = await repo.create_user(3, "a", "A", None, "UTC", 10, "23:00")
+    b = await repo.create_user(4, "b", "B", None, "UTC", 10, "23:00")
+    await repo.add_fooling(a.telegram_id, to_iso(now_utc()))
+    items_a = await repo.list_fooling(a.telegram_id, "2000-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00")
+    items_b = await repo.list_fooling(b.telegram_id, "2000-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00")
+    assert len(items_a) == 1
+    assert len(items_b) == 0
+    stolen = await repo.get_fooling(items_a[0].id, b.telegram_id)
     assert stolen is None
 
 

@@ -54,6 +54,7 @@ METRIC_TYPE_LABELS = {
 
 ENTRY_TITLES = {
     "cigarette": "🚬 Сигарета",
+    "fooling": "🤡 Валять дурака",
     "snus": "🟢 Снюс",
     "sleep": "😴 Сон",
     "mood": "🙂 Настроение",

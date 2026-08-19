@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from database.models import User
 from database.queries import Repo
-from services.statistics import daily_cigarette_counts, load_period
+from services.statistics import daily_event_counts, load_period
 from utils.time import daterange, format_date, parse_iso, to_user
 
 plt.rcParams["font.family"] = "DejaVu Sans"
@@ -57,7 +57,7 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
     charts: list[tuple[str, bytes]] = []
 
     if "cigarettes" in selected:
-        counts = daily_cigarette_counts(user, data["cigarettes"], start, end)
+        counts = daily_event_counts(user, data["cigarettes"], start, end)
         charts.append(("Сигареты по дням", _line("Сигареты по дням", labels, [counts[d] for d in days], "шт.")))
         hours = Counter()
         for item in data["cigarettes"]:
@@ -67,6 +67,25 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             (
                 "Сигареты по часам",
                 _bar("Сигареты по времени суток", hour_labels, [hours[h] for h in range(24)], "шт."),
+            )
+        )
+
+    if "fooling" in selected:
+        counts = daily_event_counts(user, data["fooling"], start, end)
+        charts.append(
+            (
+                "Валять дурака по дням",
+                _line("Валять дурака по дням", labels, [counts[d] for d in days], "раз"),
+            )
+        )
+        hours = Counter()
+        for item in data["fooling"]:
+            hours[to_user(parse_iso(item.occurred_at), user.timezone).hour] += 1
+        hour_labels = [f"{h:02d}" for h in range(24)]
+        charts.append(
+            (
+                "Валять дурака по часам",
+                _bar("Валять дурака по времени суток", hour_labels, [hours[h] for h in range(24)], "раз"),
             )
         )
 

@@ -31,6 +31,7 @@ from utils.time import (
 
 METRIC_KEYS = [
     "cigarettes",
+    "fooling",
     "snus",
     "sleep",
     "mood",
@@ -68,6 +69,7 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "start": start,
         "end": end,
         "cigarettes": await repo.list_cigarettes(tid, a, b),
+        "fooling": await repo.list_fooling(tid, a, b),
         "snus": await repo.list_snus_packs(tid, a, b),
         "sleep": await repo.list_sleep(tid, a, b),
         "mood": await repo.list_mood(tid, a, b),
@@ -80,7 +82,7 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
     }
 
 
-def daily_cigarette_counts(user: User, items, start: date, end: date) -> dict[date, int]:
+def daily_event_counts(user: User, items, start: date, end: date) -> dict[date, int]:
     counts = {day: 0 for day in daterange(start, end)}
     for item in items:
         local = to_user(parse_iso(item.occurred_at), user.timezone).date()
@@ -89,11 +91,20 @@ def daily_cigarette_counts(user: User, items, start: date, end: date) -> dict[da
     return counts
 
 
-def cigarette_stats(user: User, items, start: date, end: date) -> str:
-    days = daterange(start, end)
+def timestamp_count_stats(
+    title: str,
+    empty: str,
+    user: User,
+    items,
+    start: date,
+    end: date,
+    *,
+    first_label: str = "Среднее время первой",
+    last_label: str = "Среднее время последней",
+) -> str:
     if not items:
-        return "🚬 Сигареты: нет данных за период."
-    by_day = daily_cigarette_counts(user, items, start, end)
+        return empty
+    by_day = daily_event_counts(user, items, start, end)
     values = list(by_day.values())
     times = [to_user(parse_iso(i.occurred_at), user.timezone) for i in items]
     firsts: list[int] = []
@@ -113,7 +124,7 @@ def cigarette_stats(user: User, items, start: date, end: date) -> str:
 
     peak_hour = hour_hist.most_common(1)[0][0] if hour_hist else None
     lines = [
-        "🚬 <b>Сигареты</b>",
+        title,
         f"Всего: {len(items)}",
         f"В среднем в день: {mean(values):.1f}",
         f"Минимум за день: {min(values)}",
@@ -122,9 +133,9 @@ def cigarette_stats(user: User, items, start: date, end: date) -> str:
     avg_first = circular_mean_minutes(firsts)
     avg_last = circular_mean_minutes(lasts)
     if avg_first is not None:
-        lines.append(f"Среднее время первой: {minutes_to_hhmm(avg_first)}")
+        lines.append(f"{first_label}: {minutes_to_hhmm(avg_first)}")
     if avg_last is not None:
-        lines.append(f"Среднее время последней: {minutes_to_hhmm(avg_last)}")
+        lines.append(f"{last_label}: {minutes_to_hhmm(avg_last)}")
     if all_intervals:
         lines.append(f"Средний интервал: {duration_human(int(mean(all_intervals)))}")
         lines.append(f"Самый короткий интервал: {duration_human(min(all_intervals))}")
@@ -134,6 +145,30 @@ def cigarette_stats(user: User, items, start: date, end: date) -> str:
     top_days = sorted(by_day.items(), key=lambda kv: kv[1], reverse=True)[:3]
     lines.append("По дням: " + ", ".join(f"{format_date(d)} — {c}" for d, c in top_days if c))
     return "\n".join(lines)
+
+
+def cigarette_stats(user: User, items, start: date, end: date) -> str:
+    return timestamp_count_stats(
+        "🚬 <b>Сигареты</b>",
+        "🚬 Сигареты: нет данных за период.",
+        user,
+        items,
+        start,
+        end,
+    )
+
+
+def fooling_stats(user: User, items, start: date, end: date) -> str:
+    return timestamp_count_stats(
+        "🤡 <b>Валять дурака</b>",
+        "🤡 Валять дурака: нет данных за период.",
+        user,
+        items,
+        start,
+        end,
+        first_label="Среднее время первого",
+        last_label="Среднее время последнего",
+    )
 
 
 def snus_stats(user: User, items, start: date, end: date) -> str:
@@ -287,6 +322,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
     start, end = data["start"], data["end"]
     builders = {
         "cigarettes": lambda items: daily_series(user, items, start, end, lambda xs: float(len(xs))),
+        "fooling": lambda items: daily_series(user, items, start, end, lambda xs: float(len(xs))),
         "snus": lambda items: _snus_series(user, items, start, end),
         "mood": lambda items: daily_series(user, items, start, end, lambda xs: mean([i.score for i in xs]) if xs else 0.0),
         "wellbeing": lambda items: daily_series(user, items, start, end, lambda xs: mean([i.score for i in xs]) if xs else 0.0),
@@ -307,6 +343,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         return None
     names = {
         "cigarettes": "сигареты",
+        "fooling": "валять дурака",
         "snus": "снюс",
         "sleep": "сон",
         "mood": "настроение",
@@ -343,9 +380,12 @@ def _snus_series(user: User, items, start: date, end: date) -> dict[date, float]
 
 PAIRS = [
     ("sleep", "cigarettes"),
+    ("sleep", "fooling"),
     ("sleep", "mood"),
     ("sleep", "wellbeing"),
     ("cigarettes", "mood"),
+    ("fooling", "mood"),
+    ("fooling", "cigarettes"),
     ("snus", "cigarettes"),
     ("snus", "mood"),
     ("caffeine", "sleep"),
@@ -358,6 +398,8 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
     parts = [f"📊 <b>Статистика</b>\n{format_date(start)} — {format_date(end)}"]
     if "cigarettes" in selected:
         parts.append(cigarette_stats(user, data["cigarettes"], start, end))
+    if "fooling" in selected:
+        parts.append(fooling_stats(user, data["fooling"], start, end))
     if "snus" in selected:
         parts.append(snus_stats(user, data["snus"], start, end))
     if "sleep" in selected:

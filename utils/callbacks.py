@@ -12,6 +12,7 @@ NAV_DAY = "n:d"
 NAV_BALANCE = "n:bal"
 
 ENTRY_CIG = "e:cig"
+ENTRY_FOOL = "e:fool"
 ENTRY_SNUS = "e:sns"
 ENTRY_SLEEP = "e:slp"
 ENTRY_MOOD = "e:md"

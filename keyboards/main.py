@@ -14,6 +14,7 @@ from utils.callbacks import (
     ENTRY_ALC,
     ENTRY_CAF,
     ENTRY_CIG,
+    ENTRY_FOOL,
     ENTRY_MOOD,
     ENTRY_NOTE,
     ENTRY_SLEEP,
@@ -53,6 +54,7 @@ def with_nav(builder: InlineKeyboardBuilder, back: str | None = None) -> InlineK
 def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🚬 Сигарета", ENTRY_CIG), _btn("🟢 Снюс", ENTRY_SNUS))
+    b.row(_btn("🤡 Валять дурака", ENTRY_FOOL))
     b.row(_btn("😴 Сон", ENTRY_SLEEP), _btn("🙂 Настроение", ENTRY_MOOD))
     b.row(_btn("❤️ Самочувствие", ENTRY_WB), _btn("☕ Кофеин", ENTRY_CAF))
     b.row(_btn("🍺 Алкоголь", ENTRY_ALC), _btn("🏃 Активность", ENTRY_ACT))
@@ -197,6 +199,7 @@ def stats_period_kb() -> InlineKeyboardMarkup:
 def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
     options = [
         ("cigarettes", "🚬 Сигареты"),
+        ("fooling", "🤡 Валять дурака"),
         ("snus", "🟢 Снюс"),
         ("sleep", "😴 Сон"),
         ("mood", "🙂 Настроение"),

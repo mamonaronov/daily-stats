@@ -72,6 +72,14 @@ class Cigarette:
 
 
 @dataclass(slots=True)
+class Fooling:
+    id: int
+    telegram_id: int
+    occurred_at: str
+    created_at: str
+
+
+@dataclass(slots=True)
 class SleepRecord:
     id: int
     telegram_id: int

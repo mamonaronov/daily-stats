@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-REQUIRED_DB_VERSION = 3
+REQUIRED_DB_VERSION = 4
 
 
 class ConfigError(RuntimeError):

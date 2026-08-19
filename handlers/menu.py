@@ -16,6 +16,7 @@ from utils.callbacks import (
     ENTRY_ALC,
     ENTRY_CAF,
     ENTRY_CIG,
+    ENTRY_FOOL,
     ENTRY_MOOD,
     ENTRY_NOTE,
     ENTRY_SLEEP,
@@ -82,6 +83,16 @@ async def cig_entry(cb: CallbackQuery, db_user: User | None) -> None:
         return
     await cb.answer()
     await safe_edit(cb.message, "🚬 Сигарета", now_or_time("cig"))
+
+
+@router.callback_query(F.data == ENTRY_FOOL)
+async def fool_entry(cb: CallbackQuery, db_user: User | None) -> None:
+    from handlers.common import require_writable
+
+    if await require_writable(cb, db_user) is None:
+        return
+    await cb.answer()
+    await safe_edit(cb.message, "🤡 Валять дурака", now_or_time("fool"))
 
 
 @router.callback_query(F.data == ENTRY_SNUS)

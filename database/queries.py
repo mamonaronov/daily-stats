@@ -21,6 +21,7 @@ from database.models import (
     Cigarette,
     CustomMetric,
     CustomValue,
+    Fooling,
     MoodRecord,
     Note,
     Reminder,
@@ -607,6 +608,29 @@ class Repo:
     async def list_cigarettes(self, telegram_id: int, start: str, end: str) -> list[Cigarette]:
         return await self._list_range("cigarettes", Cigarette, telegram_id, start, end)
 
+    # fooling
+    async def add_fooling(self, telegram_id: int, occurred_at: str) -> int:
+        return await self._insert(
+            "INSERT INTO fooling (telegram_id, occurred_at, created_at) VALUES (?, ?, ?)",
+            (telegram_id, occurred_at, to_iso(now_utc())),
+        )
+
+    async def get_fooling(self, item_id: int, telegram_id: int) -> Fooling | None:
+        return await self._get("fooling", Fooling, item_id, telegram_id)
+
+    async def update_fooling_time(self, item_id: int, telegram_id: int, occurred_at: str) -> None:
+        await self.conn.execute(
+            "UPDATE fooling SET occurred_at = ? WHERE id = ? AND telegram_id = ?",
+            (occurred_at, item_id, telegram_id),
+        )
+        await self.conn.commit()
+
+    async def delete_fooling(self, item_id: int, telegram_id: int) -> bool:
+        return await self._delete("fooling", item_id, telegram_id)
+
+    async def list_fooling(self, telegram_id: int, start: str, end: str) -> list[Fooling]:
+        return await self._list_range("fooling", Fooling, telegram_id, start, end)
+
     # sleep
     async def add_sleep(
         self,
@@ -1106,6 +1130,7 @@ class Repo:
     async def count_user_entries(self, telegram_id: int) -> int:
         tables = [
             "cigarettes",
+            "fooling",
             "sleep_records",
             "mood_records",
             "wellbeing_records",
@@ -1127,6 +1152,7 @@ class Repo:
     async def last_entry_at(self, telegram_id: int) -> str | None:
         parts = [
             "SELECT occurred_at AS ts FROM cigarettes WHERE telegram_id = ?",
+            "SELECT occurred_at AS ts FROM fooling WHERE telegram_id = ?",
             "SELECT COALESCE(wake_time, bedtime) AS ts FROM sleep_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM mood_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM wellbeing_records WHERE telegram_id = ?",
@@ -1139,7 +1165,7 @@ class Repo:
         sql = " UNION ALL ".join(parts)
         row = await self.fetchone(
             f"SELECT MAX(ts) AS ts FROM ({sql})",
-            tuple([telegram_id] * 9),
+            tuple([telegram_id] * 10),
         )
         return row["ts"] if row and row["ts"] else None
 
@@ -1147,6 +1173,7 @@ class Repo:
         total = 0
         specs = [
             ("cigarettes", "occurred_at"),
+            ("fooling", "occurred_at"),
             ("mood_records", "occurred_at"),
             ("wellbeing_records", "occurred_at"),
             ("caffeine_records", "occurred_at"),

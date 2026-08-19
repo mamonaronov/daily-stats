@@ -13,6 +13,7 @@ from handlers import (
     cigarettes,
     custom_metrics,
     day_review,
+    fooling,
     history,
     menu,
     mood,
@@ -35,6 +36,7 @@ def setup_routers() -> Router:
     root.include_router(admin_db.router)
     root.include_router(time_pick.router)
     root.include_router(cigarettes.router)
+    root.include_router(fooling.router)
     root.include_router(snus.router)
     root.include_router(sleep.router)
     root.include_router(mood.router)

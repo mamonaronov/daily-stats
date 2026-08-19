@@ -32,6 +32,7 @@ router = Router(name="history")
 
 KIND_MAP = {
     "cigarette": "cig",
+    "fooling": "fool",
     "snus_buy": "snb",
     "snus_end": "snf",
     "sleep_bed": "sb",
@@ -171,6 +172,7 @@ async def hist_open(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None
 async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
     loaders = {
         "cig": repo.get_cigarette,
+        "fool": repo.get_fooling,
         "snb": repo.get_snus_pack,
         "snf": repo.get_snus_pack,
         "sb": repo.get_sleep,
@@ -242,6 +244,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
     tid = user.telegram_id
     mapping = {
         "cig": repo.delete_cigarette,
+        "fool": repo.delete_fooling,
         "snb": repo.delete_snus_pack,
         "snf": repo.delete_snus_pack,
         "sb": repo.delete_sleep,

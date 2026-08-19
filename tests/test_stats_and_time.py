@@ -169,6 +169,38 @@ def test_cigarette_stats_text():
     assert "Средний интервал" in text
 
 
+def test_fooling_stats_text():
+    from database.models import Fooling, User
+    from services.statistics import fooling_stats
+
+    user = User(
+        telegram_id=5,
+        username=None,
+        first_name="A",
+        last_name=None,
+        registered_at="2026-08-01T00:00:00+00:00",
+        timezone="UTC",
+        status="active",
+        last_activity_at=None,
+        balance=10,
+        daily_price=1,
+        paid_until_date=None,
+        last_charge_date=None,
+        deleted_at=None,
+        bot_blocked_at=None,
+        created_at="2026-08-01T00:00:00+00:00",
+        updated_at="2026-08-01T00:00:00+00:00",
+    )
+    items = [
+        Fooling(1, 5, "2026-08-17T08:00:00+00:00", "2026-08-17T08:00:00+00:00"),
+        Fooling(2, 5, "2026-08-17T10:00:00+00:00", "2026-08-17T10:00:00+00:00"),
+    ]
+    text = fooling_stats(user, items, date(2026, 8, 17), date(2026, 8, 17))
+    assert "Всего: 2" in text
+    assert "Средний интервал" in text
+    assert "Валять дурака" in text
+
+
 def test_snus_stats_text():
     from database.models import SnusPack, User
     from services.statistics import snus_stats

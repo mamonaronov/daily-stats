@@ -338,7 +338,7 @@ async def admin_user_stats(cb: CallbackQuery, config: Config, repo: Repo) -> Non
         user,
         start,
         end,
-        ["cigarettes", "snus", "sleep", "mood", "wellbeing", "caffeine", "alcohol", "activity"],
+        ["cigarettes", "fooling", "snus", "sleep", "mood", "wellbeing", "caffeine", "alcohol", "activity"],
     )
     await cb.answer()
     await safe_edit(cb.message, text[:4000], admin_user_kb(telegram_id))
