@@ -1,0 +1,278 @@
+# Mihomo (Clash Meta) — headless client for Daily Stats bot.
+# Copy to /etc/mihomo/config.yaml. Mixed port 10808 matches docker-compose.override.yml.
+#
+# Install (Arch):
+#   yay -S mihomo
+#   sudo mkdir -p /etc/mihomo/providers
+#   sudo cp deploy/mihomo/config.yaml /etc/mihomo/config.yaml
+#   sudo cp deploy/mihomo/mihomo.service /etc/systemd/system/mihomo.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mihomo
+#
+# Add a subscription: duplicate a subN block, set unique name / url / path / prefix.
+# AUTO already includes every provider — do not edit proxy-groups.
+#
+# ~500 nodes: probes every 10 minutes. First download uses DIRECT; if the
+# subscription URL is blocked, save the YAML into path: once, later refreshes
+# can use proxy: AUTO.
+
+mixed-port: 10808
+bind-address: 127.0.0.1
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+keep-alive-interval: 30
+find-process-mode: off
+geodata-mode: false
+geo-auto-update: false
+global-client-fingerprint: chrome
+
+external-controller: 127.0.0.1:9090
+secret: "8176598712630598761082765412765789012506456781928765078960"
+
+profile:
+  store-selected: true
+  store-fake-ip: false
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: redir-host
+  nameserver:
+    - 8.8.8.8
+    - 1.1.1.1
+  fallback:
+    - tls://1.1.1.1
+    - tls://8.8.8.8
+  fallback-filter:
+    geoip: false
+
+proxy-providers:
+  sub1:
+    type: http
+    url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt"  #Черные Списки VLESS / Все конфиги
+    path: ./providers/sub1.yaml
+    interval: 900 # раз в 15 мин 3600-час
+    size-limit: 10485760
+    proxy: DIRECT
+    header:
+      User-Agent:
+        - "clash.meta"
+        - "mihomo"
+        - "clash-verge"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 600
+      timeout: 4000
+      lazy: false
+      expected-status: 204
+    override:
+      additional-prefix: "s1 | "
+      udp: true
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  sub2:
+    type: http
+    url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS%2BAll_RUS.txt" #Черные Списки Shadowsocks+All / Все конфиги
+    path: ./providers/sub2.yaml
+    interval: 3600
+    size-limit: 10485760
+    proxy: AUTO
+    header:
+      User-Agent:
+        - "clash.meta"
+        - "mihomo"
+        - "clash-verge"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 600
+      timeout: 4000
+      lazy: false
+      expected-status: 204
+    override:
+      additional-prefix: "s2 | "
+      udp: true
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  sub3:
+    type: http
+    url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt" #Черные Списки VLESS / 150 лучших для телефона
+    path: ./providers/sub3.yaml
+    interval: 3600
+    size-limit: 10485760
+    proxy: AUTO
+    header:
+      User-Agent:
+        - "clash.meta"
+        - "mihomo"
+        - "clash-verge"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 600
+      timeout: 4000
+      lazy: false
+      expected-status: 204
+    override:
+      additional-prefix: "s3 | "
+      udp: true
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  sub4:
+    type: http
+    url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-all.txt" #Белые Списки / CIDR / Все конфиги
+    path: ./providers/sub4.yaml
+    interval: 3600
+    size-limit: 10485760
+    proxy: AUTO
+    header:
+      User-Agent:
+        - "clash.meta"
+        - "mihomo"
+        - "clash-verge"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 600
+      timeout: 4000
+      lazy: false
+      expected-status: 204
+    override:
+      additional-prefix: "s4 | "
+      udp: true
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  sub5:
+    type: http
+    url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-SNI-RU-all.txt"  #Белые Списки / SNI
+    path: ./providers/sub5.yaml
+    interval: 3600
+    size-limit: 10485760
+    proxy: AUTO
+    header:
+      User-Agent:
+        - "clash.meta"
+        - "mihomo"
+        - "clash-verge"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 600
+      timeout: 4000
+      lazy: false
+      expected-status: 204
+    override:
+      additional-prefix: "s5 | "
+      udp: true
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  # sub6:
+  #   type: http
+  #   url: "REPLACE_ME_SUB6"
+  #   path: ./providers/sub6.yaml
+  #   interval: 3600
+  #   size-limit: 10485760
+  #   proxy: AUTO
+  #   header:
+  #     User-Agent:
+  #       - "clash.meta"
+  #       - "mihomo"
+  #       - "clash-verge"
+  #   health-check:
+  #     enable: true
+  #     url: https://www.gstatic.com/generate_204
+  #     interval: 600
+  #     timeout: 4000
+  #     lazy: false
+  #     expected-status: 204
+  #   override:
+  #     additional-prefix: "s6 | "
+  #     udp: true
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  # sub7:
+  #   type: http
+  #   url: "REPLACE_ME_SUB7"
+  #   path: ./providers/sub7.yaml
+  #   interval: 3600
+  #   size-limit: 10485760
+  #   proxy: AUTO
+  #   header:
+  #     User-Agent:
+  #       - "clash.meta"
+  #       - "mihomo"
+  #       - "clash-verge"
+  #   health-check:
+  #     enable: true
+  #     url: https://www.gstatic.com/generate_204
+  #     interval: 600
+  #     timeout: 4000
+  #     lazy: false
+  #     expected-status: 204
+  #   override:
+  #     additional-prefix: "s7 | "
+  #     udp: true
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  # sub8:
+  #   type: http
+  #   url: "REPLACE_ME_SUB8"
+  #   path: ./providers/sub8.yaml
+  #   interval: 3600
+  #   size-limit: 10485760
+  #   proxy: AUTO
+  #   header:
+  #     User-Agent:
+  #       - "clash.meta"
+  #       - "mihomo"
+  #       - "clash-verge"
+  #   health-check:
+  #     enable: true
+  #     url: https://www.gstatic.com/generate_204
+  #     interval: 600
+  #     timeout: 4000
+  #     lazy: false
+  #     expected-status: 204
+  #   override:
+  #     additional-prefix: "s8 | "
+  #     udp: true
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+proxy-groups:
+  - name: AUTO
+    type: url-test
+    include-all-providers: true
+    url: https://www.gstatic.com/generate_204
+    interval: 600
+    timeout: 4000
+    tolerance: 150
+    lazy: false
+    max-failed-times: 3
+    expected-status: 204
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  - name: FALLBACK
+    type: fallback
+    include-all-providers: true
+    url: https://www.gstatic.com/generate_204
+    interval: 600
+    timeout: 4000
+    lazy: false
+    max-failed-times: 3
+    expected-status: 204
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+
+  - name: PROXY
+    type: select
+    proxies:
+      - AUTO
+      - FALLBACK
+      - DIRECT
+
+rules:
+  - MATCH,AUTO
