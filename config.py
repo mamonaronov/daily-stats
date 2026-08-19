@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-REQUIRED_DB_VERSION = 2
+REQUIRED_DB_VERSION = 3
 
 
 class ConfigError(RuntimeError):
@@ -42,6 +42,13 @@ def _optional(name: str) -> str | None:
     return value or None
 
 
+def _bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True, slots=True)
 class Config:
     bot_token: str
@@ -61,6 +68,14 @@ class Config:
     log_level: str
     telegram_proxy_url: str | None
     required_db_version: int = REQUIRED_DB_VERSION
+    vpn_monitor_enabled: bool = True
+    vpn_monitor_interval_seconds: int = 10
+    vpn_monitor_timeout_seconds: int = 8
+    mihomo_api_url: str = "http://127.0.0.1:9090"
+    mihomo_api_secret: str | None = None
+    mihomo_proxy_group: str = "AUTO"
+    vpn_log_dir: Path | None = None
+    vpn_log_keep_days: int = 31
 
 
 def load_config() -> Config:
@@ -89,4 +104,13 @@ def load_config() -> Config:
         reminder_check_minutes=_int("REMINDER_CHECK_MINUTES", 1),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
         telegram_proxy_url=_optional("TELEGRAM_PROXY_URL"),
+        vpn_monitor_enabled=_bool("VPN_MONITOR_ENABLED", True),
+        vpn_monitor_interval_seconds=_int("VPN_MONITOR_INTERVAL_SECONDS", 10),
+        vpn_monitor_timeout_seconds=_int("VPN_MONITOR_TIMEOUT_SECONDS", 8),
+        mihomo_api_url=os.getenv("MIHOMO_API_URL", "http://127.0.0.1:9090").strip()
+        or "http://127.0.0.1:9090",
+        mihomo_api_secret=_optional("MIHOMO_API_SECRET"),
+        mihomo_proxy_group=os.getenv("MIHOMO_PROXY_GROUP", "AUTO").strip() or "AUTO",
+        vpn_log_dir=Path(os.getenv("VPN_LOG_DIR", str(db_path.parent / "vpn"))),
+        vpn_log_keep_days=_int("VPN_LOG_KEEP_DAYS", 31),
     )

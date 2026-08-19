@@ -24,6 +24,7 @@ from database.models import (
     SleepRecord,
     SnusPack,
     User,
+    VpnLatencySample,
     WellbeingRecord,
 )
 from utils.time import now_utc, to_iso
@@ -1093,3 +1094,110 @@ class Repo:
             )
             total += int(row["c"]) if row else 0
         return total
+
+    # --- vpn latency ---
+
+    async def insert_vpn_sample(
+        self,
+        measured_at: str,
+        ok: bool,
+        latency_ms: int | None,
+        node_name: str | None,
+        subscription: str | None,
+        error: str | None,
+    ) -> int:
+        cur = await self.conn.execute(
+            """
+            INSERT INTO vpn_latency_samples
+                (measured_at, ok, latency_ms, node_name, subscription, error)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (measured_at, 1 if ok else 0, latency_ms, node_name, subscription, error),
+        )
+        await self.conn.commit()
+        return int(cur.lastrowid)
+
+    async def latest_vpn_sample(self) -> VpnLatencySample | None:
+        row = await self.fetchone(
+            """
+            SELECT id, measured_at, ok, latency_ms, node_name, subscription, error
+            FROM vpn_latency_samples
+            ORDER BY measured_at DESC, id DESC
+            LIMIT 1
+            """
+        )
+        return VpnLatencySample(**dict(row)) if row else None
+
+    async def vpn_latency_summary(self, start: str, end: str) -> dict[str, Any]:
+        row = await self.fetchone(
+            """
+            SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END), 0) AS ok_count,
+                COALESCE(SUM(CASE WHEN latency_ms IS NOT NULL THEN 1 ELSE 0 END), 0) AS measured,
+                AVG(latency_ms) AS avg_ms,
+                MIN(latency_ms) AS min_ms,
+                MAX(latency_ms) AS max_ms,
+                COALESCE(SUM(CASE WHEN latency_ms < 100 THEN 1 ELSE 0 END), 0) AS lt_100,
+                COALESCE(SUM(CASE WHEN latency_ms >= 100 THEN 1 ELSE 0 END), 0) AS ge_100,
+                COALESCE(SUM(CASE WHEN latency_ms >= 500 THEN 1 ELSE 0 END), 0) AS ge_500,
+                COALESCE(SUM(CASE WHEN latency_ms >= 1000 THEN 1 ELSE 0 END), 0) AS ge_1000
+            FROM vpn_latency_samples
+            WHERE measured_at >= ? AND measured_at < ?
+            """,
+            (start, end),
+        )
+        total = int(row["total"]) if row else 0
+        ok_count = int(row["ok_count"]) if row else 0
+        measured = int(row["measured"]) if row else 0
+        p95_ms = None
+        if measured > 0:
+            p95_row = await self.fetchone(
+                """
+                SELECT latency_ms FROM vpn_latency_samples
+                WHERE latency_ms IS NOT NULL
+                  AND measured_at >= ? AND measured_at < ?
+                ORDER BY latency_ms
+                LIMIT 1 OFFSET (
+                    SELECT CAST((COUNT(*) - 1) * 0.95 AS INTEGER)
+                    FROM vpn_latency_samples
+                    WHERE latency_ms IS NOT NULL
+                      AND measured_at >= ? AND measured_at < ?
+                )
+                """,
+                (start, end, start, end),
+            )
+            p95_ms = p95_row["latency_ms"] if p95_row else None
+        return {
+            "total": total,
+            "ok_count": ok_count,
+            "fail_count": total - ok_count,
+            "measured": measured,
+            "avg_ms": row["avg_ms"] if row else None,
+            "min_ms": row["min_ms"] if row else None,
+            "max_ms": row["max_ms"] if row else None,
+            "p95_ms": p95_ms,
+            "lt_100": int(row["lt_100"]) if row else 0,
+            "ge_100": int(row["ge_100"]) if row else 0,
+            "ge_500": int(row["ge_500"]) if row else 0,
+            "ge_1000": int(row["ge_1000"]) if row else 0,
+        }
+
+    async def vpn_top_nodes(self, start: str, end: str, limit: int = 8) -> list[dict[str, Any]]:
+        rows = await self.fetchall(
+            """
+            SELECT
+                node_name,
+                subscription,
+                COUNT(*) AS samples,
+                AVG(CASE WHEN ok = 1 THEN latency_ms END) AS avg_ms,
+                SUM(CASE WHEN ok = 1 THEN 0 ELSE 1 END) AS fail_count
+            FROM vpn_latency_samples
+            WHERE measured_at >= ? AND measured_at < ?
+            GROUP BY node_name, subscription
+            ORDER BY samples DESC
+            LIMIT ?
+            """,
+            (start, end, limit),
+        )
+        return [dict(r) for r in rows]

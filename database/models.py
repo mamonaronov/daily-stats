@@ -199,6 +199,17 @@ class Reminder:
 
 
 @dataclass(slots=True)
+class VpnLatencySample:
+    id: int
+    measured_at: str
+    ok: int
+    latency_ms: int | None
+    node_name: str | None
+    subscription: str | None
+    error: str | None
+
+
+@dataclass(slots=True)
 class TimelineItem:
     kind: str
     id: int

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import timedelta
 
 from aiogram import F, Router
@@ -18,6 +19,7 @@ from keyboards.main import (
     admin_period_kb,
     admin_root_kb,
     admin_user_kb,
+    admin_vpn_kb,
     cancel_kb,
     skip_comment_kb,
     users_page_kb,
@@ -27,7 +29,7 @@ from services import balance as balance_svc
 from services.statistics import render_stats
 from states.diary import AdminSG
 from utils.callbacks import NAV_ADMIN
-from utils.formatting import balance_runway, money
+from utils.formatting import balance_runway, money, seconds_human
 from utils.telegram import safe_edit
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
 
@@ -416,7 +418,10 @@ async def admin_cfg(cb: CallbackQuery, config: Config) -> None:
         f"Напоминание: за {config.reminder_hours_before_sleep} ч до сна\n"
         f"Fallback: {config.reminder_fallback_time}\n"
         f"Контакт: {config.owner_contact}\n"
-        f"Версия БД: {config.required_db_version}"
+        f"Версия БД: {config.required_db_version}\n"
+        f"VPN-монитор: {'вкл' if config.vpn_monitor_enabled else 'выкл'}"
+        f" / {config.vpn_monitor_interval_seconds} с\n"
+        f"Mihomo API: {config.mihomo_api_url} · группа {config.mihomo_proxy_group}"
     )
     await cb.answer()
     await safe_edit(cb.message, text, admin_root_kb())
@@ -435,3 +440,105 @@ async def admin_balances(cb: CallbackQuery, config: Config, repo: Repo) -> None:
         b.row(_btn(user.display_name, f"ad:u:{user.telegram_id}"))
     await cb.answer()
     await safe_edit(cb.message, "\n".join(lines), with_nav(b, NAV_ADMIN))
+
+
+VPN_PERIODS = {
+    "1h": (timedelta(hours=1), "последний час"),
+    "24h": (timedelta(hours=24), "последние сутки"),
+    "7d": (timedelta(days=7), "последнюю неделю"),
+    "30d": (timedelta(days=30), "последний месяц"),
+}
+
+
+def _ms(value) -> str:
+    if value is None:
+        return "—"
+    return str(int(round(value)))
+
+
+def _bucket_line(label: str, count: int, measured: int, interval: int) -> str:
+    pct = f"{(count / measured * 100):.1f}%".replace(".", ",") if measured else "—"
+    return f"{label}: {seconds_human(count * interval)} ({pct})"
+
+
+async def _vpn_report(repo: Repo, config: Config, period_key: str) -> str:
+    from services.vpn_monitor import fetch_auto_now, parse_node, subscription_label
+
+    delta, title = VPN_PERIODS.get(period_key, VPN_PERIODS["24h"])
+    end = now_utc()
+    start = end - delta
+    latest = await repo.latest_vpn_sample()
+    summary = await repo.vpn_latency_summary(to_iso(start), to_iso(end))
+    top = await repo.vpn_top_nodes(to_iso(start), to_iso(end), limit=5)
+    live_now, live_err = await fetch_auto_now(config)
+    live_node, live_sub = parse_node(live_now)
+    interval = max(1, config.vpn_monitor_interval_seconds)
+    measured = summary["measured"]
+
+    lines = ["🛡 <b>VPN / задержка бота</b>", ""]
+    if live_node:
+        lines.append(f"Сейчас AUTO: <code>{html.escape(live_node)}</code>")
+        lines.append(f"Подписка: {html.escape(subscription_label(live_sub))} ({html.escape(live_sub or '—')})")
+    elif live_err:
+        lines.append(f"Mihomo сейчас: {html.escape(live_err)}")
+    else:
+        lines.append("Mihomo сейчас: нет данных")
+
+    if latest:
+        latest_ms = _ms(latest.latency_ms)
+        status = "ok" if latest.ok else "ошибка"
+        lines.append(
+            f"Последний замер: {latest_ms} мс · {status} · {html.escape(latest.measured_at[11:19])} UTC"
+        )
+        if latest.error:
+            lines.append(f"Ошибка замера: {html.escape(latest.error)}")
+    else:
+        lines.append("Замеров ещё нет — первый тик в течение ~10 с.")
+
+    total = summary["total"]
+    fail = summary["fail_count"]
+    fail_pct = f"{(fail / total * 100):.1f}%".replace(".", ",") if total else "—"
+    lines.extend(
+        [
+            "",
+            f"<b>За {title}</b>",
+            f"Замеров: {total} · ошибок: {fail} ({fail_pct})",
+            f"Средняя: {_ms(summary['avg_ms'])} мс",
+            f"Минимум: {_ms(summary['min_ms'])} мс",
+            f"Максимум: {_ms(summary['max_ms'])} мс",
+            f"p95: {_ms(summary['p95_ms'])} мс",
+            "",
+            f"Время в диапазонах (тик {interval} с):",
+            _bucket_line("&lt; 100 мс", summary["lt_100"], measured, interval),
+            _bucket_line("&gt; 100 мс", summary["ge_100"], measured, interval),
+            _bucket_line("&gt; 500 мс", summary["ge_500"], measured, interval),
+            _bucket_line("&gt; 1 с", summary["ge_1000"], measured, interval),
+        ]
+    )
+    if top:
+        lines.append("")
+        lines.append("Топ нод:")
+        for row in top:
+            name = html.escape(row["node_name"] or "—")
+            sub = html.escape(subscription_label(row["subscription"]))
+            avg = _ms(row["avg_ms"])
+            fails = int(row["fail_count"] or 0)
+            fail_bit = f", ошибок {fails}" if fails else ""
+            lines.append(f"• <code>{name}</code> — {int(row['samples'])} раз, avg {avg} мс ({sub}{fail_bit})")
+    if not config.vpn_monitor_enabled:
+        lines.append("")
+        lines.append("Монитор выключен (VPN_MONITOR_ENABLED=0).")
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data == "ad:vpn")
+@router.callback_query(F.data.startswith("adv:"))
+async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    period = cb.data.split(":", 1)[1] if cb.data.startswith("adv:") else "24h"
+    if period not in VPN_PERIODS:
+        period = "24h"
+    text = await _vpn_report(repo, config, period)
+    await cb.answer()
+    await safe_edit(cb.message, text, admin_vpn_kb(period))

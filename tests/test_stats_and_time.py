@@ -73,6 +73,16 @@ def test_duration_human_days():
     assert duration_human(45) == "45 мин"
 
 
+def test_seconds_human():
+    from utils.formatting import seconds_human
+
+    assert seconds_human(0) == "0 с"
+    assert seconds_human(40) == "40 с"
+    assert seconds_human(90) == "1 мин 30 с"
+    assert seconds_human(3 * 3600 + 12 * 60) == "3 ч 12 мин"
+    assert seconds_human(26 * 3600) == "1 д 2 ч"
+
+
 def test_hours_kb_includes_past_hours_and_date_shortcuts():
     from keyboards.main import hours_kb
 

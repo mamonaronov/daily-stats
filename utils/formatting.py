@@ -101,6 +101,27 @@ def duration_human(minutes: int | None) -> str:
     return " ".join(parts)
 
 
+def seconds_human(seconds: int | float | None) -> str:
+    if seconds is None:
+        return "—"
+    total = max(0, int(round(seconds)))
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days} д")
+    if hours:
+        parts.append(f"{hours} ч")
+    if minutes:
+        parts.append(f"{minutes} мин")
+    if secs and not days:
+        parts.append(f"{secs} с")
+    if not parts:
+        return "0 с"
+    return " ".join(parts)
+
+
 def score_text(score: int) -> str:
     return f"{SCORE_EMOJI.get(score, '')} {SCORE_LABELS.get(score, str(score))}".strip()
 

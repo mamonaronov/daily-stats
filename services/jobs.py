@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
@@ -61,6 +61,27 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         max_instances=1,
         coalesce=True,
     )
+    if config.vpn_monitor_enabled:
+        from services.vpn_monitor import VpnMonitor
+
+        monitor = VpnMonitor(config)
+        scheduler.add_job(
+            vpn_monitor_job,
+            "interval",
+            seconds=max(5, config.vpn_monitor_interval_seconds),
+            id="vpn_monitor",
+            replace_existing=True,
+            kwargs={"monitor": monitor, "bot": bot, "repo": repo},
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=max(1, config.vpn_monitor_interval_seconds - 1),
+            next_run_time=datetime.now(timezone.utc),
+        )
+        logger.info(
+            "VPN monitor enabled interval=%ss group=%s",
+            config.vpn_monitor_interval_seconds,
+            config.mihomo_proxy_group,
+        )
 
 
 async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
@@ -138,3 +159,10 @@ async def cleanup_job(repo: Repo) -> None:
         await repo.cleanup_callbacks(to_iso(threshold))
     except Exception:
         logger.exception("Callback cleanup failed")
+
+
+async def vpn_monitor_job(monitor, bot: Bot, repo: Repo) -> None:
+    try:
+        await monitor.tick(bot, repo)
+    except Exception:
+        logger.exception("VPN monitor tick failed")

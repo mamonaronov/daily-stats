@@ -299,7 +299,8 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("👥 Пользователи", "ad:users"), _btn("🔎 Поиск", "ad:search"))
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
-    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("⚙️ Настройки", "ad:cfg"))
+    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🛡 VPN", "ad:vpn"))
+    b.row(_btn("⚙️ Настройки", "ad:cfg"))
     return with_nav(b, NAV_MAIN)
 
 
@@ -330,5 +331,13 @@ def users_page_kb(offset: int, has_next: bool) -> InlineKeyboardMarkup:
 def admin_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "ads:today"), _btn("7 дней", "ads:7"), _btn("30 дней", "ads:30"))
+    b.row(_btn("👑 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_vpn_kb(period: str = "24h") -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    labels = (("1h", "1 ч"), ("24h", "сутки"), ("7d", "неделя"), ("30d", "месяц"))
+    b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}") for key, label in labels])
     b.row(_btn("👑 Админка", NAV_ADMIN))
     return b.as_markup()
