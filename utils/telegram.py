@@ -60,3 +60,7 @@ async def safe_send(
 
 def png_file(data: bytes, filename: str = "chart.png") -> BufferedInputFile:
     return BufferedInputFile(data, filename=filename)
+
+
+def text_file(data: str, filename: str = "log.txt") -> BufferedInputFile:
+    return BufferedInputFile(data.encode("utf-8"), filename=filename)

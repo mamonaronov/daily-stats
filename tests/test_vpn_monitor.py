@@ -6,10 +6,13 @@ from types import SimpleNamespace
 
 from services.vpn_monitor import (
     append_vpn_log,
+    collect_vpn_log_entries,
+    format_vpn_log,
     parse_node,
     prune_vpn_logs,
     sanitize_error,
     subscription_label,
+    vpn_samples_as_dicts,
 )
 
 
@@ -64,6 +67,74 @@ def test_vpn_log_append_and_prune(tmp_path):
     assert removed == 1
     assert not old.exists()
     assert recent.exists()
+
+
+def test_collect_vpn_log_entries_filters_last_day(tmp_path):
+    log_dir = tmp_path / "vpn"
+    append_vpn_log(
+        log_dir,
+        {
+            "measured_at": "2026-08-18T19:00:00+00:00",
+            "ok": True,
+            "latency_ms": 90,
+            "node_name": "old",
+            "subscription": "sub1",
+            "error": None,
+        },
+    )
+    append_vpn_log(
+        log_dir,
+        {
+            "measured_at": "2026-08-18T20:10:00+00:00",
+            "ok": True,
+            "latency_ms": 110,
+            "node_name": "s3 | Cyprus",
+            "subscription": "sub3",
+            "error": None,
+        },
+    )
+    append_vpn_log(
+        log_dir,
+        {
+            "measured_at": "2026-08-19T10:00:00+00:00",
+            "ok": False,
+            "latency_ms": 8000,
+            "node_name": "s1 | NL",
+            "subscription": "sub1",
+            "error": "timeout",
+        },
+    )
+    append_vpn_log(
+        log_dir,
+        {
+            "measured_at": "2026-08-19T20:10:00+00:00",
+            "ok": True,
+            "latency_ms": 80,
+            "node_name": "too-new",
+            "subscription": "sub2",
+            "error": None,
+        },
+    )
+    start, end = "2026-08-18T20:06:00+00:00", "2026-08-19T20:06:00+00:00"
+    entries = collect_vpn_log_entries(log_dir, start, end)
+    assert [row["node_name"] for row in entries] == ["s3 | Cyprus", "s1 | NL"]
+    text = format_vpn_log(entries, start, end)
+    assert "samples: 2  ok: 1  fail: 1" in text
+    assert "FAIL" in text
+    assert "timeout" in text
+    assert "too-new" not in text
+    assert text.endswith("\n")
+
+
+async def test_list_vpn_samples_window(repo):
+    await repo.insert_vpn_sample("2026-08-18T19:00:00+00:00", True, 50, "old", "sub1", None)
+    await repo.insert_vpn_sample("2026-08-18T21:00:00+00:00", True, 120, "keep", "sub3", None)
+    await repo.insert_vpn_sample("2026-08-19T21:00:00+00:00", False, 8000, "new", "sub1", "timeout")
+    rows = await repo.list_vpn_samples("2026-08-18T20:00:00+00:00", "2026-08-19T20:00:00+00:00")
+    assert [row.node_name for row in rows] == ["keep"]
+    payload = vpn_samples_as_dicts(rows)
+    assert payload[0]["ok"] is True
+    assert payload[0]["subscription"] == "sub3"
 
 
 async def test_vpn_sample_summary(repo):
@@ -220,4 +291,109 @@ def test_admin_vpn_kb_callback_limit():
     kb = admin_vpn_kb("24h")
     datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "adv:24h" in datas
+    assert "adv:5m" in datas
+    assert "ad:vpnlog" in datas
     assert all(len(data.encode()) <= 64 for data in datas)
+
+
+def test_short_node_name():
+    from services.vpn_charts import short_node_name
+
+    assert short_node_name("s3 | 🇨🇾yprus, Nicosia | [BL]-01") == "s3 · [BL]-01"
+    assert short_node_name(None) == "нет ноды"
+    assert short_node_name("DIRECT") == "DIRECT"
+
+
+def test_latency_central_tendency_mode_and_median():
+    from services.vpn_charts import latency_central_tendency
+
+    stats = latency_central_tendency([10, 20, 20, 30, 100])
+    assert stats is not None
+    assert stats.mean == 36
+    assert stats.median == 20
+    assert stats.mode == 20
+    assert stats.mode_binned is False
+    assert stats.mode_count == 2
+
+
+def test_latency_mode_bins_when_all_unique():
+    from services.vpn_charts import latency_central_tendency
+
+    stats = latency_central_tendency([11, 12, 28, 29, 91])
+    assert stats is not None
+    assert stats.mode_binned is True
+    assert stats.mode in {10, 30}
+
+
+def test_timeline_down_has_nan_ping_but_keeps_time():
+    import math
+    from datetime import timezone
+
+    from database.models import VpnLatencySample
+    from services.vpn_charts import samples_to_timeline
+
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 120, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 0, 8000, "s3 | A | n1", "sub3", "timeout"),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 1, 90, "s1 | B | n2", "sub1", None),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    assert points[0].ping_ms == 120
+    assert math.isnan(points[1].ping_ms)
+    assert points[1].down is True
+    assert points[1].time.tzinfo == timezone.utc
+    assert points[1].time.hour == 10
+    assert points[1].time.second == 10
+    assert points[2].ping_ms == 90
+    assert points[1].node == "s3 · n1"
+
+
+def test_downsample_keeps_outages():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import downsample_timeline, samples_to_timeline
+
+    samples = []
+    for i in range(50):
+        ok = i != 17
+        samples.append(
+            VpnLatencySample(
+                i,
+                f"2026-08-19T10:00:{i:02d}+00:00",
+                1 if ok else 0,
+                100 if ok else 8000,
+                "n",
+                "sub1",
+                None if ok else "timeout",
+            )
+        )
+    points = downsample_timeline(samples_to_timeline(samples, color_by_sub=False), max_ok=8, max_down=8)
+    assert any(point.down for point in points)
+    assert any(not point.down for point in points)
+
+
+def test_render_vpn_charts_png_and_down_only():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import render_vpn_charts
+
+    mixed = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 120, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 0, 8000, "s3 | A | n1", "sub3", "timeout"),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 1, 90, "s1 | B | n2", "sub1", None),
+        VpnLatencySample(4, "2026-08-19T10:00:30+00:00", 1, 90, "s1 | B | n2", "sub1", None),
+        VpnLatencySample(5, "2026-08-19T10:00:40+00:00", 1, 110, "s1 | B | n2", "sub1", None),
+    ]
+    charts = render_vpn_charts(mixed, "последние 5 минут")
+    assert len(charts) == 2
+    assert "медиана" in charts[0][0]
+    assert "Пинг по времени" in charts[1][0]
+    for _caption, png in charts:
+        assert png.startswith(b"\x89PNG")
+
+    down_only = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 0, None, None, None, "timeout"),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 0, None, None, None, "timeout"),
+    ]
+    only_time = render_vpn_charts(down_only, "последние 5 минут")
+    assert len(only_time) == 1
+    assert "Пинг по времени" in only_time[0][0]
+    assert only_time[0][1].startswith(b"\x89PNG")

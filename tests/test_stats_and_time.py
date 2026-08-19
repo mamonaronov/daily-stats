@@ -83,6 +83,49 @@ def test_seconds_human():
     assert seconds_human(26 * 3600) == "1 д 2 ч"
 
 
+def test_host_uptime_seconds(tmp_path):
+    from utils.uptime import host_uptime_seconds
+
+    path = tmp_path / "uptime"
+    path.write_text("12345.67 88888.00\n", encoding="utf-8")
+    assert host_uptime_seconds(path) == 12345.67
+    assert host_uptime_seconds(tmp_path / "missing") is None
+    bad = tmp_path / "bad"
+    bad.write_text("not-a-number\n", encoding="utf-8")
+    assert host_uptime_seconds(bad) is None
+
+
+def test_process_uptime_from_stat():
+    from utils.uptime import process_uptime_from_stat
+
+    fields = ["0"] * 20
+    fields[19] = "200"
+    stat = "1 (python) " + " ".join(fields)
+    assert process_uptime_from_stat(stat, 30.0, 100) == 28.0
+
+
+def test_uptime_report_lines(monkeypatch):
+    import utils.uptime as uptime
+
+    monkeypatch.setattr(uptime, "bot_uptime_seconds", lambda: 90)
+    monkeypatch.setattr(uptime, "host_uptime_seconds", lambda: 26 * 3600)
+    lines = uptime.uptime_report_lines()
+    assert lines[0] == "Аптайм бота: 1 мин 30 с"
+    assert lines[1] == "Аптайм сервера: 1 д 2 ч"
+
+
+def test_mark_bot_started(monkeypatch):
+    import utils.uptime as uptime
+
+    clock = {"now": 10.0}
+    monkeypatch.setattr(uptime.time, "monotonic", lambda: clock["now"])
+    uptime._started_monotonic = None
+    uptime.mark_bot_started()
+    clock["now"] = 100.0
+    assert uptime.bot_uptime_seconds() == 90.0
+    uptime._started_monotonic = None
+
+
 def test_hours_kb_includes_past_hours_and_date_shortcuts():
     from keyboards.main import hours_kb
 

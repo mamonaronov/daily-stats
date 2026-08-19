@@ -1134,6 +1134,18 @@ class Repo:
         await self.conn.commit()
         return int(cur.lastrowid)
 
+    async def list_vpn_samples(self, start: str, end: str) -> list[VpnLatencySample]:
+        rows = await self.fetchall(
+            """
+            SELECT id, measured_at, ok, latency_ms, node_name, subscription, error
+            FROM vpn_latency_samples
+            WHERE measured_at >= ? AND measured_at < ?
+            ORDER BY measured_at ASC, id ASC
+            """,
+            (start, end),
+        )
+        return [VpnLatencySample(**dict(row)) for row in rows]
+
     async def latest_vpn_sample(self) -> VpnLatencySample | None:
         row = await self.fetchone(
             """

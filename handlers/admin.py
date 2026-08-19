@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import html
+import logging
 from datetime import timedelta
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InputMediaPhoto, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import Config
@@ -27,13 +28,24 @@ from keyboards.main import (
 )
 from services import balance as balance_svc
 from services.statistics import render_stats
+from services.vpn_charts import build_vpn_charts
+from services.vpn_monitor import (
+    collect_vpn_log_entries,
+    fetch_auto_now,
+    format_vpn_log,
+    parse_node,
+    subscription_label,
+    vpn_samples_as_dicts,
+)
 from states.diary import AdminSG
 from utils.callbacks import NAV_ADMIN
 from utils.formatting import balance_runway, money, seconds_human
-from utils.telegram import safe_edit
+from utils.telegram import png_file, safe_edit, safe_send, text_file
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
+from utils.uptime import uptime_report_lines
 
 router = Router(name="admin")
+logger = logging.getLogger(__name__)
 
 
 async def _owner(event: CallbackQuery | Message, config: Config) -> bool:
@@ -443,6 +455,7 @@ async def admin_balances(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 
 
 VPN_PERIODS = {
+    "5m": (timedelta(minutes=5), "последние 5 минут"),
     "1h": (timedelta(hours=1), "последний час"),
     "24h": (timedelta(hours=24), "последние сутки"),
     "7d": (timedelta(days=7), "последнюю неделю"),
@@ -465,11 +478,9 @@ def _bucket_line(label: str, count: int, measured: int, interval: int) -> str:
     return f"{label}: {seconds_human(count * interval)} ({pct})"
 
 
-async def _vpn_report(repo: Repo, config: Config, period_key: str) -> str:
-    from services.vpn_monitor import fetch_auto_now, parse_node, subscription_label
-
+async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None) -> str:
     delta, title = VPN_PERIODS.get(period_key, VPN_PERIODS["24h"])
-    end = now_utc()
+    end = now or now_utc()
     start = end - delta
     latest = await repo.latest_vpn_sample()
     summary = await repo.vpn_latency_summary(to_iso(start), to_iso(end))
@@ -480,6 +491,8 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str) -> str:
     measured = summary["measured"]
 
     lines = ["🛡 <b>VPN / задержка бота</b>", ""]
+    lines.extend(uptime_report_lines())
+    lines.append("")
     if live_node:
         lines.append(f"Сейчас AUTO: <code>{html.escape(live_node)}</code>")
         lines.append(f"Подписка: {html.escape(subscription_label(live_sub))} ({html.escape(live_sub or '—')})")
@@ -556,6 +569,51 @@ async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     period = cb.data.split(":", 1)[1] if cb.data.startswith("adv:") else "24h"
     if period not in VPN_PERIODS:
         period = "24h"
-    text = await _vpn_report(repo, config, period)
+    now = now_utc()
+    delta, title = VPN_PERIODS[period]
+    start = now - delta
+    text = await _vpn_report(repo, config, period, now=now)
     await cb.answer()
     await safe_edit(cb.message, text, admin_vpn_kb(period))
+    if cb.message is None:
+        return
+    try:
+        charts = await build_vpn_charts(repo, to_iso(start), to_iso(now), title)
+    except Exception:
+        logger.exception("VPN charts failed")
+        return
+    if not charts:
+        return
+    media = [
+        InputMediaPhoto(media=png_file(png, f"vpn-{index}.png"), caption=caption[:1024])
+        for index, (caption, png) in enumerate(charts)
+    ]
+    await safe_send(cb.message.answer_media_group, media)
+
+
+@router.callback_query(F.data == "ad:vpnlog")
+async def admin_vpn_log(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    end = now_utc()
+    start = end - timedelta(hours=24)
+    start_iso, end_iso = to_iso(start), to_iso(end)
+    db_samples = await repo.list_vpn_samples(start_iso, end_iso)
+    payload = vpn_samples_as_dicts(db_samples)
+    if not payload:
+        payload = collect_vpn_log_entries(config.vpn_log_dir, start_iso, end_iso)
+    if not payload:
+        await cb.answer("За последние сутки логов нет", show_alert=True)
+        return
+    text = format_vpn_log(payload, start_iso, end_iso)
+    filename = f"vpn-24h-{end.strftime('%Y%m%d-%H%M')}.txt"
+    await cb.answer("Отправляю файл")
+    if cb.message is None:
+        return
+    sent = await safe_send(
+        cb.message.answer_document,
+        text_file(text, filename),
+        caption=f"VPN-логи за последние сутки · {len(payload)} записей",
+    )
+    if sent is None:
+        await safe_edit(cb.message, "Не удалось отправить файл логов.", admin_vpn_kb())

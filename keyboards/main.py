@@ -337,7 +337,12 @@ def admin_period_kb() -> InlineKeyboardMarkup:
 
 def admin_vpn_kb(period: str = "24h") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    labels = (("1h", "1 ч"), ("24h", "сутки"), ("7d", "неделя"), ("30d", "месяц"))
-    b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}") for key, label in labels])
+    rows = (
+        (("5m", "5 мин"), ("1h", "1 ч"), ("24h", "сутки")),
+        (("7d", "неделя"), ("30d", "месяц")),
+    )
+    for labels in rows:
+        b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}") for key, label in labels])
+    b.row(_btn("📄 Логи за сутки", "ad:vpnlog"))
     b.row(_btn("👑 Админка", NAV_ADMIN))
     return b.as_markup()

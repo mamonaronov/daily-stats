@@ -15,6 +15,7 @@ import aiohttp
 from aiogram import Bot
 
 from config import Config
+from database.models import VpnLatencySample
 from database.queries import Repo
 from utils.logging import TOKEN_RE, log_extra
 from utils.time import now_utc, to_iso
@@ -66,6 +67,90 @@ def append_vpn_log(log_dir: Path, payload: dict) -> None:
     path = log_dir / f"{day}.ndjson"
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _iso_in_window(value: str | None, start: str, end: str) -> bool:
+    if not value:
+        return False
+    return start <= value < end
+
+
+def collect_vpn_log_entries(log_dir: Path | None, start: str, end: str) -> list[dict]:
+    """Load ndjson samples whose measured_at is in [start, end)."""
+    if log_dir is None or not log_dir.exists():
+        return []
+    try:
+        start_day = date.fromisoformat(start[:10])
+        end_day = date.fromisoformat(end[:10])
+    except ValueError:
+        start_day = date.today() - timedelta(days=1)
+        end_day = date.today()
+    if end_day < start_day:
+        start_day, end_day = end_day, start_day
+    entries: list[dict] = []
+    day = start_day
+    while day <= end_day:
+        path = log_dir / f"{day.isoformat()}.ndjson"
+        day += timedelta(days=1)
+        if not path.is_file():
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            logger.exception("VPN log read failed: %s", path)
+            continue
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if _iso_in_window(str(payload.get("measured_at") or ""), start, end):
+                entries.append(payload)
+    return entries
+
+
+def format_vpn_log(samples: list[dict], start: str, end: str) -> str:
+    ok = sum(1 for sample in samples if sample.get("ok") in (True, 1))
+    fail = len(samples) - ok
+    lines = [
+        f"VPN logs  {start} .. {end}",
+        f"samples: {len(samples)}  ok: {ok}  fail: {fail}",
+        "",
+    ]
+    for sample in samples:
+        ts = str(sample.get("measured_at") or "—")
+        status = "ok" if sample.get("ok") in (True, 1) else "FAIL"
+        ms = sample.get("latency_ms")
+        ms_s = f"{ms}ms" if ms is not None else "—"
+        sub = str(sample.get("subscription") or "—")
+        node = str(sample.get("node_name") or "—")
+        error = sample.get("error")
+        line = f"{ts}  {status:<4}  {ms_s:>7}  {sub:<8}  {node}"
+        if error:
+            line += f"  {error}"
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def vpn_samples_as_dicts(samples: list[VpnLatencySample]) -> list[dict]:
+    result: list[dict] = []
+    for sample in samples:
+        result.append(
+            {
+                "measured_at": sample.measured_at,
+                "ok": bool(sample.ok),
+                "latency_ms": sample.latency_ms,
+                "node_name": sample.node_name,
+                "subscription": sample.subscription,
+                "error": sample.error,
+            }
+        )
+    return result
 
 
 def prune_vpn_logs(log_dir: Path, keep_days: int) -> int:

@@ -29,6 +29,7 @@ from services.jobs import setup_scheduler
 from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
 from utils.logging import setup_logging
+from utils.uptime import mark_bot_started
 
 logger = logging.getLogger("bot")
 
@@ -83,6 +84,7 @@ async def run() -> None:
         raise SystemExit(1) from exc
 
     setup_logging(config.log_level)
+    mark_bot_started()
     logger.info("Starting daily-stats bot")
 
     try:
