@@ -42,4 +42,4 @@ def test_bot_session_socks5():
     assert isinstance(session, AiohttpSession)
     assert session.proxy is not None
     assert session.proxy == "socks5://127.0.0.1:11808"
-    assert session.timeout == 30.0
+    assert session.timeout == 60.0

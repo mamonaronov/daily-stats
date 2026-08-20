@@ -21,6 +21,12 @@ class _Session:
 class _Bot:
     def __init__(self) -> None:
         self.session = _Session()
+        self._me = None
+
+    async def me(self):
+        if self._me is None:
+            self._me = await self.get_me()
+        return self._me
 
 
 class _Dispatcher:
@@ -31,8 +37,9 @@ class _Dispatcher:
     def resolve_used_update_types(self) -> list[str]:
         return []
 
-    async def start_polling(self, bot, allowed_updates=None) -> None:
+    async def start_polling(self, bot, allowed_updates=None, **kwargs) -> None:
         self.calls += 1
+        self.kwargs = kwargs
         if self.calls <= self.failures:
             raise _network_error()
 
@@ -42,9 +49,14 @@ async def test_polling_retries_telegram_network_error():
 
     dp = _Dispatcher(failures=2)
     bot = _Bot()
+    session = bot.session
     await _start_polling_with_retry(dp, bot, asyncio.Event(), initial_delay=0.01, max_delay=0.02)
     assert dp.calls == 3
-    assert bot.session.closed == 2
+    assert session.closed == 1
+    assert bot.session is not session
+    assert dp.kwargs.get("close_bot_session") is False
+    assert dp.kwargs.get("handle_signals") is False
+    await bot.session.close()
 
 
 async def test_polling_retry_stops_when_asked():
@@ -70,8 +82,86 @@ async def test_polling_retry_aborts_during_backoff():
         stop.set()
 
     asyncio.create_task(cancel())
+    session = bot.session
     await _start_polling_with_retry(dp, bot, stop, initial_delay=1.0, max_delay=1.0)
     assert dp.calls == 1
+    assert session.closed == 1
+    await bot.session.close()
+
+
+async def test_wait_until_telegram_ready_succeeds():
+    from bot import _wait_until_telegram_ready
+
+    class ReadyBot(_Bot):
+        async def get_me(self):
+            return object()
+
+    bot = ReadyBot()
+    assert await _wait_until_telegram_ready(bot, asyncio.Event(), None, attempt_timeout=0.2)
+    assert bot.session.closed == 0
+
+
+async def test_wait_until_telegram_ready_retries_then_succeeds(monkeypatch):
+    from bot import _wait_until_telegram_ready
+
+    class FlakyBot(_Bot):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def get_me(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise _network_error()
+            return object()
+
+    recycled: list[str | None] = []
+
+    async def fake_recycle(bot, proxy_url):
+        recycled.append(proxy_url)
+        await bot.session.close()
+
+    monkeypatch.setattr("bot._recycle_bot_session", fake_recycle)
+    bot = FlakyBot()
+    ok = await _wait_until_telegram_ready(
+        bot,
+        asyncio.Event(),
+        "socks5://127.0.0.1:11808",
+        attempt_timeout=0.2,
+        initial_delay=0.01,
+        max_delay=0.02,
+    )
+    assert ok is True
+    assert bot.calls == 2
+    assert recycled == ["socks5://127.0.0.1:11808"]
+    assert bot.session.closed == 1
+
+
+async def test_wait_until_telegram_ready_stops_during_backoff(monkeypatch):
+    from bot import _wait_until_telegram_ready
+
+    class SlowBot(_Bot):
+        async def get_me(self):
+            raise _network_error()
+
+    async def fake_recycle(bot, proxy_url):
+        await bot.session.close()
+
+    monkeypatch.setattr("bot._recycle_bot_session", fake_recycle)
+    stop = asyncio.Event()
+
+    async def cancel() -> None:
+        await asyncio.sleep(0.02)
+        stop.set()
+
+    asyncio.create_task(cancel())
+    bot = SlowBot()
+    assert (
+        await _wait_until_telegram_ready(
+            bot, stop, None, attempt_timeout=0.05, initial_delay=1.0, max_delay=1.0
+        )
+        is False
+    )
     assert bot.session.closed == 1
 
 

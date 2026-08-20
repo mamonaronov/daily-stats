@@ -106,6 +106,10 @@ echo "    ${GIT_COMMIT} ${GIT_COMMIT_TITLE}"
 if [[ "$SKIP_MIHOMO" -eq 0 ]]; then
   echo "==> installing mihomo config and unit"
   run_sudo mkdir -p /etc/mihomo/providers
+  mihomo_changed=1
+  if [[ -f /etc/mihomo/config.yaml ]] && cmp -s "$ROOT/deploy/mihomo/config.yaml" /etc/mihomo/config.yaml; then
+    mihomo_changed=0
+  fi
   run_sudo install -m 644 "$ROOT/deploy/mihomo/config.yaml" /etc/mihomo/config.yaml
   run_sudo install -m 644 "$ROOT/deploy/mihomo/mihomo.service" /etc/systemd/system/mihomo.service
 fi
@@ -126,14 +130,26 @@ echo "==> systemd daemon-reload"
 run_sudo systemctl daemon-reload
 
 if [[ "$SKIP_MIHOMO" -eq 0 ]]; then
-  echo "==> enabling and restarting mihomo"
+  echo "==> enabling mihomo"
   run_sudo systemctl enable mihomo.service
-  run_sudo systemctl restart mihomo.service
+  if [[ "${mihomo_changed:-1}" -eq 0 ]] && systemctl is-active --quiet mihomo.service; then
+    echo "==> mihomo config unchanged, skip restart"
+  else
+    echo "==> restarting mihomo"
+    run_sudo systemctl restart mihomo.service
+  fi
   echo "==> waiting for mixed-port ${MIXED_PORT}"
   if ! wait_for_port "$MIXED_PORT" 30; then
     echo "error: mihomo did not listen on 127.0.0.1:${MIXED_PORT}" >&2
     run_sudo systemctl --no-pager --full status mihomo.service | tail -n 40 >&2 || true
     exit 1
+  fi
+  echo "==> waiting for Telegram via SOCKS 127.0.0.1:${MIXED_PORT}"
+  if wait_for_telegram_via_socks "$MIXED_PORT" 90; then
+    echo "    api.telegram.org reachable through mihomo"
+  else
+    echo "warning: api.telegram.org is not reachable through socks5://127.0.0.1:${MIXED_PORT}" >&2
+    echo "warning: AUTO may still be probing nodes; the bot will keep retrying" >&2
   fi
 fi
 
@@ -163,5 +179,5 @@ if [[ "$SKIP_DOCKER" -eq 0 ]]; then
 fi
 echo
 echo "check:"
-echo "  curl -s --max-time 5 -x socks5://127.0.0.1:${MIXED_PORT} https://api.telegram.org"
+echo "  curl -s --max-time 8 -x socks5h://127.0.0.1:${MIXED_PORT} https://api.telegram.org"
 echo "  docker compose -f \"$ROOT/docker-compose.yml\" logs -f bot"

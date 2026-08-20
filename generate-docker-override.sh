@@ -11,8 +11,7 @@ load_mihomo_settings
 write_docker_override "$ROOT/docker-compose.override.yml"
 
 echo "wrote $ROOT/docker-compose.override.yml"
-echo "  SOCKS5  127.0.0.1:${MIXED_PORT}  -> TELEGRAM_PROXY_URL / ALL_PROXY"
-echo "  HTTP    127.0.0.1:${MIXED_PORT}  -> HTTP_PROXY / HTTPS_PROXY"
+echo "  SOCKS5  127.0.0.1:${MIXED_PORT}  -> TELEGRAM_PROXY_URL"
 echo "  API     ${MIHOMO_API_URL}"
 
 if port_listening "$MIXED_PORT"; then

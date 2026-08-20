@@ -30,13 +30,21 @@ from services.jobs import setup_scheduler
 from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
 from utils.logging import setup_logging
-from utils.timeouts import reset_bot_session
+from utils.timeouts import await_or_abandon, reset_bot_session
 from utils.uptime import mark_bot_started
 
 logger = logging.getLogger("bot")
 
 _POLLING_RETRY_INITIAL = 2.0
 _POLLING_RETRY_MAX = 30.0
+_POLLING_SESSION_TIMEOUT = 60.0
+_STARTUP_GET_ME_TIMEOUT = 20.0
+
+
+def _make_session(proxy_url: str | None) -> AiohttpSession:
+    if proxy_url:
+        return AiohttpSession(proxy=proxy_url, timeout=_POLLING_SESSION_TIMEOUT)
+    return AiohttpSession(timeout=_POLLING_SESSION_TIMEOUT)
 
 
 def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
@@ -44,7 +52,7 @@ def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
         logger.info("telegram_proxy_disabled")
         return None
     try:
-        session = AiohttpSession(proxy=proxy_url, timeout=30.0)
+        session = _make_session(proxy_url)
     except ImportError as exc:
         raise ConfigError(
             "TELEGRAM_PROXY_URL is set but aiohttp-socks is not installed"
@@ -53,11 +61,50 @@ def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
     return session
 
 
+async def _recycle_bot_session(bot: Bot, proxy_url: str | None) -> None:
+    """Drop a hung SOCKS session and attach a fresh one before the next attempt."""
+    await reset_bot_session(bot)
+    try:
+        bot.session = _make_session(proxy_url)
+    except Exception:
+        logger.exception("Failed to recreate bot session")
+
+
+async def _wait_until_telegram_ready(
+    bot: Bot,
+    stop: asyncio.Event,
+    proxy_url: str | None,
+    *,
+    attempt_timeout: float = _STARTUP_GET_ME_TIMEOUT,
+    initial_delay: float = _POLLING_RETRY_INITIAL,
+    max_delay: float = _POLLING_RETRY_MAX,
+) -> bool:
+    """Block until getMe works. start_polling then uses the cached Bot.me()."""
+    delay = initial_delay
+    while not stop.is_set():
+        try:
+            await await_or_abandon(bot.me(), attempt_timeout, name="startup.get_me")
+            logger.info("Telegram API reachable")
+            return True
+        except (TimeoutError, TelegramNetworkError) as exc:
+            logger.warning("Telegram not reachable, retry in %.0fs: %s", delay, exc)
+        except Exception:
+            logger.exception("Telegram handshake failed")
+        await _recycle_bot_session(bot, proxy_url)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=delay)
+            return False
+        except asyncio.TimeoutError:
+            delay = min(delay * 2, max_delay)
+    return False
+
+
 async def _start_polling_with_retry(
     dp: Dispatcher,
     bot: Bot,
     stop: asyncio.Event,
     *,
+    proxy_url: str | None = None,
     initial_delay: float = _POLLING_RETRY_INITIAL,
     max_delay: float = _POLLING_RETRY_MAX,
 ) -> None:
@@ -65,11 +112,16 @@ async def _start_polling_with_retry(
     delay = initial_delay
     while not stop.is_set():
         try:
-            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                handle_signals=False,
+                close_bot_session=False,
+            )
             return
         except TelegramNetworkError as exc:
             logger.warning("Telegram network error, retry in %.0fs: %s", delay, exc)
-            await reset_bot_session(bot)
+            await _recycle_bot_session(bot, proxy_url)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=delay)
                 return
@@ -162,16 +214,6 @@ async def run() -> None:
     async def dispatcher_error(event) -> None:
         await _on_error(event, bot, config)
 
-    try:
-        await run_billing_tick(repo)
-        restored = await restore_all_reminders(repo, config)
-        logger.info("Reminders restored: %s", restored)
-        setup_scheduler(scheduler, bot, repo, db, config)
-        scheduler.start()
-    except Exception as exc:
-        logger.exception("Failed to start background jobs")
-        await notify_owner(bot, config, format_alert("scheduler", "Ошибка запуска задач", exc=exc))
-
     loop = asyncio.get_running_loop()
     stop = asyncio.Event()
 
@@ -185,9 +227,25 @@ async def run() -> None:
         except NotImplementedError:
             pass
 
+    logger.info("Waiting for Telegram API")
+    telegram_ok = await _wait_until_telegram_ready(bot, stop, config.telegram_proxy_url)
+    if stop.is_set() or not telegram_ok:
+        await graceful_shutdown(bot, db, scheduler, config)
+        return
+
+    try:
+        await run_billing_tick(repo)
+        restored = await restore_all_reminders(repo, config)
+        logger.info("Reminders restored: %s", restored)
+        setup_scheduler(scheduler, bot, repo, db, config)
+        scheduler.start()
+    except Exception as exc:
+        logger.exception("Failed to start background jobs")
+        await notify_owner(bot, config, format_alert("scheduler", "Ошибка запуска задач", exc=exc))
+
     logger.info("Polling started")
     try:
-        await _start_polling_with_retry(dp, bot, stop)
+        await _start_polling_with_retry(dp, bot, stop, proxy_url=config.telegram_proxy_url)
     finally:
         await graceful_shutdown(bot, db, scheduler, config)
 

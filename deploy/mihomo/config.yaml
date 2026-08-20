@@ -246,13 +246,15 @@ proxy-groups:
   - name: AUTO
     type: url-test
     include-all-providers: true
-    url: https://www.gstatic.com/generate_204
+    # Select the node that can reach Telegram, not Google.
+    # Provider health-checks still use gstatic for general liveness.
+    url: https://api.telegram.org
     interval: 120
-    timeout: 4000
+    timeout: 8000
     tolerance: 50
     lazy: false
     max-failed-times: 3
-    expected-status: 204
+    expected-status: 200/301/302
     exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
   # - name: FALLBACK

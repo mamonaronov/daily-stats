@@ -48,14 +48,11 @@ write_docker_override() {
 # Generated from deploy/mihomo/config.yaml — do not commit.
 # Host network so 127.0.0.1 inside the container is the host's mihomo.
 # Mixed ${MIXED_PORT} / API ${MIHOMO_CONTROLLER} — v2rayN keeps 10808/10809.
+# Only TELEGRAM_PROXY_URL: HTTP_PROXY/ALL_PROXY can double-proxy aiohttp.
 services:
   bot:
     network_mode: host
     environment:
-      HTTP_PROXY: http://127.0.0.1:${MIXED_PORT}
-      HTTPS_PROXY: http://127.0.0.1:${MIXED_PORT}
-      NO_PROXY: localhost,127.0.0.1
-      ALL_PROXY: socks5://127.0.0.1:${MIXED_PORT}
       TELEGRAM_PROXY_URL: socks5://127.0.0.1:${MIXED_PORT}
 EOF
 }
@@ -94,6 +91,20 @@ wait_for_port() {
     fi
     sleep 1
     n=$((n + 1))
+  done
+  return 1
+}
+
+wait_for_telegram_via_socks() {
+  local port="$1" seconds="${2:-90}"
+  local url="https://api.telegram.org"
+  local deadline=$((SECONDS + seconds))
+  while (( SECONDS < deadline )); do
+    if curl -sS -o /dev/null --max-time 5 -x "socks5h://127.0.0.1:${port}" "$url" 2>/dev/null \
+      || curl -sS -o /dev/null --max-time 5 -x "socks5://127.0.0.1:${port}" "$url" 2>/dev/null; then
+      return 0
+    fi
+    sleep 2
   done
   return 1
 }
