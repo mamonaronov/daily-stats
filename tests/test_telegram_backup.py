@@ -191,7 +191,7 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
     try:
         archive = await create_telegram_archive(db, config)
         assert archive.exists()
-        assert "_abc1234_add-telegram-backup_db4.tar.gz" in archive.name
+        assert f"_abc1234_add-telegram-backup_db{config.required_db_version}.tar.gz" in archive.name
         assert archive.name.startswith("daily-stats-backup_")
         with tarfile.open(archive, "r:gz") as tar:
             names = set(tar.getnames())
@@ -230,10 +230,10 @@ async def test_send_telegram_backup_is_silent_and_records_time(tmp_path, monkeyp
         assert sent["chat_id"] == 1
         assert sent["kwargs"]["disable_notification"] is True
         assert "Резервная копия" in sent["kwargs"]["caption"]
-        assert "v4" in sent["kwargs"]["caption"]
+        assert f"v{config.required_db_version}" in sent["kwargs"]["caption"]
         assert "add telegram backup" in sent["kwargs"]["caption"]
         assert "abc1234" in sent["document"].filename
-        assert sent["document"].filename.endswith("_db4.tar.gz")
+        assert sent["document"].filename.endswith(f"_db{config.required_db_version}.tar.gz")
         assert not path.exists()
         stored = await last_telegram_backup_at(db)
         assert stored is not None

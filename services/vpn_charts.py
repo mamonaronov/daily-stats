@@ -23,6 +23,7 @@ from database.models import VpnLatencySample
 from database.queries import Repo
 from services.vpn_monitor import subscription_label
 from utils.time import parse_iso
+from utils.uptime import host_uptime_seconds
 
 plt.rcParams["font.family"] = "DejaVu Sans"
 plt.rcParams["axes.unicode_minus"] = False
@@ -74,7 +75,8 @@ SIGNAL_SERVER_OFF = "server_off"
 SIGNAL_SERVICE_DOWN = "service_down"
 SIGNAL_NO_PING = "no_ping"
 _SIGNAL_KEYS = frozenset({SIGNAL_SERVER_OFF, SIGNAL_SERVICE_DOWN, SIGNAL_NO_PING})
-_SIGNAL_ORDER = (SIGNAL_SERVER_OFF, SIGNAL_SERVICE_DOWN, SIGNAL_NO_PING)
+_GAP_SIGNALS = frozenset({SIGNAL_SERVER_OFF, SIGNAL_SERVICE_DOWN})
+_SIGNAL_ORDER = (SIGNAL_NO_PING, SIGNAL_SERVICE_DOWN, SIGNAL_SERVER_OFF)
 _SIGNAL_COLORS = {
     SIGNAL_SERVER_OFF: (0.98, 0.84, 0.12),
     SIGNAL_SERVICE_DOWN: (0.96, 0.50, 0.10),
@@ -85,7 +87,8 @@ _SIGNAL_LABELS = {
     SIGNAL_SERVICE_DOWN: "сервис не запущен",
     SIGNAL_NO_PING: "нет пинга",
 }
-_SERVICE_DOWN_MARKERS = (
+# Mihomo / VPN path failures — counted as no ping, not a crashed bot.
+_VPN_ISSUE_MARKERS = (
     "mihomo_unreachable",
     "mihomo_timeout",
     "mihomo_http_",
@@ -109,6 +112,7 @@ class TimelinePoint:
     node: str
     signal: str | None
     color_key: str
+    host_uptime_s: float | None = None
 
     @property
     def down(self) -> bool:
@@ -117,8 +121,8 @@ class TimelinePoint:
 
 def classify_vpn_signal(*, ok: bool, latency_ms: int | None, error: str | None) -> str | None:
     err = error or ""
-    if any(marker in err for marker in _SERVICE_DOWN_MARKERS):
-        return SIGNAL_SERVICE_DOWN
+    if any(marker in err for marker in _VPN_ISSUE_MARKERS):
+        return SIGNAL_NO_PING
     if not ok or latency_ms is None:
         return SIGNAL_NO_PING
     return None
@@ -169,7 +173,16 @@ def samples_to_timeline(samples: list[VpnLatencySample], *, color_by_sub: bool) 
             color_key = node
         if signal is not None:
             color_key = signal
-        points.append(TimelinePoint(time=parse_iso(sample.measured_at), ping_ms=ping, node=node, signal=signal, color_key=color_key))
+        points.append(
+            TimelinePoint(
+                time=parse_iso(sample.measured_at),
+                ping_ms=ping,
+                node=node,
+                signal=signal,
+                color_key=color_key,
+                host_uptime_s=float(sample.host_uptime_s) if sample.host_uptime_s is not None else None,
+            )
+        )
     return points
 
 
@@ -183,51 +196,157 @@ def sample_step(points: list[TimelinePoint]) -> timedelta:
     return timedelta(seconds=typical)
 
 
-def fill_server_off_gaps(
+def _gap_bounds(
+    left: datetime,
+    right: datetime,
+    *,
+    step: timedelta,
+    skip_first_step: bool,
+) -> tuple[datetime, datetime] | None:
+    if right - left <= step * _GAP_FACTOR:
+        return None
+    start = left + step if skip_first_step else left
+    if right - start <= timedelta(0):
+        return None
+    return start, right
+
+
+def split_downtime_gap(
+    start: datetime,
+    end: datetime,
+    *,
+    host_uptime_s: float | None,
+    step: timedelta,
+) -> list[tuple[datetime, datetime, str]]:
+    """Split a silent interval using host uptime measured at `end`.
+
+    Host still up → bot/service was down.
+    Host uptime shorter than the gap → machine was off, then came back.
+    Missing uptime (old rows) → treat as service down.
+    """
+    duration = (end - start).total_seconds()
+    if duration <= 0:
+        return []
+    tolerance = max(step.total_seconds() * _GAP_FACTOR, 5.0)
+    if host_uptime_s is None or host_uptime_s + tolerance >= duration:
+        return [(start, end, SIGNAL_SERVICE_DOWN)]
+    host_back = end - timedelta(seconds=host_uptime_s)
+    if host_back <= start:
+        return [(start, end, SIGNAL_SERVICE_DOWN)]
+    spans: list[tuple[datetime, datetime, str]] = [(start, host_back, SIGNAL_SERVER_OFF)]
+    if end > host_back:
+        spans.append((host_back, end, SIGNAL_SERVICE_DOWN))
+    return spans
+
+
+def _downtime_spans(
+    samples: list[tuple[datetime, float | None]],
+    *,
+    window_start: datetime | None,
+    window_end: datetime | None,
+    step: timedelta,
+    now_host_uptime_s: float | None,
+) -> list[tuple[datetime, datetime, str]]:
+    if not samples:
+        if window_start is None or window_end is None:
+            return []
+        return split_downtime_gap(
+            window_start, window_end, host_uptime_s=now_host_uptime_s, step=step
+        )
+    spans: list[tuple[datetime, datetime, str]] = []
+
+    def add(left: datetime, right: datetime, host_up: float | None, *, skip_first_step: bool) -> None:
+        bounds = _gap_bounds(left, right, step=step, skip_first_step=skip_first_step)
+        if bounds is None:
+            return
+        spans.extend(split_downtime_gap(bounds[0], bounds[1], host_uptime_s=host_up, step=step))
+
+    first_time, first_up = samples[0]
+    if window_start is not None:
+        add(window_start, first_time, first_up, skip_first_step=False)
+    for (left_time, _), (right_time, right_up) in zip(samples, samples[1:]):
+        add(left_time, right_time, right_up, skip_first_step=True)
+    if window_end is not None:
+        add(samples[-1][0], window_end, now_host_uptime_s, skip_first_step=True)
+    return spans
+
+
+def downtime_ticks(
+    heartbeats: list[tuple[str, float | None]],
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    interval_seconds: int,
+    now_host_uptime_s: float | None = None,
+) -> tuple[int, int]:
+    """Return (service_down_ticks, server_off_ticks) for silent gaps in the window."""
+    step_sec = max(1, int(interval_seconds))
+    step = timedelta(seconds=step_sec)
+    samples = [(parse_iso(ts), host_up) for ts, host_up in heartbeats]
+    spans = _downtime_spans(
+        samples,
+        window_start=window_start,
+        window_end=window_end,
+        step=step,
+        now_host_uptime_s=now_host_uptime_s,
+    )
+    down_sec = 0.0
+    off_sec = 0.0
+    for start, end, signal in spans:
+        seconds = (end - start).total_seconds()
+        if signal == SIGNAL_SERVER_OFF:
+            off_sec += seconds
+        else:
+            down_sec += seconds
+    return max(0, int(round(down_sec / step_sec))), max(0, int(round(off_sec / step_sec)))
+
+
+def fill_downtime_gaps(
     points: list[TimelinePoint],
     *,
     window_start: datetime | None = None,
     window_end: datetime | None = None,
     step: timedelta | None = None,
+    now_host_uptime_s: float | None = None,
 ) -> list[TimelinePoint]:
     if not points:
         return points
-    step = step or sample_step(points)
-    limit = step * _GAP_FACTOR
-    out: list[TimelinePoint] = []
+    step = step or sample_step([point for point in points if point.signal not in _GAP_SIGNALS] or points)
+    spans = _downtime_spans(
+        [(point.time, point.host_uptime_s) for point in points],
+        window_start=window_start,
+        window_end=window_end,
+        step=step,
+        now_host_uptime_s=now_host_uptime_s,
+    )
 
-    def off_point(when: datetime) -> TimelinePoint:
+    def mark(when: datetime, signal: str) -> TimelinePoint:
         return TimelinePoint(
             time=when,
             ping_ms=float("nan"),
             node="",
-            signal=SIGNAL_SERVER_OFF,
-            color_key=SIGNAL_SERVER_OFF,
+            signal=signal,
+            color_key=signal,
         )
 
-    def maybe_gap(left: datetime, right: datetime) -> None:
-        if right - left <= limit:
-            return
-        start = left + step if out else left
-        end = right
-        if end - start <= timedelta(0):
-            return
-        out.append(off_point(start))
+    def markers(start: datetime, end: datetime, signal: str) -> list[TimelinePoint]:
+        items = [mark(start, signal)]
         if end - start > step:
             marker = end - timedelta(microseconds=1)
             if marker > start:
-                out.append(off_point(marker))
+                items.append(mark(marker, signal))
+        return items
 
-    if window_start is not None:
-        maybe_gap(window_start, points[0].time)
-    prev = points[0]
-    out.append(prev)
-    for point in points[1:]:
-        maybe_gap(prev.time, point.time)
+    out: list[TimelinePoint] = []
+    span_i = 0
+    for point in points:
+        while span_i < len(spans) and spans[span_i][0] < point.time:
+            out.extend(markers(*spans[span_i]))
+            span_i += 1
         out.append(point)
-        prev = point
-    if window_end is not None:
-        maybe_gap(prev.time, window_end)
+    while span_i < len(spans):
+        out.extend(markers(*spans[span_i]))
+        span_i += 1
     return out
 
 
@@ -632,7 +751,7 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
         if point.color_key not in keys:
             keys.append(point.color_key)
     colors = _palette(keys)
-    step = sample_step([point for point in points if point.signal != SIGNAL_SERVER_OFF] or points)
+    step = sample_step([point for point in points if point.signal not in _GAP_SIGNALS] or points)
     for start, end, key, signal in _merged_spans(points, step):
         if signal:
             color = _SIGNAL_COLORS[signal]
@@ -758,7 +877,12 @@ def render_vpn_charts(
     unique_nodes = {short_node_name(sample.node_name) for sample in samples if sample.node_name}
     color_by_sub = len(unique_nodes) > _MAX_LEGEND_NODES
     points = samples_to_timeline(samples, color_by_sub=color_by_sub)
-    points = fill_server_off_gaps(points, window_start=window_start, window_end=window_end)
+    points = fill_downtime_gaps(
+        points,
+        window_start=window_start,
+        window_end=window_end,
+        now_host_uptime_s=host_uptime_seconds(),
+    )
     points = downsample_timeline(points)
     charts: list[tuple[str, bytes]] = []
     if ok_latencies:

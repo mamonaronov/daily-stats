@@ -164,6 +164,7 @@ async def test_vpn_sample_summary(repo):
     assert latest is not None
     assert latest.error == "timeout"
     assert latest.ok == 0
+    assert latest.host_uptime_s is None
     summary = await repo.vpn_latency_summary(start, "2026-08-19T11:00:00+00:00")
     assert summary["total"] == 3
     assert summary["ok_count"] == 2
@@ -171,10 +172,11 @@ async def test_vpn_sample_summary(repo):
     assert round(summary["avg_ms"]) == 2767
     assert int(summary["min_ms"]) == 100
     assert int(summary["max_ms"]) == 8000
-    assert summary["lt_100"] == 0
-    assert summary["ge_100"] == 3
-    assert summary["ge_500"] == 1
-    assert summary["ge_1000"] == 1
+    assert summary["bucket_0_100"] == 0
+    assert summary["bucket_100_500"] == 2
+    assert summary["bucket_500_1000"] == 0
+    assert summary["bucket_1000"] == 0
+    assert summary["no_ping"] == 1
     assert int(summary["p99_ms"]) == 8000
     assert summary["p99_count"] == 1
     assert int(summary["p99_9_ms"]) == 8000
@@ -208,6 +210,16 @@ async def test_vpn_sample_summary(repo):
     assert int(top_subs[1]["p99_count"]) == 0
 
 
+async def test_vpn_sample_stores_host_uptime(repo):
+    start = "2026-08-19T10:00:00+00:00"
+    await repo.insert_vpn_sample(start, True, 80, "n", "sub1", None, 123.4)
+    latest = await repo.latest_vpn_sample()
+    assert latest is not None
+    assert latest.host_uptime_s == 123.4
+    beats = await repo.list_vpn_heartbeats(start, "2026-08-19T11:00:00+00:00")
+    assert beats == [(start, 123.4)]
+
+
 async def test_vpn_latency_buckets(repo):
     start = "2026-08-19T10:00:00+00:00"
     samples = [
@@ -229,12 +241,43 @@ async def test_vpn_latency_buckets(repo):
         )
     summary = await repo.vpn_latency_summary(start, "2026-08-19T11:00:00+00:00")
     assert summary["measured"] == 6
-    assert summary["lt_100"] == 2
-    assert summary["ge_100"] == 4
-    assert summary["ge_500"] == 3
-    assert summary["ge_1000"] == 2
+    assert summary["bucket_0_100"] == 2
+    assert summary["bucket_100_500"] == 1
+    assert summary["bucket_500_1000"] == 1
+    assert summary["bucket_1000"] == 1
+    assert summary["no_ping"] == 1
     assert int(summary["min_ms"]) == 50
     assert int(summary["max_ms"]) == 8000
+
+
+async def test_vpn_latency_exclusive_status_buckets(repo):
+    start = "2026-08-19T10:00:00+00:00"
+    samples = [
+        (True, 40, None),
+        (True, 100, None),
+        (True, 499, None),
+        (True, 500, None),
+        (True, 999, None),
+        (True, 1000, None),
+        (False, 8000, "timeout"),
+        (False, None, "mihomo_unreachable:ClientConnectorError"),
+        (True, 90, "mihomo_timeout"),
+    ]
+    for i, (ok, ms, error) in enumerate(samples):
+        await repo.insert_vpn_sample(
+            f"2026-08-19T10:00:{i:02d}+00:00",
+            ok,
+            ms,
+            "n",
+            "sub1",
+            error,
+        )
+    summary = await repo.vpn_latency_summary(start, "2026-08-19T11:00:00+00:00")
+    assert summary["bucket_0_100"] == 1
+    assert summary["bucket_100_500"] == 2
+    assert summary["bucket_500_1000"] == 2
+    assert summary["bucket_1000"] == 1
+    assert summary["no_ping"] == 3
 
 
 async def test_vpn_percentiles_and_tail_counts(repo):
@@ -673,7 +716,6 @@ def _png_size(data: bytes) -> tuple[int, int]:
 def test_classify_vpn_signal_kinds():
     from services.vpn_charts import (
         SIGNAL_NO_PING,
-        SIGNAL_SERVICE_DOWN,
         classify_vpn_signal,
     )
 
@@ -682,20 +724,20 @@ def test_classify_vpn_signal_kinds():
     assert classify_vpn_signal(ok=True, latency_ms=None, error=None) == SIGNAL_NO_PING
     assert (
         classify_vpn_signal(ok=False, latency_ms=8000, error="mihomo_unreachable:ClientConnectorError")
-        == SIGNAL_SERVICE_DOWN
+        == SIGNAL_NO_PING
     )
-    assert classify_vpn_signal(ok=True, latency_ms=90, error="mihomo_timeout") == SIGNAL_SERVICE_DOWN
+    assert classify_vpn_signal(ok=True, latency_ms=90, error="mihomo_timeout") == SIGNAL_NO_PING
     assert (
         classify_vpn_signal(ok=False, latency_ms=8000, error="mihomo_unreachable:OSError; timeout")
-        == SIGNAL_SERVICE_DOWN
+        == SIGNAL_NO_PING
     )
 
 
-def test_fill_server_off_gaps_between_and_around_window():
+def test_fill_downtime_gaps_without_uptime_is_service_down():
     from datetime import datetime, timezone
 
     from database.models import VpnLatencySample
-    from services.vpn_charts import SIGNAL_SERVER_OFF, fill_server_off_gaps, samples_to_timeline
+    from services.vpn_charts import SIGNAL_SERVICE_DOWN, fill_downtime_gaps, samples_to_timeline
 
     utc = timezone.utc
     samples = [
@@ -706,16 +748,134 @@ def test_fill_server_off_gaps_between_and_around_window():
         VpnLatencySample(5, "2026-08-19T10:02:10+00:00", 1, 80, "n1", "sub1", None),
     ]
     points = samples_to_timeline(samples, color_by_sub=False)
-    filled = fill_server_off_gaps(
+    filled = fill_downtime_gaps(
         points,
         window_start=datetime(2026, 8, 19, 9, 58, tzinfo=utc),
         window_end=datetime(2026, 8, 19, 10, 5, tzinfo=utc),
     )
-    off = [point for point in filled if point.signal == SIGNAL_SERVER_OFF]
-    assert len(off) >= 4
-    assert any(point.time.hour == 9 for point in off)
-    assert any(point.time.minute == 0 and point.time.second >= 20 for point in off)
-    assert any(point.time.minute >= 2 for point in off)
+    down = [point for point in filled if point.signal == SIGNAL_SERVICE_DOWN]
+    assert len(down) >= 4
+    assert any(point.time.hour == 9 for point in down)
+    assert any(point.time.minute == 0 and point.time.second >= 20 for point in down)
+    assert any(point.time.minute >= 2 for point in down)
+
+
+def test_downtime_ticks_counts_gap_duration():
+    from datetime import datetime, timezone
+
+    from services.vpn_charts import downtime_ticks
+
+    utc = timezone.utc
+    heartbeats = [
+        ("2026-08-19T10:00:00+00:00", None),
+        ("2026-08-19T10:00:10+00:00", None),
+        ("2026-08-19T10:00:20+00:00", None),
+        ("2026-08-19T10:02:00+00:00", None),
+        ("2026-08-19T10:02:10+00:00", None),
+    ]
+    down, off = downtime_ticks(
+        heartbeats,
+        window_start=datetime(2026, 8, 19, 9, 58, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 5, tzinfo=utc),
+        interval_seconds=10,
+    )
+    # 9:58–10:00 = 120s; 10:00:20–10:02:00 minus 1 tick = 90s; 10:02:10–10:05 minus 1 tick = 160s
+    assert down == 37
+    assert off == 0
+    empty_down, empty_off = downtime_ticks(
+        [],
+        window_start=datetime(2026, 8, 19, 10, 0, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 10, tzinfo=utc),
+        interval_seconds=10,
+    )
+    assert empty_down == 60
+    assert empty_off == 0
+
+
+def test_downtime_ticks_splits_power_off_from_service_down():
+    from datetime import datetime, timezone
+
+    from services.vpn_charts import downtime_ticks
+
+    utc = timezone.utc
+    # 10 min silence; host has been up 60s when sampling resumes → power off then boot.
+    down, off = downtime_ticks(
+        [
+            ("2026-08-19T10:00:00+00:00", 10000.0),
+            ("2026-08-19T10:10:00+00:00", 60.0),
+        ],
+        window_start=datetime(2026, 8, 19, 10, 0, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 10, tzinfo=utc),
+        interval_seconds=10,
+        now_host_uptime_s=60.0,
+    )
+    # skip first step: 10:00:10–10:10:00 = 590s; off = 530s, service = 60s
+    assert off == 53
+    assert down == 6
+    stayed_up_down, stayed_up_off = downtime_ticks(
+        [
+            ("2026-08-19T10:00:00+00:00", 20000.0),
+            ("2026-08-19T10:10:00+00:00", 20600.0),
+        ],
+        window_start=datetime(2026, 8, 19, 10, 0, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 10, tzinfo=utc),
+        interval_seconds=10,
+        now_host_uptime_s=20600.0,
+    )
+    assert stayed_up_off == 0
+    assert stayed_up_down == 59
+
+
+def test_fill_downtime_gaps_marks_power_off_after_reboot():
+    from datetime import datetime, timezone
+
+    from database.models import VpnLatencySample
+    from services.vpn_charts import SIGNAL_SERVER_OFF, SIGNAL_SERVICE_DOWN, fill_downtime_gaps, samples_to_timeline
+
+    utc = timezone.utc
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 100, "n1", "sub1", None, 50000.0),
+        VpnLatencySample(2, "2026-08-19T10:10:00+00:00", 1, 90, "n1", "sub1", None, 40.0),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    filled = fill_downtime_gaps(
+        points,
+        window_start=datetime(2026, 8, 19, 10, 0, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 10, tzinfo=utc),
+        now_host_uptime_s=40.0,
+    )
+    signals = {point.signal for point in filled}
+    assert SIGNAL_SERVER_OFF in signals
+    assert SIGNAL_SERVICE_DOWN in signals
+
+
+def test_vpn_bucket_lines_exclusive_layout():
+    from handlers.admin import _vpn_bucket_lines
+
+    lines = _vpn_bucket_lines(
+        {
+            "bucket_0_100": 10,
+            "bucket_100_500": 20,
+            "bucket_500_1000": 5,
+            "bucket_1000": 15,
+            "no_ping": 30,
+            "server_off": 12,
+            "service_down": 8,
+        },
+        10,
+    )
+    assert lines[0] == "Время в диапазонах (тик 10 с):"
+    assert lines[1].startswith("0–100 мс:")
+    assert "1 мин 40 с" in lines[1]
+    assert "(10,0%)" in lines[1]
+    assert lines[2].startswith("100–500 мс:")
+    assert lines[3].startswith("500–1000 мс:")
+    assert lines[4].startswith("&gt; 1000 мс:")
+    assert lines[5].startswith("Нет пинга/соединения:")
+    assert "5 мин" in lines[5]
+    assert lines[6].startswith("сервис не запущен:")
+    assert "(8,0%)" in lines[6]
+    assert lines[7].startswith("сервер выключен:")
 
 
 def test_server_palette_avoids_signal_colors():
@@ -758,9 +918,9 @@ def test_server_colors_spread_then_pack():
     assert _server_colors(0) == []
 
 
-def test_timeline_keeps_service_down_and_no_ping():
+def test_timeline_keeps_vpn_errors_as_no_ping():
     from database.models import VpnLatencySample
-    from services.vpn_charts import SIGNAL_NO_PING, SIGNAL_SERVICE_DOWN, samples_to_timeline
+    from services.vpn_charts import SIGNAL_NO_PING, samples_to_timeline
 
     samples = [
         VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 120, "s3 | A | n1", "sub3", None),
@@ -769,5 +929,5 @@ def test_timeline_keeps_service_down_and_no_ping():
     ]
     points = samples_to_timeline(samples, color_by_sub=False)
     assert points[0].signal is None
-    assert points[1].signal == SIGNAL_SERVICE_DOWN
+    assert points[1].signal == SIGNAL_NO_PING
     assert points[2].signal == SIGNAL_NO_PING

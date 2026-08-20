@@ -70,6 +70,17 @@ _SQL_COMMENT_RE = re.compile(r"(--[^\n]*|/\*.*?\*/)", re.DOTALL)
 KEEP_TABLES = frozenset({"system_info"})
 OWNER_SCOPED_TABLES = frozenset({"users", "user_settings", "reminders"})
 PURGE_CONFIRM_PHRASE = "ОЧИСТИТЬ БАЗУ"
+# Keep in sync with services.vpn_charts._VPN_ISSUE_MARKERS (counted as no_ping).
+_VPN_ISSUE_SQL = (
+    "COALESCE(error, '') LIKE '%mihomo_unreachable%'"
+    " OR COALESCE(error, '') LIKE '%mihomo_timeout%'"
+    " OR COALESCE(error, '') LIKE '%mihomo_http_%'"
+    " OR COALESCE(error, '') LIKE '%mihomo_no_now%'"
+)
+_VPN_OK_PING_SQL = f"NOT ({_VPN_ISSUE_SQL}) AND ok = 1 AND latency_ms IS NOT NULL"
+_VPN_SAMPLE_COLS = (
+    "id, measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s"
+)
 
 
 class SqlError(ValueError):
@@ -1201,22 +1212,23 @@ class Repo:
         node_name: str | None,
         subscription: str | None,
         error: str | None,
+        host_uptime_s: float | None = None,
     ) -> int:
         cur = await self.conn.execute(
             """
             INSERT INTO vpn_latency_samples
-                (measured_at, ok, latency_ms, node_name, subscription, error)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (measured_at, 1 if ok else 0, latency_ms, node_name, subscription, error),
+            (measured_at, 1 if ok else 0, latency_ms, node_name, subscription, error, host_uptime_s),
         )
         await self.conn.commit()
         return int(cur.lastrowid)
 
     async def list_vpn_samples(self, start: str, end: str) -> list[VpnLatencySample]:
         rows = await self.fetchall(
-            """
-            SELECT id, measured_at, ok, latency_ms, node_name, subscription, error
+            f"""
+            SELECT {_VPN_SAMPLE_COLS}
             FROM vpn_latency_samples
             WHERE measured_at >= ? AND measured_at < ?
             ORDER BY measured_at ASC, id ASC
@@ -1225,10 +1237,27 @@ class Repo:
         )
         return [VpnLatencySample(**dict(row)) for row in rows]
 
+    async def list_vpn_heartbeats(self, start: str, end: str) -> list[tuple[str, float | None]]:
+        rows = await self.fetchall(
+            """
+            SELECT measured_at, host_uptime_s
+            FROM vpn_latency_samples
+            WHERE measured_at >= ? AND measured_at < ?
+            ORDER BY measured_at ASC, id ASC
+            """,
+            (start, end),
+        )
+        out: list[tuple[str, float | None]] = []
+        for row in rows:
+            raw = row["host_uptime_s"]
+            host_up = float(raw) if raw is not None else None
+            out.append((str(row["measured_at"]), host_up))
+        return out
+
     async def latest_vpn_sample(self) -> VpnLatencySample | None:
         row = await self.fetchone(
-            """
-            SELECT id, measured_at, ok, latency_ms, node_name, subscription, error
+            f"""
+            SELECT {_VPN_SAMPLE_COLS}
             FROM vpn_latency_samples
             ORDER BY measured_at DESC, id DESC
             LIMIT 1
@@ -1238,7 +1267,7 @@ class Repo:
 
     async def vpn_latency_summary(self, start: str, end: str) -> dict[str, Any]:
         row = await self.fetchone(
-            """
+            f"""
             SELECT
                 COUNT(*) AS total,
                 COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END), 0) AS ok_count,
@@ -1246,10 +1275,11 @@ class Repo:
                 AVG(latency_ms) AS avg_ms,
                 MIN(latency_ms) AS min_ms,
                 MAX(latency_ms) AS max_ms,
-                COALESCE(SUM(CASE WHEN latency_ms < 100 THEN 1 ELSE 0 END), 0) AS lt_100,
-                COALESCE(SUM(CASE WHEN latency_ms >= 100 THEN 1 ELSE 0 END), 0) AS ge_100,
-                COALESCE(SUM(CASE WHEN latency_ms >= 500 THEN 1 ELSE 0 END), 0) AS ge_500,
-                COALESCE(SUM(CASE WHEN latency_ms >= 1000 THEN 1 ELSE 0 END), 0) AS ge_1000
+                COALESCE(SUM(CASE WHEN {_VPN_OK_PING_SQL} AND latency_ms < 100 THEN 1 ELSE 0 END), 0) AS bucket_0_100,
+                COALESCE(SUM(CASE WHEN {_VPN_OK_PING_SQL} AND latency_ms >= 100 AND latency_ms < 500 THEN 1 ELSE 0 END), 0) AS bucket_100_500,
+                COALESCE(SUM(CASE WHEN {_VPN_OK_PING_SQL} AND latency_ms >= 500 AND latency_ms < 1000 THEN 1 ELSE 0 END), 0) AS bucket_500_1000,
+                COALESCE(SUM(CASE WHEN {_VPN_OK_PING_SQL} AND latency_ms >= 1000 THEN 1 ELSE 0 END), 0) AS bucket_1000,
+                COALESCE(SUM(CASE WHEN NOT ({_VPN_OK_PING_SQL}) THEN 1 ELSE 0 END), 0) AS no_ping
             FROM vpn_latency_samples
             WHERE measured_at >= ? AND measured_at < ?
             """,
@@ -1313,10 +1343,11 @@ class Repo:
             "p95_count": p95_count,
             "p99_count": p99_count,
             "p99_9_count": p99_9_count,
-            "lt_100": int(row["lt_100"]) if row else 0,
-            "ge_100": int(row["ge_100"]) if row else 0,
-            "ge_500": int(row["ge_500"]) if row else 0,
-            "ge_1000": int(row["ge_1000"]) if row else 0,
+            "bucket_0_100": int(row["bucket_0_100"]) if row else 0,
+            "bucket_100_500": int(row["bucket_100_500"]) if row else 0,
+            "bucket_500_1000": int(row["bucket_500_1000"]) if row else 0,
+            "bucket_1000": int(row["bucket_1000"]) if row else 0,
+            "no_ping": int(row["no_ping"]) if row else 0,
         }
 
     async def _vpn_latency_percentile(

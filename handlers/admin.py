@@ -28,7 +28,7 @@ from keyboards.main import (
 )
 from services import balance as balance_svc
 from services.statistics import render_stats
-from services.vpn_charts import build_vpn_charts
+from services.vpn_charts import build_vpn_charts, downtime_ticks
 from services.vpn_monitor import (
     collect_vpn_log_entries,
     fetch_auto_now,
@@ -42,7 +42,7 @@ from utils.callbacks import NAV_ADMIN
 from utils.formatting import balance_runway, money, seconds_human
 from utils.telegram import png_file, safe_edit, safe_send, text_file
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
-from utils.uptime import uptime_report_lines
+from utils.uptime import host_uptime_seconds, uptime_report_lines
 
 router = Router(name="admin")
 logger = logging.getLogger(__name__)
@@ -484,9 +484,28 @@ def _pct_line(label: str, value, count: int) -> str:
     return f"{label}: {_ms(value)} мс ({count} зам.)"
 
 
-def _bucket_line(label: str, count: int, measured: int, interval: int) -> str:
-    pct = f"{(count / measured * 100):.1f}%".replace(".", ",") if measured else "—"
+def _bucket_line(label: str, count: int, total: int, interval: int) -> str:
+    pct = f"{(count / total * 100):.1f}%".replace(".", ",") if total else "—"
     return f"{label}: {seconds_human(count * interval)} ({pct})"
+
+
+_VPN_BUCKET_KEYS = (
+    ("0–100 мс", "bucket_0_100"),
+    ("100–500 мс", "bucket_100_500"),
+    ("500–1000 мс", "bucket_500_1000"),
+    ("&gt; 1000 мс", "bucket_1000"),
+    ("Нет пинга/соединения", "no_ping"),
+    ("сервис не запущен", "service_down"),
+    ("сервер выключен", "server_off"),
+)
+
+
+def _vpn_bucket_lines(summary: dict, interval: int) -> list[str]:
+    rows = [(label, int(summary.get(key, 0))) for label, key in _VPN_BUCKET_KEYS]
+    total = sum(count for _, count in rows)
+    lines = [f"Время в диапазонах (тик {interval} с):"]
+    lines.extend(_bucket_line(label, count, total, interval) for label, count in rows)
+    return lines
 
 
 def _vpn_top_item_lines(row: dict, title_html: str) -> list[str]:
@@ -518,7 +537,16 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
     live_now, live_err = await fetch_auto_now(config)
     live_node, live_sub = parse_node(live_now)
     interval = max(1, config.vpn_monitor_interval_seconds)
-    measured = summary["measured"]
+    heartbeats = await repo.list_vpn_heartbeats(start_iso, end_iso)
+    service_down, server_off = downtime_ticks(
+        heartbeats,
+        window_start=start,
+        window_end=end,
+        interval_seconds=interval,
+        now_host_uptime_s=host_uptime_seconds(),
+    )
+    summary["service_down"] = service_down
+    summary["server_off"] = server_off
 
     lines = ["🛡 <b>VPN / задержка бота</b>", ""]
     lines.extend(uptime_report_lines())
@@ -557,11 +585,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
             _pct_line("p99", summary["p99_ms"], summary["p99_count"]),
             _pct_line("p99.9", summary["p99_9_ms"], summary["p99_9_count"]),
             "",
-            f"Время в диапазонах (тик {interval} с):",
-            _bucket_line("&lt; 100 мс", summary["lt_100"], measured, interval),
-            _bucket_line("&gt; 100 мс", summary["ge_100"], measured, interval),
-            _bucket_line("&gt; 500 мс", summary["ge_500"], measured, interval),
-            _bucket_line("&gt; 1 с", summary["ge_1000"], measured, interval),
+            *_vpn_bucket_lines(summary, interval),
         ]
     )
     if top == "s":

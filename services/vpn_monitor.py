@@ -20,6 +20,7 @@ from database.queries import Repo
 from utils.logging import TOKEN_RE, log_extra
 from utils.time import format_dt_compact, format_dt_full, now_utc, parse_iso, to_iso
 from utils.timeouts import await_or_abandon, reset_bot_session
+from utils.uptime import host_uptime_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,7 @@ class VpnMonitor:
             "error": error,
         }
         await repo.insert_vpn_sample(
-            measured_at, ok, latency_ms, node_name, subscription, error
+            measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_seconds()
         )
         if self.config.vpn_log_dir is not None:
             try:

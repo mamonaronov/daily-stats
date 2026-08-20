@@ -215,6 +215,7 @@ class VpnLatencySample:
     node_name: str | None
     subscription: str | None
     error: str | None
+    host_uptime_s: float | None = None
 
 
 @dataclass(slots=True)
