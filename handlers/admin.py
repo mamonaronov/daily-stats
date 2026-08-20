@@ -126,7 +126,7 @@ async def admin_search(cb: CallbackQuery, state: FSMContext, config: Config) -> 
         return
     await state.set_state(AdminSG.search)
     await cb.answer()
-    await safe_edit(cb.message, "Введите Telegram ID, username или имя:", cancel_kb())
+    await safe_edit(cb.message, "Введите Telegram ID, username или имя:", cancel_kb(NAV_ADMIN))
 
 
 @router.message(AdminSG.search)
@@ -160,9 +160,10 @@ async def _send_card(target: CallbackQuery | Message, repo: Repo, user: User) ->
 
 
 @router.callback_query(F.data.startswith("ad:u:"))
-async def admin_user(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+async def admin_user(cb: CallbackQuery, state: FSMContext, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
+    await state.clear()
     telegram_id = int(cb.data.split(":")[2])
     user = await repo.get_user(telegram_id)
     if user is None:
@@ -177,7 +178,7 @@ async def _ask_amount(cb: CallbackQuery, state: FSMContext, config: Config, acti
     await state.set_state(AdminSG.amount)
     await state.update_data(admin_action=action, target_id=telegram_id)
     await cb.answer()
-    await safe_edit(cb.message, "Введите сумму (число):", cancel_kb())
+    await safe_edit(cb.message, "Введите сумму (число):", cancel_kb(f"ad:u:{telegram_id}"))
 
 
 @router.callback_query(F.data.startswith("ad:cr:"))
@@ -202,21 +203,25 @@ async def admin_price(cb: CallbackQuery, state: FSMContext, config: Config) -> N
     await state.set_state(AdminSG.price)
     await state.update_data(target_id=int(cb.data.split(":")[2]))
     await cb.answer()
-    await safe_edit(cb.message, "Новая стоимость в сутки:", cancel_kb())
+    await safe_edit(cb.message, "Новая стоимость в сутки:", cancel_kb(f"ad:u:{int(cb.data.split(':')[2])}"))
 
 
 @router.message(AdminSG.amount)
 async def admin_amount(message: Message, state: FSMContext, config: Config, repo: Repo) -> None:
     if not await _owner(message, config):
         return
+    data = await state.get_data()
     try:
         amount = float((message.text or "").replace(",", ".").strip())
     except ValueError:
-        await message.answer("Введите число.", reply_markup=cancel_kb())
+        await message.answer("Введите число.", reply_markup=cancel_kb(f"ad:u:{data.get('target_id')}"))
         return
     await state.update_data(amount=amount)
     await state.set_state(AdminSG.comment)
-    await message.answer("Комментарий к операции? Можно пропустить.", reply_markup=skip_comment_kb())
+    await message.answer(
+        "Комментарий к операции? Можно пропустить.",
+        reply_markup=skip_comment_kb(f"ad:u:{data['target_id']}"),
+    )
 
 
 async def _apply_admin_op(
@@ -273,14 +278,14 @@ async def admin_comment(message: Message, state: FSMContext, config: Config, rep
 async def admin_price_save(message: Message, state: FSMContext, config: Config, repo: Repo) -> None:
     if not await _owner(message, config):
         return
+    data = await state.get_data()
     try:
         price = float((message.text or "").replace(",", ".").strip())
         if price < 0:
             raise ValueError
     except ValueError:
-        await message.answer("Введите неотрицательное число.", reply_markup=cancel_kb())
+        await message.answer("Введите неотрицательное число.", reply_markup=cancel_kb(f"ad:u:{data.get('target_id')}"))
         return
-    data = await state.get_data()
     target = int(data["target_id"])
     old = await repo.get_user(target)
     await repo.set_daily_price(target, price)

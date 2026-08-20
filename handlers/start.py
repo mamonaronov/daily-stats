@@ -11,7 +11,7 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import show_main
-from keyboards.main import cancel_kb, timezone_kb
+from keyboards.main import back_kb, timezone_kb
 from services.billing import process_user
 from services.reminders import refresh_user_reminder
 from states.diary import RegisterSG
@@ -75,7 +75,7 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
     if token == "custom":
         await state.set_state(RegisterSG.timezone_custom)
         await cb.answer()
-        await safe_edit(cb.message, "Введите IANA-имя пояса, например Europe/Moscow", cancel_kb())
+        await safe_edit(cb.message, "Введите IANA-имя пояса, например Europe/Moscow", back_kb("tz:list", menu=False))
         return
     if not is_valid_timezone(token):
         await cb.answer("Неизвестный пояс", show_alert=True)
@@ -86,11 +86,21 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
     await show_main(cb, db_user, config, is_owner, state)
 
 
+@router.callback_query(F.data == "tz:list", RegisterSG.timezone_custom)
+async def tz_list_register(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(RegisterSG.timezone)
+    await cb.answer()
+    await safe_edit(cb.message, "Выберите часовой пояс. Он нужен для статистики, границ дня и напоминаний.", timezone_kb())
+
+
 @router.message(RegisterSG.timezone_custom)
 async def custom_tz(message: Message, state: FSMContext, repo: Repo, config: Config, is_owner: bool) -> None:
     token = (message.text or "").strip()
     if not is_valid_timezone(token):
-        await message.answer("Не получилось распознать пояс. Пример: Asia/Yekaterinburg", reply_markup=cancel_kb())
+        await message.answer(
+            "Не получилось распознать пояс. Пример: Asia/Yekaterinburg",
+            reply_markup=back_kb("tz:list", menu=False),
+        )
         return
     user = message.from_user
     db_user = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)

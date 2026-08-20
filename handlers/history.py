@@ -104,7 +104,7 @@ async def hist_pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | N
     await state.set_state(HistorySG.custom_date)
     await state.update_data(hist_mode="date")
     await cb.answer()
-    await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month, prefix="hcal"))
+    await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month, prefix="hcal", back=NAV_HISTORY))
 
 
 @router.callback_query(F.data == "hist:range")
@@ -116,7 +116,7 @@ async def hist_range(cb: CallbackQuery, state: FSMContext, db_user: User | None)
     await state.set_state(HistorySG.custom_date)
     await state.update_data(hist_mode="range")
     await cb.answer()
-    await safe_edit(cb.message, "Начало периода:", calendar_kb(today.year, today.month, prefix="hcal"))
+    await safe_edit(cb.message, "Начало периода:", calendar_kb(today.year, today.month, prefix="hcal", back=NAV_HISTORY))
 
 
 @router.callback_query(F.data.startswith("hcalm:"))
@@ -126,7 +126,7 @@ async def hist_month(cb: CallbackQuery, db_user: User | None) -> None:
     ym = cb.data.split(":", 1)[1]
     year, month = int(ym[:4]), int(ym[5:7])
     await cb.answer()
-    await safe_edit(cb.message, "Выберите дату:", calendar_kb(year, month, prefix="hcal"))
+    await safe_edit(cb.message, "Выберите дату:", calendar_kb(year, month, prefix="hcal", back=NAV_HISTORY))
 
 
 @router.callback_query(F.data.startswith("hcal:"), HistorySG.custom_date)
@@ -141,7 +141,7 @@ async def hist_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
         await state.update_data(range_start=day.isoformat())
         await state.set_state(HistorySG.range_end)
         await cb.answer()
-        await safe_edit(cb.message, "Конец периода:", calendar_kb(day.year, day.month, prefix="hcal"))
+        await safe_edit(cb.message, "Конец периода:", calendar_kb(day.year, day.month, prefix="hcal", back=NAV_HISTORY))
         return
     start = date.fromisoformat(data["range_start"]) if data.get("range_start") else day
     end = day

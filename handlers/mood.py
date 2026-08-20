@@ -10,7 +10,7 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_writable, show_main, start_time_pick
-from keyboards.main import now_or_time
+from keyboards.main import when_kb
 from services import entries
 from utils.telegram import safe_edit
 from utils.time import user_now
@@ -26,7 +26,7 @@ async def mood_score(cb: CallbackQuery, state: FSMContext, db_user: User | None)
     score = int(cb.data.split(":")[1])
     await state.update_data(score=score)
     await cb.answer()
-    await safe_edit(cb.message, "Когда оценить настроение?", now_or_time("mdt"))
+    await safe_edit(cb.message, "Когда оценить настроение?", when_kb("mdt"))
 
 
 @router.callback_query(F.data == "mdt:now")

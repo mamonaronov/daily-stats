@@ -13,13 +13,14 @@ from database.models import User
 from database.queries import Repo
 from handlers.common import require_active, require_writable, show_main, start_time_pick
 from keyboards.main import (
+    back_kb,
     bool_kb,
     cancel_kb,
     choices_kb,
     custom_metrics_kb,
     metric_card_kb,
     metric_types_kb,
-    now_or_time,
+    when_kb,
 )
 from services.entries import add_custom_value
 from services.metric_types import METRIC_TYPES, get_type
@@ -33,10 +34,11 @@ router = Router(name="custom_metrics")
 
 
 @router.callback_query(F.data == NAV_METRICS)
-async def metrics_root(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+async def metrics_root(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
+    await state.clear()
     metrics = await repo.list_metrics(user.telegram_id)
     await cb.answer()
     await safe_edit(
@@ -52,7 +54,7 @@ async def metric_new(cb: CallbackQuery, state: FSMContext, db_user: User | None)
         return
     await state.set_state(CustomMetricSG.name)
     await cb.answer()
-    await safe_edit(cb.message, "Название показателя:", cancel_kb())
+    await safe_edit(cb.message, "Название показателя:", cancel_kb(NAV_METRICS))
 
 
 @router.message(CustomMetricSG.name)
@@ -61,7 +63,7 @@ async def metric_name(message: Message, state: FSMContext, db_user: User | None)
         return
     name = (message.text or "").strip()
     if not name or len(name) > 40:
-        await message.answer("Имя 1–40 символов.", reply_markup=cancel_kb())
+        await message.answer("Имя 1–40 символов.", reply_markup=cancel_kb(NAV_METRICS))
         return
     await state.update_data(metric_name=name)
     await state.set_state(CustomMetricSG.data_type)
@@ -86,17 +88,27 @@ async def metric_type(
     if spec.needs_unit:
         await state.set_state(CustomMetricSG.unit)
         await cb.answer()
-        await safe_edit(cb.message, "Единица измерения (шт, мл, стр…):", cancel_kb())
+        await safe_edit(cb.message, "Единица измерения (шт, мл, стр…):", back_kb("cm:types"))
         return
     if spec.needs_choices:
         await state.set_state(CustomMetricSG.choices)
         await cb.answer()
-        await safe_edit(cb.message, "Варианты через запятую:", cancel_kb())
+        await safe_edit(cb.message, "Варианты через запятую:", back_kb("cm:types"))
         return
     data = await state.get_data()
     await _create(repo, user, data["metric_name"], key, None, None)
     await cb.answer("Создано")
     await show_main(cb, user, config, is_owner, state)
+
+
+@router.callback_query(F.data == "cm:types", CustomMetricSG.unit)
+@router.callback_query(F.data == "cm:types", CustomMetricSG.choices)
+async def metric_back_types(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    if await require_writable(cb, db_user) is None:
+        return
+    await state.set_state(CustomMetricSG.data_type)
+    await cb.answer()
+    await safe_edit(cb.message, "Тип данных:", metric_types_kb())
 
 
 @router.message(CustomMetricSG.unit)
@@ -119,7 +131,7 @@ async def metric_choices(message: Message, state: FSMContext, repo: Repo, db_use
         return
     choices = [p.strip() for p in (message.text or "").split(",") if p.strip()]
     if len(choices) < 2:
-        await message.answer("Нужно минимум два варианта.", reply_markup=cancel_kb())
+        await message.answer("Нужно минимум два варианта.", reply_markup=back_kb("cm:types"))
         return
     data = await state.get_data()
     await _create(repo, user, data["metric_name"], data["data_type"], None, choices)
@@ -133,10 +145,11 @@ async def _create(repo: Repo, user: User, name: str, data_type: str, unit, choic
 
 
 @router.callback_query(F.data.startswith("cm:o:"))
-async def metric_open(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+async def metric_open(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
+    await state.clear()
     metric_id = int(cb.data.split(":")[2])
     metric = await repo.get_metric(metric_id, user.telegram_id)
     if metric is None:
@@ -187,16 +200,16 @@ async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
     spec = get_type(metric.data_type)
     if spec.key == "boolean":
         await cb.answer()
-        await safe_edit(cb.message, f"{metric.name}: да или нет?", bool_kb())
+        await safe_edit(cb.message, f"{metric.name}: да или нет?", bool_kb(f"cm:o:{metric_id}"))
         return
     if spec.key == "choice":
         choices = json.loads(metric.choices_json or "[]")
         await cb.answer()
-        await safe_edit(cb.message, f"{metric.name}: выберите значение", choices_kb(choices))
+        await safe_edit(cb.message, f"{metric.name}: выберите значение", choices_kb(choices, f"cm:o:{metric_id}"))
         return
     await state.set_state(CustomMetricSG.value)
     await cb.answer()
-    await safe_edit(cb.message, f"Введите значение для «{metric.name}»", cancel_kb())
+    await safe_edit(cb.message, f"Введите значение для «{metric.name}»", cancel_kb(f"cm:o:{metric_id}"))
 
 
 @router.callback_query(F.data.startswith("cm:v:"))
@@ -205,8 +218,14 @@ async def metric_bool(cb: CallbackQuery, state: FSMContext, db_user: User | None
     if user is None:
         return
     value = int(cb.data.split(":")[2])
+    data = await state.get_data()
     await state.update_data(value_bool=value)
-    await start_time_pick(cb, state, "cm", {**(await state.get_data()), "tz": user.timezone, "value_bool": value})
+    await start_time_pick(
+        cb,
+        state,
+        "cm",
+        {**data, "tz": user.timezone, "value_bool": value, "time_exit": f"cm:{data['metric_id']}"},
+    )
 
 
 @router.callback_query(F.data.startswith("cm:ch:"))
@@ -218,7 +237,9 @@ async def metric_choice(cb: CallbackQuery, state: FSMContext, db_user: User | No
     data = await state.get_data()
     choices = json.loads(data.get("choices_json") or "[]")
     text = choices[idx]
-    await start_time_pick(cb, state, "cm", {**data, "tz": user.timezone, "value_text": text})
+    await start_time_pick(
+        cb, state, "cm", {**data, "tz": user.timezone, "value_text": text, "time_exit": f"cm:{data['metric_id']}"}
+    )
 
 
 @router.message(CustomMetricSG.value)
@@ -239,10 +260,10 @@ async def metric_value(message: Message, state: FSMContext, db_user: User | None
         else:
             payload["value_text"] = raw
     except ValueError:
-        await message.answer("Некорректное значение", reply_markup=cancel_kb())
+        await message.answer("Некорректное значение", reply_markup=cancel_kb(f"cm:o:{data['metric_id']}"))
         return
     await state.update_data(**payload)
-    await message.answer("Когда зафиксировать?", reply_markup=now_or_time("cmt"))
+    await message.answer("Когда зафиксировать?", reply_markup=when_kb("cmt", metric_id=int(data["metric_id"])))
 
 
 @router.callback_query(F.data == "cmt:now")

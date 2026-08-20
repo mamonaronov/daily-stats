@@ -49,7 +49,7 @@ async def day_mood(cb: CallbackQuery, state: FSMContext, db_user: User | None) -
     await state.update_data(score_mood=int(cb.data.split(":")[1]))
     await state.set_state(DayReviewSG.wellbeing)
     await cb.answer()
-    await safe_edit(cb.message, "Теперь самочувствие:", score_kb("drv_w"))
+    await safe_edit(cb.message, "Теперь самочувствие:", score_kb("drv_w", back=NAV_DAY))
 
 
 @router.callback_query(F.data.startswith("drv_w:"), DayReviewSG.wellbeing)
@@ -59,7 +59,16 @@ async def day_wb(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> 
     await state.update_data(score_wb=int(cb.data.split(":")[1]))
     await state.set_state(DayReviewSG.comment)
     await cb.answer()
-    await safe_edit(cb.message, "Короткий комментарий к дню? Можно пропустить.", skip_comment_kb())
+    await safe_edit(cb.message, "Короткий комментарий к дню? Можно пропустить.", skip_comment_kb("drv:wb"))
+
+
+@router.callback_query(F.data == "drv:wb")
+async def day_back_wb(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    if await require_writable(cb, db_user) is None:
+        return
+    await state.set_state(DayReviewSG.wellbeing)
+    await cb.answer()
+    await safe_edit(cb.message, "Теперь самочувствие:", score_kb("drv_w", back=NAV_DAY))
 
 
 @router.callback_query(F.data == "wb:skip", DayReviewSG.comment)

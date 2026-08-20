@@ -21,8 +21,8 @@ from utils.callbacks import (
     ENTRY_SNUS,
     ENTRY_WB,
     NAV_ADMIN,
+    NAV_BACK,
     NAV_BALANCE,
-    NAV_CANCEL,
     NAV_DAY,
     NAV_HISTORY,
     NAV_MAIN,
@@ -38,17 +38,26 @@ def _btn(text: str, data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=data)
 
 
-def nav_row(back: str | None = None) -> list[InlineKeyboardButton]:
+def nav_row(back: str | None = None, *, menu: bool = True) -> list[InlineKeyboardButton]:
     row = []
-    if back:
+    if back and back != NAV_MAIN:
         row.append(_btn("⬅️ Назад", back))
-    row.append(_btn("🏠 Меню", NAV_MAIN))
+    if menu:
+        row.append(_btn("🏠 Меню", NAV_MAIN))
     return row
 
 
 def with_nav(builder: InlineKeyboardBuilder, back: str | None = None) -> InlineKeyboardMarkup:
     builder.row(*nav_row(back))
     return builder.as_markup()
+
+
+def back_kb(back: str | None = None, *, menu: bool = True) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    row = nav_row(back, menu=menu)
+    if row:
+        b.row(*row)
+    return b.as_markup()
 
 
 def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
@@ -67,13 +76,53 @@ def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def cancel_kb() -> InlineKeyboardMarkup:
+def cancel_kb(back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("✖️ Отмена", NAV_CANCEL), _btn("🏠 Меню", NAV_MAIN))
+    if back and back != NAV_MAIN:
+        b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
+    else:
+        b.row(_btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
-def now_or_time(prefix: str, back: str = NAV_MAIN) -> InlineKeyboardMarkup:
+_WHEN_TITLES = {
+    "cig": "🚬 Сигарета",
+    "fool": "🤌 Валять дурака",
+    "caft": "Когда это было?",
+    "alct": "Когда это было?",
+    "actt": "Когда была активность?",
+    "mdt": "Когда оценить настроение?",
+    "wbt": "Когда оценить самочувствие?",
+    "nt": "Когда добавить заметку?",
+    "slw": "Когда проснулись? Можно указать время задним числом.",
+    "cmt": "Когда зафиксировать?",
+}
+
+_WHEN_BACK = {
+    "cig": None,
+    "fool": None,
+    "caft": ENTRY_CAF,
+    "alct": ENTRY_ALC,
+    "actt": ENTRY_ACT,
+    "mdt": ENTRY_MOOD,
+    "wbt": ENTRY_WB,
+    "nt": ENTRY_NOTE,
+    "slw": "slp:wake",
+}
+
+
+def when_title(prefix: str) -> str:
+    return _WHEN_TITLES.get(prefix, "Когда это было?")
+
+
+def when_kb(prefix: str, *, metric_id: int | None = None) -> InlineKeyboardMarkup:
+    back = _WHEN_BACK.get(prefix)
+    if prefix == "cmt" and metric_id is not None:
+        back = f"cm:o:{metric_id}"
+    return now_or_time(prefix, back)
+
+
+def now_or_time(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сейчас", f"{prefix}:now"), _btn("🕐 Указать время", f"{prefix}:time"))
     return with_nav(b, back)
@@ -83,21 +132,21 @@ def sleep_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🌙 Лёг спать", "slp:bed"), _btn("☀️ Проснулся", "slp:wake"))
     b.row(_btn("Сейчас", "slp:now"), _btn("🕐 Указать время", "slp:time"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def snus_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🛒 Купил сейчас", "sns:buy"), _btn("🕐 Купил ранее", "sns:tbuy"))
     b.row(_btn("✅ Закончилась сейчас", "sns:end"), _btn("🕐 Закончилась ранее", "sns:tend"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
-def score_kb(prefix: str) -> InlineKeyboardMarkup:
+def score_kb(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for score in range(1, 6):
         b.row(_btn(f"{SCORE_EMOJI[score]} {SCORE_LABELS[score].capitalize()}", f"{prefix}:{score}"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    b.row(*nav_row(back))
     return b.as_markup()
 
 
@@ -105,7 +154,7 @@ def caffeine_types() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("☕ Кофе", "caf:t:coffee"), _btn("⚡ Энергетик", "caf:t:energy"))
     b.row(_btn("🍵 Чай", "caf:t:tea"), _btn("Другое", "caf:t:other"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def alcohol_types() -> InlineKeyboardMarkup:
@@ -113,7 +162,7 @@ def alcohol_types() -> InlineKeyboardMarkup:
     b.row(_btn("🍺 Пиво", "alc:t:beer"), _btn("🍷 Вино", "alc:t:wine"))
     b.row(_btn("🥃 Крепкий", "alc:t:spirits"), _btn("🍹 Коктейль", "alc:t:cocktail"))
     b.row(_btn("Другое", "alc:t:other"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def activity_types() -> InlineKeyboardMarkup:
@@ -121,19 +170,20 @@ def activity_types() -> InlineKeyboardMarkup:
     b.row(_btn("🚶 Ходьба", "act:t:walk"), _btn("🏃 Бег", "act:t:run"))
     b.row(_btn("💪 Тренировка", "act:t:workout"), _btn("🚴 Велосипед", "act:t:bike"))
     b.row(_btn("Другое", "act:t:other"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
-def timezone_kb() -> InlineKeyboardMarkup:
+def timezone_kb(back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for tz, label in COMMON_TIMEZONES:
         b.row(_btn(label, f"tz:{tz}"))
     b.row(_btn("Другой (IANA)", "tz:custom"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    if back:
+        b.row(*nav_row(back))
     return b.as_markup()
 
 
-def calendar_kb(year: int, month: int, prefix: str = "cal") -> InlineKeyboardMarkup:
+def calendar_kb(year: int, month: int, prefix: str = "cal", back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn(f"{MONTHS_RU[month].capitalize()} {year}", "noop"))
     b.row(*[_btn(d, "noop") for d in WEEKDAYS_RU])
@@ -158,26 +208,26 @@ def calendar_kb(year: int, month: int, prefix: str = "cal") -> InlineKeyboardMar
         _btn("»", f"{prefix}m:{next_month.year:04d}-{next_month.month:02d}"),
     )
     b.row(_btn("Сегодня", f"{prefix}:today"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL), _btn("🏠 Меню", NAV_MAIN))
+    b.row(*nav_row(back))
     return b.as_markup()
 
 
-def hours_kb(prefix: str = "hr", *, date_shortcuts: bool = False) -> InlineKeyboardMarkup:
+def hours_kb(prefix: str = "hr", *, date_shortcuts: bool = False, back: str | None = NAV_BACK) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for hour in range(0, 24, 4):
         b.row(*[_btn(f"{h:02d}", f"{prefix}:{h}") for h in range(hour, hour + 4)])
     if date_shortcuts:
         b.row(_btn("Сегодня", "hdt:today"), _btn("Вчера", "hdt:yesterday"), _btn("📅 Дата", "hdt:calendar"))
     b.row(_btn("⌨️ Ввести вручную", f"{prefix}:manual"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    b.row(*nav_row(back))
     return b.as_markup()
 
 
-def minutes_kb(prefix: str = "mn") -> InlineKeyboardMarkup:
+def minutes_kb(prefix: str = "mn", back: str | None = NAV_BACK) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for start in range(0, 60, 15):
         b.row(*[_btn(f"{m:02d}", f"{prefix}:{m}") for m in range(start, start + 15, 5)])
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    b.row(*nav_row(back))
     return b.as_markup()
 
 
@@ -185,7 +235,7 @@ def history_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "hist:today"), _btn("Вчера", "hist:yesterday"))
     b.row(_btn("📅 Дата", "hist:date"), _btn("📆 Период", "hist:range"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def stats_period_kb() -> InlineKeyboardMarkup:
@@ -193,7 +243,7 @@ def stats_period_kb() -> InlineKeyboardMarkup:
     b.row(_btn("Сегодня", "stp:today"), _btn("Вчера", "stp:yesterday"))
     b.row(_btn("7 дней", "stp:7"), _btn("14 дней", "stp:14"))
     b.row(_btn("30 дней", "stp:30"), _btn("📆 Период", "stp:range"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
@@ -224,7 +274,7 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
     b.row(_btn("🗑 Удалить аккаунт", "set:del"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def confirm_delete_kb() -> InlineKeyboardMarkup:
@@ -244,14 +294,14 @@ def entry_actions(kind: str, item_id: int, writable: bool) -> InlineKeyboardMark
 
 def confirm_remove_kb(kind: str, item_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Удалить", f"rmok:{kind}:{item_id}"), _btn("Отмена", NAV_HISTORY))
+    b.row(_btn("Удалить", f"rmok:{kind}:{item_id}"), _btn("Отмена", f"h:o:{kind}:{item_id}"))
     return b.as_markup()
 
 
-def skip_comment_kb() -> InlineKeyboardMarkup:
+def skip_comment_kb(back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Пропустить", "wb:skip"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    b.row(*nav_row(back))
     return b.as_markup()
 
 
@@ -262,14 +312,14 @@ def custom_metrics_kb(metrics, writable: bool) -> InlineKeyboardMarkup:
         b.row(_btn(f"{metric.name}{flag}", f"cm:o:{metric.id}"))
     if writable:
         b.row(_btn("➕ Создать показатель", "cm:new"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def metric_types_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for key, spec in METRIC_TYPES.items():
         b.row(_btn(spec.label, f"cm:t:{key}"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    b.row(_btn("✖️ Отмена", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
@@ -283,18 +333,24 @@ def metric_card_kb(metric_id: int, enabled: bool, writable: bool) -> InlineKeybo
     return b.as_markup()
 
 
-def bool_kb() -> InlineKeyboardMarkup:
+def bool_kb(back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Да", "cm:v:1"), _btn("Нет", "cm:v:0"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    if back:
+        b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
+    else:
+        b.row(*nav_row())
     return b.as_markup()
 
 
-def choices_kb(choices: list[str]) -> InlineKeyboardMarkup:
+def choices_kb(choices: list[str], back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for idx, choice in enumerate(choices):
         b.row(_btn(choice, f"cm:ch:{idx}"))
-    b.row(_btn("✖️ Отмена", NAV_CANCEL))
+    if back:
+        b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
+    else:
+        b.row(*nav_row())
     return b.as_markup()
 
 
@@ -304,7 +360,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
     b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🛡 VPN", "ad:vpn"))
     b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
-    return with_nav(b, NAV_MAIN)
+    return with_nav(b)
 
 
 def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:

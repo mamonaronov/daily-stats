@@ -66,7 +66,7 @@ async def stats_period(cb: CallbackQuery, state: FSMContext, db_user: User | Non
         await state.set_state(StatsSG.custom_date)
         await state.update_data(stats_mode="range")
         await cb.answer()
-        await safe_edit(cb.message, "Начало периода:", calendar_kb(today.year, today.month, prefix="scal"))
+        await safe_edit(cb.message, "Начало периода:", calendar_kb(today.year, today.month, prefix="scal", back=NAV_STATS))
         return
     await state.update_data(period=token)
     data = await state.get_data()
@@ -82,7 +82,7 @@ async def stats_month(cb: CallbackQuery, db_user: User | None) -> None:
     ym = cb.data.split(":", 1)[1]
     year, month = int(ym[:4]), int(ym[5:7])
     await cb.answer()
-    await safe_edit(cb.message, "Выберите дату:", calendar_kb(year, month, prefix="scal"))
+    await safe_edit(cb.message, "Выберите дату:", calendar_kb(year, month, prefix="scal", back=NAV_STATS))
 
 
 @router.callback_query(F.data.startswith("scal:"), StatsSG.custom_date)
@@ -97,7 +97,7 @@ async def stats_date(cb: CallbackQuery, state: FSMContext, db_user: User | None)
         await state.update_data(range_start=day.isoformat())
         await state.set_state(StatsSG.range_end)
         await cb.answer()
-        await safe_edit(cb.message, "Конец периода:", calendar_kb(day.year, day.month, prefix="scal"))
+        await safe_edit(cb.message, "Конец периода:", calendar_kb(day.year, day.month, prefix="scal", back=NAV_STATS))
         return
     await state.update_data(range_end=day.isoformat(), period="custom")
     await state.set_state(None)

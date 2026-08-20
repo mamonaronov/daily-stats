@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, Message
 from config import Config
 from database.models import User
 from database.queries import Repo
-from keyboards.main import cancel_kb, main_menu
+from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
@@ -55,7 +55,7 @@ async def require_active(event: CallbackQuery | Message, user: User | None) -> U
     if blocked:
         if isinstance(event, CallbackQuery):
             await event.answer()
-            await safe_edit(event.message, blocked, cancel_kb())
+            await safe_edit(event.message, blocked, back_kb())
         else:
             await event.answer(blocked)
         return None
@@ -87,13 +87,34 @@ async def start_time_pick(
 ) -> None:
     from datetime import date
 
-    from keyboards.main import calendar_kb, hours_kb
     from states.diary import TimePickSG
+    from utils.callbacks import NAV_BACK
     from utils.time import user_today
 
-    user_tz = extra.get("tz") if extra else None
+    extra = dict(extra or {})
+    if "time_exit" not in extra:
+        if purpose.startswith("edit:"):
+            _, kind, raw_id = purpose.split(":", 2)
+            extra["time_exit"] = f"hist:{kind}:{raw_id}"
+        else:
+            extra["time_exit"] = {
+                "cig": "when:cig",
+                "fool": "when:fool",
+                "slp_bed": "sleep",
+                "slp_wake": "when:slw",
+                "snus_buy": "snus",
+                "snus_end": "snus",
+                "mood": "when:mdt",
+                "wb": "when:wbt",
+                "caf": "when:caft",
+                "alc": "when:alct",
+                "act": "when:actt",
+                "note": "when:nt",
+                "cm": "when:cmt",
+            }.get(purpose, "when:cig")
+    user_tz = extra.get("tz")
     today = user_today(user_tz) if user_tz else date.today()
-    payload = {"time_purpose": purpose, "picked_date": today.isoformat(), **(extra or {})}
+    payload = {"time_purpose": purpose, "picked_date": today.isoformat(), **extra}
     if skip_date:
         payload["time_date_shortcuts"] = True
         await state.set_state(TimePickSG.hour)
@@ -102,10 +123,10 @@ async def start_time_pick(
         await safe_edit(
             cb.message,
             f"Дата: {today.isoformat()} (сегодня)\nВыберите час — можно уже прошедший:",
-            hours_kb(date_shortcuts=True),
+            hours_kb(date_shortcuts=True, back=NAV_BACK),
         )
         return
     await state.set_state(TimePickSG.date)
     await state.update_data(**payload)
     await cb.answer()
-    await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month))
+    await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month, back=NAV_BACK))

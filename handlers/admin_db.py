@@ -241,7 +241,7 @@ async def admin_sql_start(cb: CallbackQuery, state: FSMContext, config: Config) 
         "Отправьте один SQLite-запрос.\n"
         "SELECT / PRAGMA покажут строки, остальные команды — число затронутых записей.\n"
         "ATTACH, DETACH и VACUUM INTO запрещены.",
-        cancel_kb(),
+        cancel_kb("ad:dbe"),
     )
 
 
@@ -251,7 +251,7 @@ async def admin_sql_run(message: Message, state: FSMContext, config: Config, rep
         return
     sql = (message.text or "").strip()
     if not sql:
-        await message.answer("Пустой запрос.", reply_markup=cancel_kb())
+        await message.answer("Пустой запрос.", reply_markup=cancel_kb("ad:dbe"))
         return
     try:
         result = await repo.run_sql(sql, max_rows=SQL_MAX_ROWS)
@@ -308,7 +308,7 @@ async def admin_purge_start(cb: CallbackQuery, state: FSMContext, config: Config
         f"• аккаунт владельца <code>{config.owner_id}</code> (настройки и напоминание)\n\n"
         "Перед очисткой будет создан бэкап.\n\n"
         f"Чтобы подтвердить, отправьте точно:\n<code>{html.escape(PURGE_CONFIRM_PHRASE)}</code>",
-        cancel_kb(),
+        cancel_kb("ad:dbe"),
     )
 
 
@@ -320,7 +320,7 @@ async def admin_purge_run(message: Message, state: FSMContext, config: Config, r
     if text != PURGE_CONFIRM_PHRASE:
         await message.answer(
             f"Не совпало. Отправьте <code>{html.escape(PURGE_CONFIRM_PHRASE)}</code> или нажмите Отмена.",
-            reply_markup=cancel_kb(),
+            reply_markup=cancel_kb("ad:dbe"),
         )
         return
     try:

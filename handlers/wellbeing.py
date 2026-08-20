@@ -10,9 +10,10 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_writable, show_main, start_time_pick
-from keyboards.main import now_or_time, skip_comment_kb
+from keyboards.main import skip_comment_kb, when_kb
 from services import entries
 from states.diary import WellbeingSG
+from utils.callbacks import ENTRY_WB
 from utils.telegram import safe_edit
 from utils.time import user_now
 
@@ -32,7 +33,7 @@ async def wb_score(cb: CallbackQuery, state: FSMContext, db_user: User | None) -
     await state.set_state(WellbeingSG.comment)
     await state.update_data(score=int(token))
     await cb.answer()
-    await safe_edit(cb.message, "Комментарий? Можно пропустить.", skip_comment_kb())
+    await safe_edit(cb.message, "Комментарий? Можно пропустить.", skip_comment_kb(ENTRY_WB))
 
 
 @router.callback_query(F.data == "wb:skip", WellbeingSG.comment)
@@ -41,7 +42,7 @@ async def wb_skip_comment(cb: CallbackQuery, state: FSMContext, db_user: User | 
         return
     await state.update_data(comment=None)
     await cb.answer()
-    await safe_edit(cb.message, "Когда оценить самочувствие?", now_or_time("wbt"))
+    await safe_edit(cb.message, "Когда оценить самочувствие?", when_kb("wbt"))
 
 
 @router.message(WellbeingSG.comment)
@@ -50,7 +51,7 @@ async def wb_comment(message: Message, state: FSMContext, db_user: User | None) 
     if user is None:
         return
     await state.update_data(comment=(message.text or "").strip() or None)
-    await message.answer("Когда оценить самочувствие?", reply_markup=now_or_time("wbt"))
+    await message.answer("Когда оценить самочувствие?", reply_markup=when_kb("wbt"))
 
 
 @router.callback_query(F.data == "wbt:now")
