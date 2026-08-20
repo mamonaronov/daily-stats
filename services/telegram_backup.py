@@ -99,7 +99,8 @@ def backup_archive_name(
     db_version: int,
     tz_name: str,
 ) -> str:
-    stamp = to_user(started, tz_name).strftime("%d-%m-%Y_%H:%M:%S")
+    # Colons in filenames break KDE Ark/Qt: the name is parsed as a URL (scheme:host).
+    stamp = to_user(started, tz_name).strftime("%d-%m-%Y_%H-%M-%S")
     short = re.sub(r"[^A-Za-z0-9]", "", commit)[:12] or "unknown"
     slug = slugify_commit_title(title)
     return f"daily-stats-backup_{stamp}_{short}_{slug}_db{db_version}.tar.gz"
