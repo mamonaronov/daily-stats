@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import date, timedelta
 from types import SimpleNamespace
 
@@ -350,6 +351,36 @@ async def test_measure_bot_latency_timeout():
     assert ok is False
     assert error == "timeout"
     assert latency_ms >= 50
+
+
+async def test_measure_bot_latency_abandons_slow_cancel():
+    from services.vpn_monitor import measure_bot_latency
+
+    class StickyBot:
+        def __init__(self) -> None:
+            self.session = SimpleNamespace(closed=0)
+
+            async def close() -> None:
+                self.session.closed += 1
+
+            self.session.close = close
+
+        async def get_me(self):
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.4)
+                raise
+
+    started = time.monotonic()
+    bot = StickyBot()
+    ok, _, error = await measure_bot_latency(bot, timeout=0.05)
+    elapsed = time.monotonic() - started
+    assert ok is False
+    assert error == "timeout"
+    assert elapsed < 0.3
+    assert bot.session.closed == 1
+    await asyncio.sleep(0.5)
 
 
 def test_vpn_monitor_config_from_env(monkeypatch):

@@ -43,7 +43,7 @@ def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
         logger.info("telegram_proxy_disabled")
         return None
     try:
-        session = AiohttpSession(proxy=proxy_url)
+        session = AiohttpSession(proxy=proxy_url, timeout=30.0)
     except ImportError as exc:
         raise ConfigError(
             "TELEGRAM_PROXY_URL is set but aiohttp-socks is not installed"

@@ -11,8 +11,11 @@ from aiogram.exceptions import TelegramForbiddenError
 
 from config import Config
 from utils.time import now_utc
+from utils.timeouts import await_or_abandon
 
 logger = logging.getLogger(__name__)
+
+_NOTIFY_TIMEOUT = 15.0
 
 
 def format_alert(kind: str, description: str, context: str | None = None, exc: BaseException | None = None) -> str:
@@ -34,8 +37,18 @@ def format_alert(kind: str, description: str, context: str | None = None, exc: B
 
 async def notify_owner(bot: Bot, config: Config, text: str) -> None:
     try:
-        await bot.send_message(config.owner_id, text)
+        await await_or_abandon(
+            bot.send_message(
+                config.owner_id,
+                text,
+                request_timeout=int(_NOTIFY_TIMEOUT),
+            ),
+            _NOTIFY_TIMEOUT,
+            name="notify_owner",
+        )
     except TelegramForbiddenError:
         logger.error("Owner has blocked the bot; cannot send alert")
+    except TimeoutError:
+        logger.warning("Owner notify timed out after %.0fs", _NOTIFY_TIMEOUT)
     except Exception:
         logger.exception("Failed to notify owner")

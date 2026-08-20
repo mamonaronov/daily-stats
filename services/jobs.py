@@ -16,11 +16,16 @@ from services.alerts import format_alert, notify_owner
 from services.billing import run_billing_tick
 from services.reminders import refresh_user_reminder, user_filled_day_review
 from utils.time import now_utc, to_iso, user_today
+from utils.timeouts import await_or_abandon, reset_bot_session
 
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_BACKUP_START_DELAY = timedelta(seconds=5)
 _TELEGRAM_BACKUP_RETRY = timedelta(minutes=15)
+_REMINDER_JOB_TIMEOUT = 45.0
+_TELEGRAM_BACKUP_SEND_TIMEOUT = 180.0
+_REMINDER_SEND_TIMEOUT = 20
+_VPN_MONITOR_JOB_SLACK = 5.0
 
 
 def _schedule_telegram_backup_at(
@@ -63,6 +68,7 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         kwargs={"repo": repo, "config": config, "bot": bot},
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=max(60, config.reminder_check_minutes * 60),
     )
     scheduler.add_job(
         backup_job,
@@ -127,15 +133,29 @@ async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
 
 async def reminder_job(repo: Repo, config: Config, bot: Bot) -> None:
     try:
-        due = await repo.due_reminders(to_iso(now_utc()))
-        for reminder in due:
-            try:
-                await _send_reminder(bot, repo, config, reminder.telegram_id)
-            except Exception:
-                logger.exception("Reminder failed for %s", reminder.telegram_id)
+        await await_or_abandon(
+            _reminder_tick(repo, config, bot),
+            _REMINDER_JOB_TIMEOUT,
+            name="reminder_job",
+        )
+    except TimeoutError:
+        logger.warning(
+            "Reminder job timed out after %.0fs, resetting Telegram session",
+            _REMINDER_JOB_TIMEOUT,
+        )
+        await reset_bot_session(bot)
     except Exception as exc:
         logger.exception("Reminder tick failed")
         await notify_owner(bot, config, format_alert("reminder", "Сбой рассылки напоминаний", exc=exc))
+
+
+async def _reminder_tick(repo: Repo, config: Config, bot: Bot) -> None:
+    due = await repo.due_reminders(to_iso(now_utc()))
+    for reminder in due:
+        try:
+            await _send_reminder(bot, repo, config, reminder.telegram_id)
+        except Exception:
+            logger.exception("Reminder failed for %s", reminder.telegram_id)
 
 
 async def _send_reminder(bot: Bot, repo: Repo, config: Config, telegram_id: int) -> None:
@@ -162,6 +182,7 @@ async def _send_reminder(bot: Bot, repo: Repo, config: Config, telegram_id: int)
             telegram_id,
             "Как прошёл день? Отметьте настроение и самочувствие.",
             reply_markup=with_nav(b),
+            request_timeout=_REMINDER_SEND_TIMEOUT,
         )
     except TelegramForbiddenError:
         await repo.mark_bot_blocked(telegram_id)
@@ -206,7 +227,11 @@ async def telegram_backup_job(
             logger.info("Telegram backup not due, next at %s", when.isoformat())
             _schedule_telegram_backup_at(scheduler, bot, db, config, when)
             return
-        await send_telegram_backup(db, bot, config)
+        await await_or_abandon(
+            send_telegram_backup(db, bot, config),
+            _TELEGRAM_BACKUP_SEND_TIMEOUT,
+            name="telegram_backup",
+        )
         when = now_utc() + timedelta(hours=interval)
         logger.info("Telegram backup next at %s", when.isoformat())
         _schedule_telegram_backup_at(scheduler, bot, db, config, when)
@@ -235,7 +260,14 @@ async def cleanup_job(repo: Repo) -> None:
 
 
 async def vpn_monitor_job(monitor, bot: Bot, repo: Repo) -> None:
+    timeout = float(monitor.config.vpn_monitor_timeout_seconds) + _VPN_MONITOR_JOB_SLACK
     try:
-        await monitor.tick(bot, repo)
+        await await_or_abandon(monitor.tick(bot, repo), timeout, name="vpn_monitor_job")
+    except TimeoutError:
+        logger.warning(
+            "VPN monitor tick timed out after %.0fs, resetting Telegram session",
+            timeout,
+        )
+        await reset_bot_session(bot)
     except Exception:
         logger.exception("VPN monitor tick failed")

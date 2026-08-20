@@ -19,6 +19,7 @@ from database.models import VpnLatencySample
 from database.queries import Repo
 from utils.logging import TOKEN_RE, log_extra
 from utils.time import format_dt_compact, format_dt_full, now_utc, parse_iso, to_iso
+from utils.timeouts import await_or_abandon, reset_bot_session
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +232,12 @@ async def fetch_auto_now(config: Config) -> tuple[str | None, str | None]:
 async def measure_bot_latency(bot: Bot, timeout: float) -> tuple[bool, int, str | None]:
     started = time.monotonic()
     try:
-        await asyncio.wait_for(bot.get_me(), timeout=timeout)
+        await await_or_abandon(bot.get_me(), timeout, name="bot.get_me")
         latency_ms = int((time.monotonic() - started) * 1000)
         return True, latency_ms, None
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency_ms = int((time.monotonic() - started) * 1000)
+        await reset_bot_session(bot)
         return False, latency_ms, "timeout"
     except Exception as exc:
         latency_ms = int((time.monotonic() - started) * 1000)
