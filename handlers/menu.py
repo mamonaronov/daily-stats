@@ -92,7 +92,7 @@ async def fool_entry(cb: CallbackQuery, db_user: User | None) -> None:
     if await require_writable(cb, db_user) is None:
         return
     await cb.answer()
-    await safe_edit(cb.message, "🤡 Валять дурака", now_or_time("fool"))
+    await safe_edit(cb.message, "🤌 Валять дурака", now_or_time("fool"))
 
 
 @router.callback_query(F.data == ENTRY_SNUS)

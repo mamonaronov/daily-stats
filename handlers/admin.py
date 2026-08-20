@@ -89,7 +89,7 @@ async def admin_root(cb: CallbackQuery, state: FSMContext, config: Config, repo:
     await state.clear()
     counts = await repo.user_stats_counts()
     text = (
-        "👑 <b>Админ-панель</b>\n\n"
+        "🛠 <b>Админ-панель</b>\n\n"
         f"Всего пользователей: {counts.get('total', 0)}\n"
         f"Активных: {counts.get('active', 0)}\n"
         f"С закончившимся балансом: {counts.get('unpaid', 0)}\n"

@@ -54,7 +54,7 @@ def with_nav(builder: InlineKeyboardBuilder, back: str | None = None) -> InlineK
 def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🚬 Сигарета", ENTRY_CIG), _btn("🟢 Снюс", ENTRY_SNUS))
-    b.row(_btn("🤡 Валять дурака", ENTRY_FOOL))
+    b.row(_btn("🤌 Валять дурака", ENTRY_FOOL))
     b.row(_btn("😴 Сон", ENTRY_SLEEP), _btn("🙂 Настроение", ENTRY_MOOD))
     b.row(_btn("❤️ Самочувствие", ENTRY_WB), _btn("☕ Кофеин", ENTRY_CAF))
     b.row(_btn("🍺 Алкоголь", ENTRY_ALC), _btn("🏃 Активность", ENTRY_ACT))
@@ -63,7 +63,7 @@ def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
     b.row(_btn("📅 История", NAV_HISTORY), _btn("⚙️ Настройки", NAV_SETTINGS))
     b.row(_btn("💰 Баланс", NAV_BALANCE))
     if is_owner:
-        b.row(_btn("👑 Админ-панель", NAV_ADMIN))
+        b.row(_btn("🛠 Админ-панель", NAV_ADMIN))
     return b.as_markup()
 
 
@@ -199,7 +199,7 @@ def stats_period_kb() -> InlineKeyboardMarkup:
 def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
     options = [
         ("cigarettes", "🚬 Сигареты"),
-        ("fooling", "🤡 Валять дурака"),
+        ("fooling", "🤌 Валять дурака"),
         ("snus", "🟢 Снюс"),
         ("sleep", "😴 Сон"),
         ("mood", "🙂 Настроение"),
@@ -313,7 +313,7 @@ def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:
     b.row(_btn("🎯 Установить баланс", f"ad:st:{telegram_id}"), _btn("💸 Стоимость/день", f"ad:pr:{telegram_id}"))
     b.row(_btn("📋 Операции", f"ad:op:{telegram_id}"), _btn("📊 Статистика", f"ad:us:{telegram_id}"))
     b.row(_btn("🚫 Заблокировать", f"ad:bn:{telegram_id}"), _btn("✅ Разблокировать", f"ad:un:{telegram_id}"))
-    b.row(_btn("🔎 Поиск", "ad:search"), _btn("👑 Админка", NAV_ADMIN))
+    b.row(_btn("🔎 Поиск", "ad:search"), _btn("🛠 Админка", NAV_ADMIN))
     b.row(_btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
@@ -327,14 +327,14 @@ def users_page_kb(offset: int, has_next: bool) -> InlineKeyboardMarkup:
         row.append(_btn("»", f"ad:up:{offset + 10}"))
     if row:
         b.row(*row)
-    b.row(_btn("👑 Админка", NAV_ADMIN), _btn("🏠 Меню", NAV_MAIN))
+    b.row(_btn("🛠 Админка", NAV_ADMIN), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
 def admin_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "ads:today"), _btn("7 дней", "ads:7"), _btn("30 дней", "ads:30"))
-    b.row(_btn("👑 Админка", NAV_ADMIN))
+    b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 
 
@@ -343,7 +343,7 @@ def admin_db_kb() -> InlineKeyboardMarkup:
     b.row(_btn("📋 Таблицы", "ad:tbls"), _btn("📄 Схема", "ad:dsch"))
     b.row(_btn("⌨️ SQL-запрос", "ad:sql"), _btn("🩺 Целостность", "ad:dint"))
     b.row(_btn("🧹 Очистить базу", "ad:clr"))
-    b.row(_btn("👑 Админка", NAV_ADMIN))
+    b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 
 
@@ -351,7 +351,7 @@ def admin_tables_kb(tables: list[tuple[str, int]]) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for name, count in tables:
         b.row(_btn(f"{name} · {count}", f"ad:tp:{name}:0"))
-    b.row(_btn("🗄 База", "ad:dbe"), _btn("👑 Админка", NAV_ADMIN))
+    b.row(_btn("🗄 База", "ad:dbe"), _btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 
 
@@ -372,7 +372,7 @@ def admin_table_kb(name: str, offset: int, total: int, page: int = 10) -> Inline
 def admin_sql_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("⌨️ Ещё запрос", "ad:sql"))
-    b.row(_btn("🗄 База", "ad:dbe"), _btn("👑 Админка", NAV_ADMIN))
+    b.row(_btn("🗄 База", "ad:dbe"), _btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 
 
@@ -402,5 +402,5 @@ def admin_vpn_kb(period: str = "24h", top: str = "n") -> InlineKeyboardMarkup:
     span = _VPN_SPAN_LABELS.get(period, "сутки")
     b.row(_btn(f"📄 Логи за {span}", f"advl:{period}"))
     b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
-    b.row(_btn("👑 Админка", NAV_ADMIN))
+    b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()

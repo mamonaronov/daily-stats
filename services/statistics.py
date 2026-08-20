@@ -160,8 +160,8 @@ def cigarette_stats(user: User, items, start: date, end: date) -> str:
 
 def fooling_stats(user: User, items, start: date, end: date) -> str:
     return timestamp_count_stats(
-        "🤡 <b>Валять дурака</b>",
-        "🤡 Валять дурака: нет данных за период.",
+        "🤌 <b>Валять дурака</b>",
+        "🤌 Валять дурака: нет данных за период.",
         user,
         items,
         start,

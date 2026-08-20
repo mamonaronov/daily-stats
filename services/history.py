@@ -29,7 +29,7 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
 
     for rec in await repo.list_fooling(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
-        items.append(TimelineItem("fooling", rec.id, dt, "🤡 Валять дурака", "", {}))
+        items.append(TimelineItem("fooling", rec.id, dt, "🤌 Валять дурака", "", {}))
 
     for rec in await repo.list_snus_packs(tid, start_iso, end_iso):
         if rec.bought_at:
