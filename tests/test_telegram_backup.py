@@ -77,6 +77,16 @@ def test_next_telegram_backup_at_counts_from_last_send():
     assert next_telegram_backup_at(None, 12, now) == now
 
 
+def test_next_backup_caption():
+    from services.telegram_backup import next_backup_caption
+
+    now = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
+    last = now - timedelta(hours=6)
+    assert next_backup_caption(last, 12, now) == "Следующий бекап через 6 ч"
+    assert next_backup_caption(None, 12, now) == "Следующий бекап: сейчас"
+    assert next_backup_caption(last, 0, now) == "Следующий бекап: выкл"
+
+
 def test_backup_archive_name_has_start_time_commit_and_db():
     started = datetime(2026, 8, 1, 7, 10, 10, tzinfo=timezone.utc)
     name = backup_archive_name(started, "a1b2c3d", "add telegram backup", 4, "Europe/Moscow")

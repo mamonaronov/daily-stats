@@ -249,6 +249,24 @@ async def test_purge_content_keeps_only_bot_runtime_rows(repo):
     assert int(row[0]) == 1
 
 
+@pytest.mark.asyncio
+async def test_service_started_at_is_earliest_registration(repo):
+    assert await repo.service_started_at() is None
+    await repo.create_user(1, "a", "A", None, "UTC", 10, "23:00")
+    await repo.create_user(2, "b", "B", None, "UTC", 10, "23:00")
+    await repo.execute("UPDATE users SET registered_at = ? WHERE telegram_id = 1", ("2026-01-01T00:00:00+00:00",))
+    await repo.conn.commit()
+    assert await repo.service_started_at() == "2026-01-01T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_earliest_vpn_measured_at(repo):
+    assert await repo.earliest_vpn_measured_at() is None
+    await repo.insert_vpn_sample("2026-08-10T00:00:00+00:00", True, 20, "n", "s", None)
+    await repo.insert_vpn_sample("2026-08-01T00:00:00+00:00", True, 10, "n", "s", None)
+    assert await repo.earliest_vpn_measured_at() == "2026-08-01T00:00:00+00:00"
+
+
 def test_admin_db_keyboards_callback_limit():
     from keyboards.main import admin_db_kb, admin_table_kb, admin_tables_kb
 

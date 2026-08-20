@@ -438,6 +438,7 @@ _VPN_SPAN_LABELS = {
     "24h": "сутки",
     "7d": "неделю",
     "30d": "месяц",
+    "all": "всё время",
 }
 
 
@@ -447,7 +448,7 @@ def admin_vpn_kb(period: str = "24h", top: str = "n") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     rows = (
         (("5m", "5 мин"), ("1h", "1 ч"), ("24h", "сутки")),
-        (("7d", "неделя"), ("30d", "месяц")),
+        (("7d", "неделя"), ("30d", "месяц"), ("all", "всё время")),
     )
     for labels in rows:
         b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}:{top}") for key, label in labels])

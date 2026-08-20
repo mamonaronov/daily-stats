@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -28,12 +28,11 @@ from keyboards.main import (
 )
 from services import balance as balance_svc
 from services.statistics import render_stats
+from services.telegram_backup import last_telegram_backup_at, next_backup_caption
 from services.vpn_charts import build_vpn_charts, downtime_ticks
 from services.vpn_monitor import (
     collect_vpn_log_entries,
-    fetch_auto_now,
     format_vpn_log,
-    parse_node,
     subscription_label,
     vpn_samples_as_dicts,
 )
@@ -82,19 +81,42 @@ def _card(user: User, entries_count: int, last_entry: str | None) -> str:
     )
 
 
+def _service_age_seconds(started_iso: str | None, now: datetime | None = None) -> float | None:
+    if not started_iso:
+        return None
+    try:
+        started = parse_iso(started_iso)
+    except ValueError:
+        return None
+    return max(0.0, ((now or now_utc()) - started).total_seconds())
+
+
+async def _admin_status_lines(repo: Repo, config: Config, now: datetime | None = None) -> list[str]:
+    now = now or now_utc()
+    started = await repo.service_started_at()
+    last_backup = await last_telegram_backup_at(repo.db)
+    return [
+        f"Возраст сервиса: {seconds_human(_service_age_seconds(started, now))}",
+        next_backup_caption(last_backup, config.telegram_backup_interval_hours, now),
+    ]
+
+
 @router.callback_query(F.data == NAV_ADMIN)
 async def admin_root(cb: CallbackQuery, state: FSMContext, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
     await state.clear()
     counts = await repo.user_stats_counts()
+    extra = await _admin_status_lines(repo, config)
     text = (
         "🛠 <b>Админ-панель</b>\n\n"
         f"Всего пользователей: {counts.get('total', 0)}\n"
         f"Активных: {counts.get('active', 0)}\n"
         f"С закончившимся балансом: {counts.get('unpaid', 0)}\n"
         f"Удалённых: {counts.get('deleted', 0)}\n"
-        f"Заблокировали бота: {counts.get('bot_blocked', 0)}"
+        f"Заблокировали бота: {counts.get('bot_blocked', 0)}\n"
+        f"{extra[0]}\n"
+        f"{extra[1]}"
     )
     await cb.answer()
     await safe_edit(cb.message, text, admin_root_kb())
@@ -425,19 +447,22 @@ async def admin_stats(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 
 
 @router.callback_query(F.data == "ad:cfg")
-async def admin_cfg(cb: CallbackQuery, config: Config) -> None:
+async def admin_cfg(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
     if config.telegram_backup_interval_hours > 0:
         tg_backup = f"каждые {config.telegram_backup_interval_hours} ч, без звука"
     else:
         tg_backup = "выкл"
+    extra = await _admin_status_lines(repo, config)
     text = (
         "⚙️ <b>Настройки сервиса</b>\n\n"
         f"Пояс по умолчанию: {config.default_timezone}\n"
         f"Цена по умолчанию: {money(config.default_daily_price)}/день\n"
         f"Backup на диск каждые {config.backup_interval_hours} ч, хранить {config.backup_keep}\n"
         f"Бэкап в Telegram: {tg_backup}\n"
+        f"{extra[1]}\n"
+        f"{extra[0]}\n"
         f"Напоминание: за {config.reminder_hours_before_sleep} ч до сна\n"
         f"Fallback: {config.reminder_fallback_time}\n"
         f"Контакт: {config.owner_contact}\n"
@@ -465,13 +490,16 @@ async def admin_balances(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     await safe_edit(cb.message, "\n".join(lines), with_nav(b, NAV_ADMIN))
 
 
-VPN_PERIODS = {
+VPN_PERIODS: dict[str, tuple[timedelta | None, str]] = {
     "5m": (timedelta(minutes=5), "последние 5 минут"),
     "1h": (timedelta(hours=1), "последний час"),
     "24h": (timedelta(hours=24), "последние сутки"),
     "7d": (timedelta(days=7), "последнюю неделю"),
     "30d": (timedelta(days=30), "последний месяц"),
+    "all": (None, "всё время"),
 }
+
+_VPN_LOG_EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 
 def _ms(value) -> str:
@@ -527,15 +555,23 @@ def _append_vpn_top(lines: list[str], heading: str, rows: list[dict], title_html
         lines.extend(_vpn_top_item_lines(row, title_html(row)))
 
 
-async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, top: str = "n") -> str:
-    delta, title = VPN_PERIODS.get(period_key, VPN_PERIODS["24h"])
+async def _vpn_window(
+    repo: Repo, period_key: str, now: datetime | None = None
+) -> tuple[str, datetime, datetime, str]:
+    key, delta, title = _vpn_period(period_key)
     end = now or now_utc()
-    start = end - delta
+    if delta is None:
+        earliest = await repo.earliest_vpn_measured_at()
+        start = parse_iso(earliest) if earliest else end
+    else:
+        start = end - delta
+    return key, start, end, title
+
+
+async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, top: str = "n") -> str:
+    _key, start, end, title = await _vpn_window(repo, period_key, now)
     start_iso, end_iso = to_iso(start), to_iso(end)
-    latest = await repo.latest_vpn_sample()
     summary = await repo.vpn_latency_summary(start_iso, end_iso)
-    live_now, live_err = await fetch_auto_now(config)
-    live_node, live_sub = parse_node(live_now)
     interval = max(1, config.vpn_monitor_interval_seconds)
     heartbeats = await repo.list_vpn_heartbeats(start_iso, end_iso)
     service_down, server_off = downtime_ticks(
@@ -547,28 +583,11 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
     )
     summary["service_down"] = service_down
     summary["server_off"] = server_off
+    extra = await _admin_status_lines(repo, config, end)
 
     lines = ["🛡 <b>VPN / задержка бота</b>", ""]
     lines.extend(uptime_report_lines())
-    lines.append("")
-    if live_node:
-        lines.append(f"Сейчас AUTO: <code>{html.escape(live_node)}</code>")
-        lines.append(f"Подписка: {html.escape(subscription_label(live_sub))} ({html.escape(live_sub or '—')})")
-    elif live_err:
-        lines.append(f"Mihomo сейчас: {html.escape(live_err)}")
-    else:
-        lines.append("Mihomo сейчас: нет данных")
-
-    if latest:
-        latest_ms = _ms(latest.latency_ms)
-        status = "ok" if latest.ok else "ошибка"
-        lines.append(
-            f"Последний замер: {latest_ms} мс · {status} · {html.escape(latest.measured_at[11:19])} UTC"
-        )
-        if latest.error:
-            lines.append(f"Ошибка замера: {html.escape(latest.error)}")
-    else:
-        lines.append("Замеров ещё нет — первый тик в течение ~10 с.")
+    lines.extend(extra)
 
     total = summary["total"]
     fail = summary["fail_count"]
@@ -613,7 +632,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
     return "\n".join(lines)
 
 
-def _vpn_period(period_key: str | None) -> tuple[str, timedelta, str]:
+def _vpn_period(period_key: str | None) -> tuple[str, timedelta | None, str]:
     key = period_key if period_key in VPN_PERIODS else "24h"
     delta, title = VPN_PERIODS[key]
     return key, delta, title
@@ -645,13 +664,14 @@ async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
-    _period, delta, title = _vpn_period(cb.data.split(":", 1)[1] if cb.data else None)
+    _period, start, end, title = await _vpn_window(
+        repo, cb.data.split(":", 1)[1] if cb.data else "24h"
+    )
     await cb.answer("Строю графики")
     if cb.message is None:
         return
-    now = now_utc()
     try:
-        charts = await build_vpn_charts(repo, to_iso(now - delta), to_iso(now), title)
+        charts = await build_vpn_charts(repo, to_iso(start), to_iso(end), title)
     except Exception:
         logger.exception("VPN charts failed")
         await safe_send(cb.message.answer, "Не удалось построить графики.")
@@ -674,9 +694,9 @@ async def admin_vpn_log(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
     raw = cb.data.split(":", 1)[1] if cb.data and cb.data.startswith("advl:") else "24h"
-    period, delta, title = _vpn_period(raw)
-    end = now_utc()
-    start = end - delta
+    period, start, end, title = await _vpn_window(repo, raw)
+    if period == "all" and start == end:
+        start = _VPN_LOG_EPOCH
     start_iso, end_iso = to_iso(start), to_iso(end)
     db_samples = await repo.list_vpn_samples(start_iso, end_iso)
     payload = vpn_samples_as_dicts(db_samples)

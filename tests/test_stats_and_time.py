@@ -112,6 +112,7 @@ def test_uptime_report_lines(monkeypatch):
     lines = uptime.uptime_report_lines()
     assert lines[0] == "Аптайм бота: 1 мин 30 с"
     assert lines[1] == "Аптайм сервера: 1 д 2 ч"
+    assert len(lines) == 2
 
 
 def test_mark_bot_started(monkeypatch):

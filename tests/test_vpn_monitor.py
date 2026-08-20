@@ -510,6 +510,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:24h:n" in datas
     assert "adv:5m:n" in datas
     assert "adv:24h:s" in datas
+    assert "adv:all:n" in datas
     assert "advl:24h" in datas
     assert "advc:24h" in datas
     assert all(len(data.encode()) <= 64 for data in datas)
@@ -523,6 +524,47 @@ def test_admin_vpn_kb_callback_limit():
     assert any(text and "Логи за неделю" in text for text in labels)
     assert any(text and "Картинки за неделю" in text for text in labels)
     assert any(text and text.startswith("• Подписки") for text in labels)
+
+    all_time = admin_vpn_kb("all", "n")
+    all_labels = [btn.text for row in all_time.inline_keyboard for btn in row]
+    all_datas = [btn.callback_data for row in all_time.inline_keyboard for btn in row]
+    assert "adv:all:n" in all_datas
+    assert "advl:all" in all_datas
+    assert "advc:all" in all_datas
+    assert any(text and text.startswith("• всё время") for text in all_labels)
+    assert any(text and "Логи за всё время" in text for text in all_labels)
+    assert any(text and "Картинки за всё время" in text for text in all_labels)
+
+
+async def test_vpn_report_hides_live_status_and_supports_all_time(repo):
+    from datetime import datetime, timezone
+
+    from handlers.admin import _vpn_report
+
+    await repo.create_user(1, "a", "A", None, "UTC", 10, "23:00")
+    await repo.execute("UPDATE users SET registered_at = ? WHERE telegram_id = 1", ("2026-08-01T00:00:00+00:00",))
+    await repo.conn.commit()
+    await repo.insert_vpn_sample(
+        "2026-08-19T10:00:00+00:00",
+        True,
+        50,
+        "s2 | NL | [BL]-02",
+        "sub2",
+        None,
+    )
+    now = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
+    text = await _vpn_report(repo, repo.db.config, "24h", now=now)
+    assert "Сейчас AUTO" not in text
+    assert "Подписка:" not in text
+    assert "Последний замер:" not in text
+    assert "Возраст сервиса:" in text
+    assert "Следующий бекап" in text
+    assert "За последние сутки" in text
+
+    all_text = await _vpn_report(repo, repo.db.config, "all", now=now)
+    assert "За всё время" in all_text
+    assert "Замеров: 1" in all_text
+    assert "Сейчас AUTO" not in all_text
 
 
 def test_short_node_name():

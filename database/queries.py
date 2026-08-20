@@ -383,6 +383,10 @@ class Repo:
         )
         return {k: int(row[k] or 0) for k in row.keys()} if row else {}
 
+    async def service_started_at(self) -> str | None:
+        row = await self.fetchone("SELECT MIN(registered_at) AS ts FROM users")
+        return str(row["ts"]) if row and row["ts"] else None
+
     async def update_settings(
         self,
         telegram_id: int,
@@ -1253,6 +1257,10 @@ class Repo:
             host_up = float(raw) if raw is not None else None
             out.append((str(row["measured_at"]), host_up))
         return out
+
+    async def earliest_vpn_measured_at(self) -> str | None:
+        row = await self.fetchone("SELECT MIN(measured_at) AS ts FROM vpn_latency_samples")
+        return str(row["ts"]) if row and row["ts"] else None
 
     async def latest_vpn_sample(self) -> VpnLatencySample | None:
         row = await self.fetchone(

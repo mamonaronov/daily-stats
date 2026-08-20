@@ -20,6 +20,7 @@ from config import Config
 from database.database import Database
 from database.queries import Repo
 from utils.app_version import app_build_identity, slugify_commit_title
+from utils.formatting import seconds_human
 from utils.time import is_valid_timezone, now_utc, parse_iso, to_iso, to_user
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,21 @@ def next_telegram_backup_at(
         return now
     due_at = last_sent + timedelta(hours=interval_hours)
     return now if now >= due_at else due_at
+
+
+def next_backup_caption(
+    last_sent: datetime | None,
+    interval_hours: int,
+    now: datetime | None = None,
+) -> str:
+    now = now or now_utc()
+    if interval_hours <= 0:
+        return "Следующий бекап: выкл"
+    when = next_telegram_backup_at(last_sent, interval_hours, now)
+    remaining = (when - now).total_seconds()
+    if remaining <= 0:
+        return "Следующий бекап: сейчас"
+    return f"Следующий бекап через {seconds_human(remaining)}"
 
 
 async def last_telegram_backup_at(db: Database) -> datetime | None:

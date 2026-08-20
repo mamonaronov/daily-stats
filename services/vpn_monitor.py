@@ -81,20 +81,18 @@ def collect_vpn_log_entries(log_dir: Path | None, start: str, end: str) -> list[
     """Load ndjson samples whose measured_at is in [start, end)."""
     if log_dir is None or not log_dir.exists():
         return []
-    try:
-        start_day = date.fromisoformat(start[:10])
-        end_day = date.fromisoformat(end[:10])
-    except ValueError:
-        start_day = date.today() - timedelta(days=1)
-        end_day = date.today()
-    if end_day < start_day:
+    start_day = start[:10] if len(start) >= 10 else ""
+    end_day = end[:10] if len(end) >= 10 else ""
+    if start_day > end_day:
         start_day, end_day = end_day, start_day
     entries: list[dict] = []
-    day = start_day
-    while day <= end_day:
-        path = log_dir / f"{day.isoformat()}.ndjson"
-        day += timedelta(days=1)
-        if not path.is_file():
+    for path in sorted(log_dir.glob("*.ndjson")):
+        day = path.stem
+        if len(day) != 10:
+            continue
+        if start_day and day < start_day:
+            continue
+        if end_day and day > end_day:
             continue
         try:
             raw = path.read_text(encoding="utf-8")
