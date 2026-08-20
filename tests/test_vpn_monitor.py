@@ -340,6 +340,49 @@ async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):
     assert len(files) == 1
 
 
+def test_make_probe_bot_is_not_the_polling_session(tmp_path):
+    from dataclasses import replace
+
+    from aiogram.client.session.aiohttp import AiohttpSession
+
+    from services.vpn_monitor import make_probe_bot
+    from tests.conftest import make_config
+
+    config = replace(
+        make_config(tmp_path),
+        telegram_proxy_url="socks5://127.0.0.1:11808",
+        vpn_monitor_timeout_seconds=8,
+    )
+    probe = make_probe_bot(config)
+    assert isinstance(probe.session, AiohttpSession)
+    assert probe.session.proxy == "socks5://127.0.0.1:11808"
+    assert probe.session.timeout == 8.0
+    assert probe.token == config.bot_token
+
+
+async def test_vpn_monitor_tick_uses_probe_bot_not_polling_bot(repo, monkeypatch):
+    from dataclasses import replace
+
+    from services.vpn_monitor import VpnMonitor
+
+    async def fake_now(config):
+        return "s3 | Cyprus | [BL]-01", None
+
+    monkeypatch.setattr("services.vpn_monitor.fetch_auto_now", fake_now)
+
+    class ProbeBot:
+        async def get_me(self):
+            return SimpleNamespace(id=1, username="probe")
+
+    class PollingBot:
+        async def get_me(self):
+            raise AssertionError("VPN probe must not use the polling Bot")
+
+    monitor = VpnMonitor(replace(repo.db.config, vpn_log_dir=None), probe_bot=ProbeBot())
+    sample = await monitor.tick(PollingBot(), repo)
+    assert sample["ok"] is True
+
+
 async def test_measure_bot_latency_timeout():
     from services.vpn_monitor import measure_bot_latency
 

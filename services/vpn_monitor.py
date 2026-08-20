@@ -229,6 +229,19 @@ async def fetch_auto_now(config: Config) -> tuple[str | None, str | None]:
     return now.strip(), None
 
 
+def make_probe_bot(config: Config) -> Bot:
+    """Separate Bot/session for getMe probes so a hung ping cannot kill polling."""
+    session = None
+    if config.telegram_proxy_url:
+        from aiogram.client.session.aiohttp import AiohttpSession
+
+        session = AiohttpSession(
+            proxy=config.telegram_proxy_url,
+            timeout=float(config.vpn_monitor_timeout_seconds),
+        )
+    return Bot(token=config.bot_token, session=session)
+
+
 async def measure_bot_latency(bot: Bot, timeout: float) -> tuple[bool, int, str | None]:
     started = time.monotonic()
     try:
@@ -245,13 +258,21 @@ async def measure_bot_latency(bot: Bot, timeout: float) -> tuple[bool, int, str 
 
 
 class VpnMonitor:
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, probe_bot: Bot | None = None) -> None:
         self.config = config
+        self._probe_bot = probe_bot
         self._ticks = 0
         self._ok = 0
         self._fail = 0
         self._latencies: list[int] = []
         self._last_prune_day: date | None = None
+
+    def _probe(self, bot: Bot) -> Bot:
+        return self._probe_bot if self._probe_bot is not None else bot
+
+    async def reset_probe(self) -> None:
+        if self._probe_bot is not None:
+            await reset_bot_session(self._probe_bot)
 
     def _maybe_prune(self) -> None:
         log_dir = self.config.vpn_log_dir
@@ -288,7 +309,7 @@ class VpnMonitor:
         node_raw, mihomo_error = await fetch_auto_now(self.config)
         node_name, subscription = parse_node(node_raw)
         ok, latency_ms, bot_error = await measure_bot_latency(
-            bot, self.config.vpn_monitor_timeout_seconds
+            self._probe(bot), self.config.vpn_monitor_timeout_seconds
         )
         error_parts = [part for part in (mihomo_error, bot_error) if part]
         error = "; ".join(error_parts) if error_parts else None

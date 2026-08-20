@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+_SESSION_CLOSE_TIMEOUT = 2.0
+
 
 def _consume_abandoned(task: asyncio.Task[Any]) -> None:
     if task.cancelled():
@@ -40,13 +42,20 @@ async def await_or_abandon(awaitable: Awaitable[T], timeout: float, *, name: str
     raise TimeoutError(f"{name} timed out after {timeout:.1f}s")
 
 
-async def reset_bot_session(bot: Any) -> None:
-    """Drop the shared aiohttp session so a hung SOCKS connect can be replaced."""
+async def reset_bot_session(bot: Any, timeout: float = _SESSION_CLOSE_TIMEOUT) -> None:
+    """Close an aiohttp session without waiting forever for hung SOCKS connects.
+
+    Do not call this on the polling Bot: in-flight getUpdates shares that
+    session, and closing it is what makes the dispatcher stop receiving
+    messages. Use a dedicated probe Bot for VPN latency instead.
+    """
     session = getattr(bot, "session", None)
     close = getattr(session, "close", None)
     if close is None:
         return
     try:
-        await close()
+        await await_or_abandon(close(), timeout, name="bot.session.close")
+    except TimeoutError:
+        logger.warning("bot.session.close hung after %.1fs, abandoned", timeout)
     except Exception:
         logger.exception("Failed to reset bot session")

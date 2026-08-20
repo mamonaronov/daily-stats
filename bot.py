@@ -1,4 +1,4 @@
-"""Single-process Telegram diary bot. Exactly one Bot() instance."""
+"""Single-process Telegram diary bot. Polling uses one Bot(); VPN probes use another session."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from services.jobs import setup_scheduler
 from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
 from utils.logging import setup_logging
+from utils.timeouts import reset_bot_session
 from utils.uptime import mark_bot_started
 
 logger = logging.getLogger("bot")
@@ -68,10 +69,7 @@ async def _start_polling_with_retry(
             return
         except TelegramNetworkError as exc:
             logger.warning("Telegram network error, retry in %.0fs: %s", delay, exc)
-            try:
-                await bot.session.close()
-            except Exception:
-                logger.exception("Failed to reset bot session after network error")
+            await reset_bot_session(bot)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=delay)
                 return

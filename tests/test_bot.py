@@ -109,7 +109,7 @@ async def test_reminder_job_releases_slot_when_telegram_hangs(monkeypatch):
     await jobs_mod.reminder_job(Repo(), object(), bot)
     assert hung.is_set()
     assert time.monotonic() - started < 0.3
-    assert bot.session.closed == 1
+    assert bot.session.closed == 0
     await asyncio.sleep(0.5)
 
 
@@ -128,6 +128,7 @@ async def test_vpn_monitor_job_releases_slot_when_tick_hangs(monkeypatch):
 
     class Monitor:
         config = SimpleNamespace(vpn_monitor_timeout_seconds=0)
+        probe_resets = 0
 
         async def tick(self, bot, repo) -> None:
             try:
@@ -136,10 +137,15 @@ async def test_vpn_monitor_job_releases_slot_when_tick_hangs(monkeypatch):
                 await asyncio.sleep(0.4)
                 raise
 
+        async def reset_probe(self) -> None:
+            self.probe_resets += 1
+
     monkeypatch.setattr(jobs_mod, "_VPN_MONITOR_JOB_SLACK", 0.05)
     bot = SimpleNamespace(session=Session())
+    monitor = Monitor()
     started = time.monotonic()
-    await jobs_mod.vpn_monitor_job(Monitor(), bot, object())
+    await jobs_mod.vpn_monitor_job(monitor, bot, object())
     assert time.monotonic() - started < 0.3
-    assert bot.session.closed == 1
+    assert bot.session.closed == 0
+    assert monitor.probe_resets == 1
     await asyncio.sleep(0.5)

@@ -44,3 +44,19 @@ async def test_reset_bot_session_closes_when_present():
     await reset_bot_session(bot)
     assert bot.session.closed == 1
     await reset_bot_session(object())
+
+
+async def test_reset_bot_session_abandons_hung_close():
+    class Session:
+        async def close(self) -> None:
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.4)
+                raise
+
+    bot = SimpleNamespace(session=Session())
+    started = time.monotonic()
+    await reset_bot_session(bot, timeout=0.05)
+    assert time.monotonic() - started < 0.25
+    await asyncio.sleep(0.5)

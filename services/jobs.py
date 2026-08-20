@@ -16,7 +16,7 @@ from services.alerts import format_alert, notify_owner
 from services.billing import run_billing_tick
 from services.reminders import refresh_user_reminder, user_filled_day_review
 from utils.time import now_utc, to_iso, user_today
-from utils.timeouts import await_or_abandon, reset_bot_session
+from utils.timeouts import await_or_abandon
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,9 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         coalesce=True,
     )
     if config.vpn_monitor_enabled:
-        from services.vpn_monitor import VpnMonitor
+        from services.vpn_monitor import VpnMonitor, make_probe_bot
 
-        monitor = VpnMonitor(config)
+        monitor = VpnMonitor(config, probe_bot=make_probe_bot(config))
         scheduler.add_job(
             vpn_monitor_job,
             "interval",
@@ -140,10 +140,9 @@ async def reminder_job(repo: Repo, config: Config, bot: Bot) -> None:
         )
     except TimeoutError:
         logger.warning(
-            "Reminder job timed out after %.0fs, resetting Telegram session",
+            "Reminder job timed out after %.0fs; polling session left intact",
             _REMINDER_JOB_TIMEOUT,
         )
-        await reset_bot_session(bot)
     except Exception as exc:
         logger.exception("Reminder tick failed")
         await notify_owner(bot, config, format_alert("reminder", "Сбой рассылки напоминаний", exc=exc))
@@ -265,9 +264,9 @@ async def vpn_monitor_job(monitor, bot: Bot, repo: Repo) -> None:
         await await_or_abandon(monitor.tick(bot, repo), timeout, name="vpn_monitor_job")
     except TimeoutError:
         logger.warning(
-            "VPN monitor tick timed out after %.0fs, resetting Telegram session",
+            "VPN monitor tick timed out after %.0fs, resetting probe session",
             timeout,
         )
-        await reset_bot_session(bot)
+        await monitor.reset_probe()
     except Exception:
         logger.exception("VPN monitor tick failed")
