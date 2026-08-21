@@ -272,26 +272,21 @@ Docker-логи ограничены: `max-size: 10m`, `max-file: 5`.
 
 ## Обновление
 
-1. Убедитесь, что есть свежий backup в `./backups` (или остановите бота — shutdown сам сделает копию).
-2. На сервер положите новый код / загрузите image.
-3. Соберите и перезапустите, **тот же volume** `./data`:
+`./deploy.sh` ставит systemd-таймер `daily-stats-update.timer`. Дальше пуш в `main` сам выкатывается: хост забирает `origin/main`, собирает образ, **без подтверждения** ждёт, пока бот не будет простаивать (нет записей в базу, бэкапа, списаний и обработки нажатий), и только потом переключает контейнер. Тот же бот пишет владельцу **перед** выкаткой, **после** успешного запуска и **если** сборка, простой или старт сломались.
+
+Первый раз (или после смены юнитов) на сервере как обычно:
 
 ```bash
+git pull --ff-only
 ./deploy.sh
-docker compose logs -f bot
 ```
 
-Или вручную:
+Потом достаточно пуша в `main`. Вручную то же самое:
 
 ```bash
-docker compose stop bot
-docker compose build
-docker compose up -d
-docker compose logs -f bot
+./deploy/update.sh          # нет изменений — тихо выходит
+./deploy/update.sh --force  # пересобрать текущий коммит
 ```
-
-4. В логах проверьте миграции и `Polling started`.
-5. Проверьте `/start`, админку и одну тестовую запись.
 
 Откат:
 
@@ -496,7 +491,8 @@ Telegram отдаёт боту файлы **не больше 20 МБ**. Есл�
 ```text
 bot.py                 точка входа, один Bot(), polling, shutdown-backup
 config.py              окружение, REQUIRED_DB_VERSION, TELEGRAM_PROXY_URL
-deploy.sh              применяет mihomo, systemd, override и поднимает бота
+deploy.sh              применяет mihomo, systemd (бот + таймер обновления), override и поднимает контейнер
+deploy/update.sh       git pull origin/main, сборка, сообщения в Telegram до/после/при ошибке
 restore.sh             поднимает БД и .env из архива, который бот слал в Telegram
 generate-docker-override.sh  host-network + HTTP(S)_PROXY из mihomo config.yaml
 handlers/              Telegram-сценарии (FSM, inline-кнопки)

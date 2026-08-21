@@ -17,6 +17,7 @@ from services.billing import run_billing_tick
 from services.reminders import refresh_user_reminder, user_filled_day_review
 from utils.time import now_utc, to_iso, user_today
 from utils.timeouts import await_or_abandon
+from utils.runtime import get_runtime, hold
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,11 @@ _REMINDER_JOB_TIMEOUT = 45.0
 _TELEGRAM_BACKUP_SEND_TIMEOUT = 180.0
 _REMINDER_SEND_TIMEOUT = 20
 _VPN_MONITOR_JOB_SLACK = 5.0
+
+
+def _skip_if_draining() -> bool:
+    runtime = get_runtime()
+    return runtime is not None and runtime.draining
 
 
 def reschedule_telegram_backup(
@@ -142,29 +148,35 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
 
 
 async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
-    try:
-        stats = await run_billing_tick(repo)
-        logger.info("Billing tick %s", stats)
-    except Exception as exc:
-        logger.exception("Billing tick failed")
-        await notify_owner(bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc))
+    if _skip_if_draining():
+        return
+    async with hold("billing"):
+        try:
+            stats = await run_billing_tick(repo)
+            logger.info("Billing tick %s", stats)
+        except Exception as exc:
+            logger.exception("Billing tick failed")
+            await notify_owner(bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc))
 
 
 async def reminder_job(repo: Repo, config: Config, bot: Bot) -> None:
-    try:
-        await await_or_abandon(
-            _reminder_tick(repo, config, bot),
-            _REMINDER_JOB_TIMEOUT,
-            name="reminder_job",
-        )
-    except TimeoutError:
-        logger.warning(
-            "Reminder job timed out after %.0fs; polling session left intact",
-            _REMINDER_JOB_TIMEOUT,
-        )
-    except Exception as exc:
-        logger.exception("Reminder tick failed")
-        await notify_owner(bot, config, format_alert("reminder", "Сбой рассылки напоминаний", exc=exc))
+    if _skip_if_draining():
+        return
+    async with hold("reminder"):
+        try:
+            await await_or_abandon(
+                _reminder_tick(repo, config, bot),
+                _REMINDER_JOB_TIMEOUT,
+                name="reminder_job",
+            )
+        except TimeoutError:
+            logger.warning(
+                "Reminder job timed out after %.0fs; polling session left intact",
+                _REMINDER_JOB_TIMEOUT,
+            )
+        except Exception as exc:
+            logger.exception("Reminder tick failed")
+            await notify_owner(bot, config, format_alert("reminder", "Сбой рассылки напоминаний", exc=exc))
 
 
 async def _reminder_tick(repo: Repo, config: Config, bot: Bot) -> None:
@@ -216,6 +228,8 @@ async def _send_reminder(bot: Bot, repo: Repo, config: Config, telegram_id: int)
 
 
 async def backup_job(db: Database, bot: Bot, config: Config) -> None:
+    if _skip_if_draining():
+        return
     try:
         path = await db.backup(prefix="scheduled")
         logger.info("Scheduled backup %s", path.name)
@@ -238,6 +252,9 @@ async def telegram_backup_job(
     )
 
     interval = config.telegram_backup_interval_hours
+    if _skip_if_draining():
+        _schedule_telegram_backup_at(scheduler, bot, db, config, now_utc() + timedelta(seconds=30))
+        return
     try:
         last = await last_telegram_backup_at(db)
         if not telegram_backup_due(last, interval):
@@ -245,11 +262,12 @@ async def telegram_backup_job(
             logger.info("Telegram backup not due, next at %s", when.isoformat())
             _schedule_telegram_backup_at(scheduler, bot, db, config, when)
             return
-        await await_or_abandon(
-            send_telegram_backup(db, bot, config),
-            _TELEGRAM_BACKUP_SEND_TIMEOUT,
-            name="telegram_backup",
-        )
+        async with hold("telegram_backup"):
+            await await_or_abandon(
+                send_telegram_backup(db, bot, config),
+                _TELEGRAM_BACKUP_SEND_TIMEOUT,
+                name="telegram_backup",
+            )
         when = now_utc() + timedelta(hours=interval)
         logger.info("Telegram backup next at %s", when.isoformat())
         _schedule_telegram_backup_at(scheduler, bot, db, config, when)
@@ -270,6 +288,8 @@ async def telegram_backup_job(
 
 
 async def cleanup_job(repo: Repo) -> None:
+    if _skip_if_draining():
+        return
     try:
         threshold = now_utc() - timedelta(days=2)
         await repo.cleanup_callbacks(to_iso(threshold))
@@ -278,6 +298,8 @@ async def cleanup_job(repo: Repo) -> None:
 
 
 async def vpn_monitor_job(monitor, bot: Bot, repo: Repo) -> None:
+    if _skip_if_draining():
+        return
     timeout = float(monitor.config.vpn_monitor_timeout_seconds) + _VPN_MONITOR_JOB_SLACK
     try:
         await await_or_abandon(monitor.tick(bot, repo), timeout, name="vpn_monitor_job")

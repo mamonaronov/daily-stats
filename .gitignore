@@ -19,3 +19,4 @@ htmlcov/
 .mplconfig/
 *.png
 .DS_Store
+.deploy.lock

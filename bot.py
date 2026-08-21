@@ -6,6 +6,7 @@ import asyncio
 import logging
 import signal
 import sys
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -22,6 +23,7 @@ from handlers import setup_routers
 from middlewares import (
     CallbackIdempotencyMiddleware,
     ContextMiddleware,
+    DrainMiddleware,
     ErrorIsolationMiddleware,
     UserMiddleware,
 )
@@ -30,8 +32,9 @@ from services.jobs import setup_scheduler
 from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
 from services.telegram_restore import RestoreError, apply_pending_telegram_restore, format_restore_done
+from utils.deploy_drain import watch_deploy_drain
 from utils.logging import setup_logging
-from utils.runtime import RuntimeControl
+from utils.runtime import RuntimeControl, set_runtime
 from utils.timeouts import await_or_abandon, reset_bot_session
 from utils.uptime import mark_bot_started
 
@@ -256,8 +259,10 @@ async def run() -> None:
     dp = Dispatcher(storage=storage)
     scheduler = AsyncIOScheduler(timezone="UTC")
     runtime = RuntimeControl()
+    set_runtime(runtime)
 
     dp.update.outer_middleware(ContextMiddleware(repo, config, scheduler, bot, runtime))
+    dp.update.outer_middleware(DrainMiddleware())
     dp.update.outer_middleware(ErrorIsolationMiddleware())
     dp.update.outer_middleware(UserMiddleware())
     dp.callback_query.outer_middleware(CallbackIdempotencyMiddleware())
@@ -282,6 +287,7 @@ async def run() -> None:
     logger.info("Waiting for Telegram API")
     telegram_ok = await _wait_until_telegram_ready(bot, runtime.stop, config.telegram_proxy_url)
     if runtime.stop.is_set() or not telegram_ok:
+        set_runtime(None)
         await graceful_shutdown(bot, db, scheduler, config, repo)
         return
 
@@ -312,9 +318,19 @@ async def run() -> None:
         except Exception:
             logger.exception("Failed to send ready notification")
 
+    drain_task = asyncio.create_task(
+        watch_deploy_drain(runtime, Path(config.db_path).parent, runtime.stop),
+        name="deploy_drain",
+    )
     try:
         await _start_polling_with_retry(dp, bot, runtime.stop, proxy_url=config.telegram_proxy_url)
     finally:
+        drain_task.cancel()
+        try:
+            await drain_task
+        except asyncio.CancelledError:
+            pass
+        set_runtime(None)
         await graceful_shutdown(bot, db, scheduler, config, repo, notify=became_ready)
     if runtime.restart:
         logger.info("Exiting for restart after restore")

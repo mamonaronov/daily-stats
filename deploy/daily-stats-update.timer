@@ -1,0 +1,14 @@
+# Installed by ./deploy.sh. Polls GitHub and deploys when main moves.
+
+[Unit]
+Description=Check GitHub and deploy Daily Stats
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=15s
+AccuracySec=5s
+Persistent=true
+Unit=daily-stats-update.service
+
+[Install]
+WantedBy=timers.target

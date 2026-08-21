@@ -1,0 +1,16 @@
+# Installed by ./deploy.sh (WorkingDirectory / ExecStart rewritten to the repo path).
+
+[Unit]
+Description=Daily Stats auto-update from git
+After=network-online.target docker.service mihomo.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/aron/prod/daily-stats/daily-stats
+ExecStart=/home/aron/prod/daily-stats/daily-stats/deploy/update.sh
+Nice=10
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

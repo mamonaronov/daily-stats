@@ -11,6 +11,7 @@ import aiosqlite
 
 from config import Config
 from utils.time import now_utc, to_iso
+from utils.runtime import hold
 
 logger = logging.getLogger(__name__)
 
@@ -190,19 +191,20 @@ class Database:
 
     async def backup_to(self, dest_path: Path) -> Path:
         """Write a consistent SQLite snapshot to dest_path (includes WAL pages)."""
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = dest_path.with_name(dest_path.name + ".tmp")
-        try:
-            dest = await aiosqlite.connect(tmp_path)
+        async with hold("backup"):
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = dest_path.with_name(dest_path.name + ".tmp")
             try:
-                await self.conn.backup(dest)
-            finally:
-                await dest.close()
-            tmp_path.replace(dest_path)
-            return dest_path
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+                dest = await aiosqlite.connect(tmp_path)
+                try:
+                    await self.conn.backup(dest)
+                finally:
+                    await dest.close()
+                tmp_path.replace(dest_path)
+                return dest_path
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
 
     async def backup(self, prefix: str = "backup") -> Path:
         """Online backup via SQLite Backup API — includes WAL pages."""
