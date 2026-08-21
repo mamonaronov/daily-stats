@@ -29,17 +29,20 @@ def test_telegram_proxy_from_env(monkeypatch):
 
 def test_bot_session_without_proxy():
     from bot import _bot_session
+    from utils.telegram_session import AbandonableAiohttpSession
 
-    assert _bot_session(None) is None
+    session = _bot_session(None)
+    assert isinstance(session, AbandonableAiohttpSession)
+    assert session.proxy is None
+    assert session.timeout == 60.0
 
 
 def test_bot_session_socks5():
-    from aiogram.client.session.aiohttp import AiohttpSession
-
     from bot import _bot_session
+    from utils.telegram_session import AbandonableAiohttpSession
 
     session = _bot_session("socks5://127.0.0.1:11808")
-    assert isinstance(session, AiohttpSession)
+    assert isinstance(session, AbandonableAiohttpSession)
     assert session.proxy is not None
     assert session.proxy == "socks5://127.0.0.1:11808"
     assert session.timeout == 60.0

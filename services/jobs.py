@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 _TELEGRAM_BACKUP_START_DELAY = timedelta(seconds=5)
 _TELEGRAM_BACKUP_RETRY = timedelta(minutes=15)
 _REMINDER_JOB_TIMEOUT = 45.0
+_BILLING_JOB_TIMEOUT = 30.0
 _TELEGRAM_BACKUP_SEND_TIMEOUT = 180.0
 _REMINDER_SEND_TIMEOUT = 20
 _VPN_MONITOR_JOB_SLACK = 5.0
@@ -152,8 +153,14 @@ async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
         return
     async with hold("billing"):
         try:
-            stats = await run_billing_tick(repo)
+            stats = await await_or_abandon(
+                run_billing_tick(repo),
+                _BILLING_JOB_TIMEOUT,
+                name="billing_job",
+            )
             logger.info("Billing tick %s", stats)
+        except TimeoutError:
+            logger.warning("Billing job timed out after %.0fs", _BILLING_JOB_TIMEOUT)
         except Exception as exc:
             logger.exception("Billing tick failed")
             await notify_owner(bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc))
@@ -297,10 +304,17 @@ async def cleanup_job(repo: Repo) -> None:
         logger.exception("Callback cleanup failed")
 
 
+def vpn_monitor_job_timeout(monitor) -> float:
+    """Keep the APScheduler slot shorter than the interval so ticks are not skipped."""
+    inner = float(monitor.config.vpn_monitor_timeout_seconds) + _VPN_MONITOR_JOB_SLACK
+    interval = max(5, int(monitor.config.vpn_monitor_interval_seconds))
+    return min(inner, max(1.0, interval - 1.0))
+
+
 async def vpn_monitor_job(monitor, bot: Bot, repo: Repo) -> None:
     if _skip_if_draining():
         return
-    timeout = float(monitor.config.vpn_monitor_timeout_seconds) + _VPN_MONITOR_JOB_SLACK
+    timeout = vpn_monitor_job_timeout(monitor)
     try:
         await await_or_abandon(monitor.tick(bot, repo), timeout, name="vpn_monitor_job")
     except TimeoutError:

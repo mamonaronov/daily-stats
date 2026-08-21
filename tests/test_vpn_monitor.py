@@ -403,6 +403,22 @@ def test_make_probe_bot_is_not_the_polling_session(tmp_path):
     assert probe.token == config.bot_token
 
 
+async def test_reset_probe_replaces_hung_bot(tmp_path):
+    from dataclasses import replace
+
+    from services.vpn_monitor import VpnMonitor, make_probe_bot
+    from tests.conftest import make_config
+
+    config = replace(make_config(tmp_path), telegram_proxy_url=None)
+    first = make_probe_bot(config)
+    monitor = VpnMonitor(config, probe_bot=first)
+    await monitor.reset_probe()
+    assert monitor._probe_bot is not first
+    assert monitor._probe_bot.session is not first.session
+    await first.session.close()
+    await monitor._probe_bot.session.close()
+
+
 async def test_vpn_monitor_tick_uses_probe_bot_not_polling_bot(repo, monkeypatch):
     from dataclasses import replace
 

@@ -10,7 +10,6 @@ from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -35,6 +34,7 @@ from services.telegram_restore import RestoreError, apply_pending_telegram_resto
 from utils.deploy_drain import watch_deploy_drain
 from utils.logging import setup_logging
 from utils.runtime import RuntimeControl, set_runtime
+from utils.telegram_session import make_telegram_session
 from utils.timeouts import await_or_abandon, reset_bot_session
 from utils.uptime import mark_bot_started
 
@@ -47,23 +47,21 @@ _STARTUP_GET_ME_TIMEOUT = 20.0
 _SHUTDOWN_TELEGRAM_BACKUP_TIMEOUT = 15.0
 
 
-def _make_session(proxy_url: str | None) -> AiohttpSession:
-    if proxy_url:
-        return AiohttpSession(proxy=proxy_url, timeout=_POLLING_SESSION_TIMEOUT)
-    return AiohttpSession(timeout=_POLLING_SESSION_TIMEOUT)
+def _make_session(proxy_url: str | None):
+    return make_telegram_session(proxy_url, _POLLING_SESSION_TIMEOUT)
 
 
-def _bot_session(proxy_url: str | None) -> AiohttpSession | None:
+def _bot_session(proxy_url: str | None):
     if not proxy_url:
         logger.info("telegram_proxy_disabled")
-        return None
     try:
         session = _make_session(proxy_url)
     except ImportError as exc:
         raise ConfigError(
             "TELEGRAM_PROXY_URL is set but aiohttp-socks is not installed"
         ) from exc
-    logger.info("telegram_proxy_enabled")
+    if proxy_url:
+        logger.info("telegram_proxy_enabled")
     return session
 
 
@@ -125,7 +123,7 @@ async def _start_polling_with_retry(
                 close_bot_session=False,
             )
             return
-        except TelegramNetworkError as exc:
+        except (TelegramNetworkError, TimeoutError) as exc:
             logger.warning("Telegram network error, retry in %.0fs: %s", delay, exc)
             await _recycle_bot_session(bot, proxy_url)
             try:

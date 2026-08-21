@@ -19,6 +19,7 @@ from database.models import VpnLatencySample
 from database.queries import Repo
 from utils.logging import TOKEN_RE, log_extra
 from utils.time import format_dt_compact, format_dt_full, now_utc, parse_iso, to_iso
+from utils.telegram_session import make_telegram_session
 from utils.timeouts import await_or_abandon, reset_bot_session
 from utils.uptime import host_uptime_seconds
 
@@ -230,14 +231,10 @@ async def fetch_auto_now(config: Config) -> tuple[str | None, str | None]:
 
 def make_probe_bot(config: Config) -> Bot:
     """Separate Bot/session for getMe probes so a hung ping cannot kill polling."""
-    session = None
-    if config.telegram_proxy_url:
-        from aiogram.client.session.aiohttp import AiohttpSession
-
-        session = AiohttpSession(
-            proxy=config.telegram_proxy_url,
-            timeout=float(config.vpn_monitor_timeout_seconds),
-        )
+    session = make_telegram_session(
+        config.telegram_proxy_url,
+        float(config.vpn_monitor_timeout_seconds),
+    )
     return Bot(token=config.bot_token, session=session)
 
 
@@ -270,8 +267,11 @@ class VpnMonitor:
         return self._probe_bot if self._probe_bot is not None else bot
 
     async def reset_probe(self) -> None:
-        if self._probe_bot is not None:
-            await reset_bot_session(self._probe_bot)
+        """Replace the probe Bot so the next tick does not reuse a hung SOCKS session."""
+        old = self._probe_bot
+        self._probe_bot = make_probe_bot(self.config)
+        if old is not None:
+            await reset_bot_session(old)
 
     def _maybe_prune(self) -> None:
         log_dir = self.config.vpn_log_dir
