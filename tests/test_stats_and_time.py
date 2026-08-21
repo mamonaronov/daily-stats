@@ -109,10 +109,12 @@ def test_uptime_report_lines(monkeypatch):
 
     monkeypatch.setattr(uptime, "bot_uptime_seconds", lambda: 90)
     monkeypatch.setattr(uptime, "host_uptime_seconds", lambda: 26 * 3600)
+    monkeypatch.setattr(uptime, "app_build_identity", lambda: ("deadbeef", "fix: uptime <commit>"))
     lines = uptime.uptime_report_lines()
     assert lines[0] == "Аптайм бота: 1 мин 30 с"
     assert lines[1] == "Аптайм сервера: 1 д 2 ч"
-    assert len(lines) == 2
+    assert lines[2] == "Коммит: fix: uptime &lt;commit&gt; (<code>deadbeef</code>)"
+    assert len(lines) == 3
 
 
 def test_mark_bot_started(monkeypatch):

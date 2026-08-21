@@ -559,6 +559,7 @@ async def test_vpn_report_hides_live_status_and_supports_all_time(repo):
     assert "Последний замер:" not in text
     assert "Возраст сервиса:" in text
     assert "Следующий бекап" in text
+    assert "Коммит:" in text
     assert "За последние сутки" in text
 
     all_text = await _vpn_report(repo, repo.db.config, "all", now=now)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import html
 import os
 import time
 from pathlib import Path
 
+from utils.app_version import app_build_identity
 from utils.formatting import seconds_human
 
 PROC_UPTIME = Path("/proc/uptime")
@@ -52,7 +54,9 @@ def bot_uptime_seconds() -> float | None:
 
 
 def uptime_report_lines() -> list[str]:
+    commit, title = app_build_identity()
     return [
         f"Аптайм бота: {seconds_human(bot_uptime_seconds())}",
         f"Аптайм сервера: {seconds_human(host_uptime_seconds())}",
+        f"Коммит: {html.escape(title)} (<code>{html.escape(commit)}</code>)",
     ]
