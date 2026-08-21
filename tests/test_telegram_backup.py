@@ -239,7 +239,6 @@ async def test_send_telegram_backup_is_silent_and_records_time(tmp_path, monkeyp
         path = await send_telegram_backup(db, FakeBot(), config)
         assert sent["chat_id"] == 1
         assert sent["kwargs"]["disable_notification"] is True
-        assert "Резервная копия" in sent["kwargs"]["caption"]
         assert f"v{config.required_db_version}" in sent["kwargs"]["caption"]
         assert "add telegram backup" in sent["kwargs"]["caption"]
         assert "abc1234" in sent["document"].filename
@@ -251,6 +250,52 @@ async def test_send_telegram_backup_is_silent_and_records_time(tmp_path, monkeyp
         assert await db.get_system(LAST_SENT_KEY)
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_send_telegram_backup_manual_is_not_silent(tmp_path, monkeypatch):
+    root = tmp_path / "host"
+    root.mkdir()
+    (root / ".env").write_text("BOT_TOKEN=secret\n", encoding="utf-8")
+    config = replace(make_config(tmp_path), telegram_backup_root=root)
+    db = Database(config)
+    await db.initialize()
+    monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
+    sent = {}
+
+    class FakeBot:
+        async def send_document(self, chat_id, document, **kwargs):
+            sent["kwargs"] = kwargs
+            return SimpleNamespace(message_id=1)
+
+    try:
+        await send_telegram_backup(db, FakeBot(), config, silent=False)
+        assert sent["kwargs"]["disable_notification"] is False
+        assert "вручную" in sent["kwargs"]["caption"]
+    finally:
+        await db.close()
+
+
+def test_format_backups_panel():
+    from datetime import datetime, timezone
+
+    from services.telegram_backup import format_backups_panel
+
+    now = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
+    last = now.replace(hour=6)
+    text = format_backups_panel(
+        last_sent=last,
+        interval_hours=12,
+        disk_count=3,
+        latest_disk="scheduled_20260821.sqlite3",
+        last_disk_at=last,
+        now=now,
+    )
+    assert "Бэкапы" in text
+    assert "каждые 12 ч" in text
+    assert "Копий SQLite на диске: 3" in text
+    assert "scheduled_20260821.sqlite3" in text
+    assert "Следующий бекап через 6 ч" in text
 
 
 @pytest.mark.asyncio

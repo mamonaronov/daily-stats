@@ -28,6 +28,25 @@ _REMINDER_SEND_TIMEOUT = 20
 _VPN_MONITOR_JOB_SLACK = 5.0
 
 
+def reschedule_telegram_backup(
+    scheduler: AsyncIOScheduler,
+    bot: Bot,
+    db: Database,
+    config: Config,
+    last_sent: datetime | None,
+) -> None:
+    if config.telegram_backup_interval_hours <= 0:
+        try:
+            scheduler.remove_job("telegram_backup")
+        except Exception:
+            pass
+        return
+    from services.telegram_backup import next_telegram_backup_at
+
+    when = next_telegram_backup_at(last_sent, config.telegram_backup_interval_hours)
+    _schedule_telegram_backup_at(scheduler, bot, db, config, when)
+
+
 def _schedule_telegram_backup_at(
     scheduler: AsyncIOScheduler,
     bot: Bot,

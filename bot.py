@@ -29,7 +29,9 @@ from services.alerts import format_alert, notify_owner
 from services.jobs import setup_scheduler
 from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
+from services.telegram_restore import RestoreError, apply_pending_telegram_restore, format_restore_done
 from utils.logging import setup_logging
+from utils.runtime import RuntimeControl
 from utils.timeouts import await_or_abandon, reset_bot_session
 from utils.uptime import mark_bot_started
 
@@ -182,8 +184,21 @@ async def run() -> None:
         session=session,
     )
 
+    restore_preview = None
     try:
+        restore_preview = await apply_pending_telegram_restore(config)
+        if restore_preview is not None:
+            logger.info(
+                "Applied pending telegram restore db=v%s users=%s",
+                restore_preview.db_version,
+                restore_preview.users_count,
+            )
         await db.initialize()
+    except RestoreError as exc:
+        logger.critical("Telegram restore failed: %s", exc)
+        await notify_owner(bot, config, format_alert("restore", str(exc), exc=exc))
+        await bot.session.close()
+        raise SystemExit(1) from exc
     except DatabaseUnrecoverableError as exc:
         logger.critical("Database unrecoverable: %s", exc)
         await notify_owner(bot, config, format_alert("database", str(exc), exc=exc))
@@ -203,8 +218,9 @@ async def run() -> None:
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
     scheduler = AsyncIOScheduler(timezone="UTC")
+    runtime = RuntimeControl()
 
-    dp.update.outer_middleware(ContextMiddleware(repo, config, scheduler, bot))
+    dp.update.outer_middleware(ContextMiddleware(repo, config, scheduler, bot, runtime))
     dp.update.outer_middleware(ErrorIsolationMiddleware())
     dp.update.outer_middleware(UserMiddleware())
     dp.callback_query.outer_middleware(CallbackIdempotencyMiddleware())
@@ -215,23 +231,25 @@ async def run() -> None:
         await _on_error(event, bot, config)
 
     loop = asyncio.get_running_loop()
-    stop = asyncio.Event()
 
     def _ask_stop() -> None:
-        stop.set()
         loop.create_task(dp.stop_polling())
 
+    runtime.bind(_ask_stop)
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
-            loop.add_signal_handler(sig, _ask_stop)
+            loop.add_signal_handler(sig, runtime.request_stop)
         except NotImplementedError:
             pass
 
     logger.info("Waiting for Telegram API")
-    telegram_ok = await _wait_until_telegram_ready(bot, stop, config.telegram_proxy_url)
-    if stop.is_set() or not telegram_ok:
+    telegram_ok = await _wait_until_telegram_ready(bot, runtime.stop, config.telegram_proxy_url)
+    if runtime.stop.is_set() or not telegram_ok:
         await graceful_shutdown(bot, db, scheduler, config)
         return
+
+    if restore_preview is not None:
+        await notify_owner(bot, config, format_restore_done(restore_preview))
 
     try:
         await run_billing_tick(repo)
@@ -245,9 +263,12 @@ async def run() -> None:
 
     logger.info("Polling started")
     try:
-        await _start_polling_with_retry(dp, bot, stop, proxy_url=config.telegram_proxy_url)
+        await _start_polling_with_retry(dp, bot, runtime.stop, proxy_url=config.telegram_proxy_url)
     finally:
         await graceful_shutdown(bot, db, scheduler, config)
+    if runtime.restart:
+        logger.info("Exiting for restart after restore")
+        raise SystemExit(0)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 .env
 .env.runtime
+.env.pre_restore.*
 docker-compose.override.yml
 data/
 backups/
+restored-configs/
 __pycache__/
 *.py[cod]
 *$py.class

@@ -83,6 +83,39 @@ def next_backup_caption(
     return f"Следующий бекап через {seconds_human(remaining)}"
 
 
+def format_backups_panel(
+    *,
+    last_sent: datetime | None,
+    interval_hours: int,
+    disk_count: int,
+    latest_disk: str | None,
+    last_disk_at: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
+    now = now or now_utc()
+    if interval_hours > 0:
+        tg_line = f"в Telegram каждые {interval_hours} ч, без звука"
+    else:
+        tg_line = "в Telegram: выкл"
+    last_line = "ещё не отправлялся"
+    if last_sent is not None:
+        last_line = last_sent.strftime("%d.%m.%Y %H:%M UTC")
+    latest = html.escape(latest_disk) if latest_disk else "нет"
+    lines = [
+        "📦 <b>Бэкапы</b>",
+        "",
+        tg_line,
+        f"Последний архив: {last_line}",
+        next_backup_caption(last_sent, interval_hours, now),
+        "",
+        f"Копий SQLite на диске: {disk_count}",
+        f"Последняя: <code>{latest}</code>",
+    ]
+    if last_disk_at is not None:
+        lines.append(f"Диск: {last_disk_at.strftime('%d.%m.%Y %H:%M UTC')}")
+    return "\n".join(lines)
+
+
 async def last_telegram_backup_at(db: Database) -> datetime | None:
     raw = await db.get_system(LAST_SENT_KEY)
     if not raw:
@@ -255,7 +288,13 @@ async def create_telegram_archive(db: Database, config: Config) -> Path:
         shutil.rmtree(staging, ignore_errors=True)
 
 
-async def send_telegram_backup(db: Database, bot: Bot, config: Config) -> Path:
+async def send_telegram_backup(
+    db: Database,
+    bot: Bot,
+    config: Config,
+    *,
+    silent: bool = True,
+) -> Path:
     path = await create_telegram_archive(db, config)
     size = path.stat().st_size
     if size > TELEGRAM_DOCUMENT_LIMIT:
@@ -264,19 +303,21 @@ async def send_telegram_backup(db: Database, bot: Bot, config: Config) -> Path:
         )
     commit, title = app_build_identity()
     db_version = await db.user_version()
+    extra = "\nОтправлен вручную из админки" if not silent else ""
     caption = (
         "📦 <b>Резервная копия</b>\n"
         f"<code>{path.name}</code>\n"
         f"Коммит: {html.escape(title)} (<code>{html.escape(commit)}</code>)\n"
         f"БД: v{db_version}\n"
         "БД + конфиги + .env"
+        f"{extra}"
     )
     try:
         await bot.send_document(
             config.owner_id,
             FSInputFile(path, filename=path.name),
             caption=caption,
-            disable_notification=True,
+            disable_notification=silent,
             request_timeout=120,
         )
     except Exception:
@@ -284,5 +325,5 @@ async def send_telegram_backup(db: Database, bot: Bot, config: Config) -> Path:
         raise
     path.unlink(missing_ok=True)
     await mark_telegram_backup_sent(db)
-    logger.info("Telegram backup sent %s (%s bytes)", path.name, size)
+    logger.info("Telegram backup sent %s (%s bytes) silent=%s", path.name, size, silent)
     return path

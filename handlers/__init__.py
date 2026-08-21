@@ -8,6 +8,7 @@ from handlers import (
     activity,
     admin,
     admin_db,
+    admin_restore,
     alcohol,
     caffeine,
     cigarettes,
@@ -33,6 +34,7 @@ def setup_routers() -> Router:
     root.include_router(start.router)
     root.include_router(menu.router)
     root.include_router(admin.router)
+    root.include_router(admin_restore.router)
     root.include_router(admin_db.router)
     root.include_router(time_pick.router)
     root.include_router(cigarettes.router)

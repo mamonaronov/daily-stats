@@ -360,6 +360,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
     b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🛡 VPN", "ad:vpn"))
     b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
+    b.row(_btn("📦 Бэкапы", "ad:bk"))
     return with_nav(b)
 
 
@@ -394,11 +395,47 @@ def admin_period_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def admin_restore_confirm_kb(*, disk: bool = False) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    confirm = "ad:bkrok" if disk else "ad:rstok"
+    b.row(_btn("🔄 Восстановить и перезапустить", confirm))
+    b.row(_btn("✖️ Отмена", "ad:bk"))
+    return b.as_markup()
+
+
+def admin_backups_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("📤 Сделать бэкап сейчас", "ad:bknow"))
+    b.row(_btn("🔄 Восстановить из файла", "ad:rst"))
+    b.row(_btn("🗄 Копии на диске", "ad:bkl"))
+    b.row(_btn("🛠 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_disk_backups_kb(total: int, offset: int, page: int = 5) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    end = min(offset + page, total)
+    for index in range(offset, end):
+        b.row(
+            _btn("📄 Отправить", f"ad:bks:{index}"),
+            _btn("🔄 Восстановить", f"ad:bkr:{index}"),
+        )
+    nav: list[InlineKeyboardButton] = []
+    if offset > 0:
+        nav.append(_btn("«", f"ad:bkl:{max(0, offset - page)}"))
+    if end < total:
+        nav.append(_btn("»", f"ad:bkl:{offset + page}"))
+    if nav:
+        b.row(*nav)
+    b.row(_btn("📦 Бэкапы", "ad:bk"), _btn("🛠 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
 def admin_db_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("📋 Таблицы", "ad:tbls"), _btn("📄 Схема", "ad:dsch"))
     b.row(_btn("⌨️ SQL-запрос", "ad:sql"), _btn("🩺 Целостность", "ad:dint"))
-    b.row(_btn("🧹 Очистить базу", "ad:clr"))
+    b.row(_btn("🧹 Очистить базу", "ad:clr"), _btn("📦 Бэкапы", "ad:bk"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 

@@ -43,6 +43,26 @@ async def test_backup_and_integrity(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_backup_rotation_skips_pending_restore(tmp_path):
+    from database.database import list_sqlite_backups
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    pending = config.backup_path / "pending-restore.sqlite3"
+    pending.write_bytes(b"sqlite-placeholder")
+    try:
+        for index in range(config.backup_keep + 2):
+            await db.backup(prefix=f"t{index}")
+        assert pending.exists()
+        names = [path.name for path in list_sqlite_backups(config.backup_path)]
+        assert "pending-restore.sqlite3" not in names
+        assert len(names) == config.backup_keep
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_user_isolation(repo):
     a = await repo.create_user(1, "a", "A", None, "UTC", 10, "23:00")
     b = await repo.create_user(2, "b", "B", None, "UTC", 10, "23:00")

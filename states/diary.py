@@ -76,3 +76,6 @@ class AdminSG(StatesGroup):
     price = State()
     sql = State()
     purge_confirm = State()
+    restore_file = State()
+    restore_confirm = State()
+    restore_disk = State()

@@ -123,6 +123,14 @@ def seconds_human(seconds: int | float | None) -> str:
     return " ".join(parts)
 
 
+def bytes_human(size: int) -> str:
+    if size < 1024:
+        return f"{size} Б"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} КБ".replace(".", ",")
+    return f"{size / (1024 * 1024):.1f} МБ".replace(".", ",")
+
+
 def score_text(score: int) -> str:
     return f"{SCORE_EMOJI.get(score, '')} {SCORE_LABELS.get(score, str(score))}".strip()
 

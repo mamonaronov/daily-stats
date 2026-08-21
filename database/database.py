@@ -30,6 +30,58 @@ def _backup_name(prefix: str = "backup") -> str:
     return f"{prefix}_{stamp}.sqlite3"
 
 
+_SKIP_BACKUP_PREFIXES = (
+    "pending-restore",
+    "applied-restore",
+    "rejected-restore",
+    "incoming-restore",
+)
+
+
+def is_managed_sqlite_backup(path: Path) -> bool:
+    if not path.is_file() or not path.name.endswith(".sqlite3"):
+        return False
+    return not path.name.startswith(_SKIP_BACKUP_PREFIXES)
+
+
+def list_sqlite_backups(backup_dir: Path) -> list[Path]:
+    if not backup_dir.is_dir():
+        return []
+    files = [p for p in backup_dir.glob("*.sqlite3") if is_managed_sqlite_backup(p)]
+    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def sqlite_sidecar(path: Path, suffix: str) -> Path:
+    return Path(str(path) + suffix)
+
+
+def clear_sqlite_sidecars(db_path: Path) -> None:
+    sqlite_sidecar(db_path, "-wal").unlink(missing_ok=True)
+    sqlite_sidecar(db_path, "-shm").unlink(missing_ok=True)
+
+
+def copy_sqlite_bundle(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    for suffix in ("-wal", "-shm"):
+        extra = sqlite_sidecar(src, suffix)
+        if extra.is_file():
+            shutil.copy2(extra, sqlite_sidecar(dest, suffix))
+
+
+def install_sqlite_file(source: Path, dest: Path) -> None:
+    """Replace dest with source and drop leftover WAL/SHM so they cannot mix."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".incoming")
+    try:
+        shutil.copy2(source, tmp)
+        clear_sqlite_sidecars(dest)
+        tmp.replace(dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 class Database:
     def __init__(self, config: Config) -> None:
         self.config = config
@@ -169,11 +221,7 @@ class Database:
             raise
 
     def _rotate_backups(self) -> None:
-        files = sorted(
-            [p for p in self.backup_dir.glob("*.sqlite3") if p.is_file()],
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
+        files = list_sqlite_backups(self.backup_dir)
         keep = max(1, self.config.backup_keep)
         for stale in files[keep:]:
             try:
@@ -183,10 +231,8 @@ class Database:
                 logger.exception("Failed to remove old backup %s", stale)
 
     def latest_backup(self) -> Path | None:
-        files = [p for p in self.backup_dir.glob("*.sqlite3") if p.is_file()]
-        if not files:
-            return None
-        return max(files, key=lambda p: p.stat().st_mtime)
+        files = list_sqlite_backups(self.backup_dir)
+        return files[0] if files else None
 
     async def get_system(self, key: str) -> str | None:
         try:
@@ -220,13 +266,7 @@ class Database:
         if self._conn is not None:
             await self._conn.close()
             self._conn = None
-        shutil.copy2(self.path, damaged)
-        wal = Path(str(self.path) + "-wal")
-        shm = Path(str(self.path) + "-shm")
-        if wal.exists():
-            shutil.copy2(wal, Path(str(damaged) + "-wal"))
-        if shm.exists():
-            shutil.copy2(shm, Path(str(damaged) + "-shm"))
+        copy_sqlite_bundle(self.path, damaged)
         logger.critical("Damaged database copied to %s", damaged)
         return damaged
 
@@ -234,11 +274,7 @@ class Database:
         if self._conn is not None:
             await self._conn.close()
             self._conn = None
-        shutil.copy2(backup_path, self.path)
-        wal = Path(str(self.path) + "-wal")
-        shm = Path(str(self.path) + "-shm")
-        wal.unlink(missing_ok=True)
-        shm.unlink(missing_ok=True)
+        install_sqlite_file(backup_path, self.path)
         await self.connect()
         if not await self.integrity_ok():
             raise DatabaseUnrecoverableError("Restored backup failed integrity_check")

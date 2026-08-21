@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 class ContextMiddleware(BaseMiddleware):
-    def __init__(self, repo: Repo, config: Config, scheduler, bot) -> None:
+    def __init__(self, repo: Repo, config: Config, scheduler, bot, runtime=None) -> None:
         self.repo = repo
         self.config = config
         self.scheduler = scheduler
         self.bot = bot
+        self.runtime = runtime
 
     async def __call__(
         self,
@@ -32,6 +33,7 @@ class ContextMiddleware(BaseMiddleware):
         data["config"] = self.config
         data["scheduler"] = self.scheduler
         data["app_bot"] = self.bot
+        data["runtime"] = self.runtime
         return await handler(event, data)
 
 
