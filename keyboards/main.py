@@ -358,7 +358,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("👥 Пользователи", "ad:users"), _btn("🔎 Поиск", "ad:search"))
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
-    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🛡 VPN", "ad:vpn"))
+    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🖴 Аптайм", "ad:vpn"))
     b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
     b.row(_btn("📦 Бэкапы", "ad:bk"))
     return with_nav(b)
