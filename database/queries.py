@@ -334,6 +334,17 @@ class Repo:
         )
         return [_user(r) for r in rows]
 
+    async def list_broadcast_users(self) -> list[User]:
+        rows = await self.fetchall(
+            USER_SELECT
+            + """
+            WHERE u.deleted_at IS NULL
+              AND u.status = 'active'
+            ORDER BY u.telegram_id
+            """
+        )
+        return [_user(r) for r in rows]
+
     async def search_users(self, query: str, limit: int = 20) -> list[User]:
         like = f"%{query.strip().lstrip('@')}%"
         if query.strip().isdigit():

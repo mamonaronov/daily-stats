@@ -79,3 +79,4 @@ class AdminSG(StatesGroup):
     restore_file = State()
     restore_confirm = State()
     restore_disk = State()
+    broadcast = State()

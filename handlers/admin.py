@@ -6,7 +6,7 @@ import html
 import logging
 from datetime import datetime, timedelta, timezone
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -17,6 +17,7 @@ from database.queries import Repo
 from handlers.common import show_main
 from keyboards.main import (
     _btn,
+    admin_broadcast_kb,
     admin_period_kb,
     admin_root_kb,
     admin_user_kb,
@@ -27,6 +28,14 @@ from keyboards.main import (
     with_nav,
 )
 from services import balance as balance_svc
+from services.broadcast import (
+    AUDIENCE_LABELS,
+    album_buffer,
+    audience_counts,
+    format_broadcast_result,
+    normalize_audience,
+    send_broadcast,
+)
 from services.statistics import render_stats
 from services.telegram_backup import last_telegram_backup_at, next_backup_caption
 from services.vpn_charts import build_vpn_charts, downtime_ticks
@@ -167,6 +176,88 @@ async def admin_search_msg(message: Message, state: FSMContext, config: Config, 
     for user in users:
         b.row(_btn(f"{user.display_name} ({user.telegram_id})", f"ad:u:{user.telegram_id}"))
     await message.answer("Результаты:", reply_markup=with_nav(b, NAV_ADMIN))
+
+
+@router.callback_query(F.data == "ad:bc")
+async def admin_broadcast_start(cb: CallbackQuery, state: FSMContext, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    await state.clear()
+    counts = audience_counts(await repo.list_broadcast_users())
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        "📢 <b>Рассылка</b>\n\nКому отправить сообщение?",
+        admin_broadcast_kb(counts),
+    )
+
+
+@router.callback_query(F.data.startswith("ad:bc:"))
+async def admin_broadcast_audience(cb: CallbackQuery, state: FSMContext, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    raw = cb.data.split(":")[2] if cb.data else ""
+    if raw not in AUDIENCE_LABELS:
+        await cb.answer("Неизвестная группа", show_alert=True)
+        return
+    audience = raw
+    await state.set_state(AdminSG.broadcast)
+    await state.update_data(broadcast_audience=audience)
+    counts = audience_counts(await repo.list_broadcast_users())
+    n = counts.get(audience, 0)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        "📢 <b>Рассылка</b>\n\n"
+        f"Сообщение уйдёт: {AUDIENCE_LABELS[audience]} ({n}).\n"
+        "Вам оно тоже придёт.\n\n"
+        "Пришлите сообщение — копия уйдёт как есть: текст, фото, видео, файлы и подписи.",
+        cancel_kb("ad:bc"),
+    )
+
+
+@router.message(AdminSG.broadcast)
+async def admin_broadcast_msg(
+    message: Message,
+    state: FSMContext,
+    config: Config,
+    repo: Repo,
+    bot: Bot,
+) -> None:
+    if not await _owner(message, config):
+        return
+    if message.text and message.text.startswith("/"):
+        await message.answer(
+            "Это команда, не рассылка. Пришлите обычное сообщение или отмените.",
+            reply_markup=cancel_kb("ad:bc"),
+        )
+        return
+    if message.media_group_id:
+        message_ids = await album_buffer.add(message.media_group_id, message.message_id)
+        if message_ids is None:
+            return
+    elif message.message_id is None:
+        await message.answer("Не удалось прочитать сообщение.", reply_markup=cancel_kb("ad:bc"))
+        return
+    else:
+        message_ids = [message.message_id]
+    data = await state.get_data()
+    audience = normalize_audience(data.get("broadcast_audience"))
+    await state.clear()
+    status = await message.answer("Отправляю…")
+    result = await send_broadcast(
+        bot,
+        repo,
+        from_chat_id=message.chat.id,
+        message_ids=message_ids,
+        audience=audience,
+        include_telegram_id=config.owner_id,
+    )
+    text = format_broadcast_result(result)
+    if status is not None:
+        await safe_edit(status, text, admin_root_kb())
+    else:
+        await message.answer(text, reply_markup=admin_root_kb())
 
 
 async def _send_card(target: CallbackQuery | Message, repo: Repo, user: User) -> None:

@@ -360,8 +360,24 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
     b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🖴 Аптайм", "ad:vpn"))
     b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
-    b.row(_btn("📦 Бэкапы", "ad:bk"))
+    b.row(_btn("📦 Бэкапы", "ad:bk"), _btn("📢 Рассылка", "ad:bc"))
     return with_nav(b)
+
+
+def admin_broadcast_kb(counts: dict[str, int] | None = None) -> InlineKeyboardMarkup:
+    counts = counts or {}
+
+    def label(text: str, key: str) -> str:
+        if key not in counts:
+            return text
+        return f"{text} ({counts[key]})"
+
+    b = InlineKeyboardBuilder()
+    b.row(_btn(label("👥 Все активные", "all"), "ad:bc:all"))
+    b.row(_btn(label("✅ С доступом", "paid"), "ad:bc:paid"))
+    b.row(_btn(label("💸 Без оплаты", "unpaid"), "ad:bc:unpaid"))
+    b.row(*nav_row(NAV_ADMIN))
+    return b.as_markup()
 
 
 def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:
