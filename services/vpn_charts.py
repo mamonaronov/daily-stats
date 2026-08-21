@@ -42,7 +42,8 @@ _DEFAULT_STEP = timedelta(seconds=10)
 _GAP_FACTOR = 3.0
 _CURVE_STEPS = 20
 _AVG_LINE = "#e879f9"
-_PING_CEILINGS = (50.0, 100.0, 200.0, 500.0, 1000.0)
+_PING_DISPLAY_MAX = 2000.0
+_PING_CEILINGS = (50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0)
 _PING_MAJORS = (
     0.0,
     10.0,
@@ -493,13 +494,24 @@ def smooth_ping_series(times: list[datetime], values: list[float]) -> list[float
     return out
 
 
+def clip_ping_display(value: float) -> float:
+    """Keep plotted ping on the visible axis; NaN stays NaN."""
+    if math.isnan(value):
+        return value
+    return min(max(0.0, float(value)), _PING_DISPLAY_MAX)
+
+
+def _clip_ping_ys(values: list[float]) -> list[float]:
+    return [clip_ping_display(value) for value in values]
+
+
 def nice_ping_ymax(raw: float) -> float:
-    """Snap the Y top to 50/100/200/500/1000, then every 1000 ms above that."""
-    raw = max(float(raw), 50.0)
+    """Snap the axis top to 50/100/200/500/1000/2000 ms; never above 2000."""
+    raw = min(max(float(raw), 50.0), _PING_DISPLAY_MAX)
     for cap in _PING_CEILINGS:
         if raw <= cap + 1e-6:
             return cap
-    return float(math.ceil(raw / 1000.0) * 1000.0)
+    return _PING_DISPLAY_MAX
 
 
 def ping_y_ticks(ymax: float) -> tuple[list[float], list[float]]:
@@ -655,6 +667,7 @@ def _palette(keys: list[str]) -> dict[str, tuple]:
 
 
 def _smooth_density_curve(values: list[int]) -> tuple[list[float], list[float]]:
+    values = [min(int(v), int(_PING_DISPLAY_MAX)) for v in values]
     lo = float(min(values))
     hi = float(max(values))
     n = len(values)
@@ -664,7 +677,7 @@ def _smooth_density_curve(values: list[int]) -> tuple[list[float], list[float]]:
     n_bins = min(96, max(20, unique * 2 if unique < 40 else int(math.sqrt(n) * 2)))
     span = hi - lo
     pad = max(span * 0.12, 1.0)
-    xmin, xmax = lo - pad, hi + pad
+    xmin, xmax = lo - pad, min(hi + pad, _PING_DISPLAY_MAX)
     n_full = max(n_bins * 12, 420)
     width = (xmax - xmin) / n_full
     counts = [0.0] * n_full
@@ -686,7 +699,27 @@ def _smooth_density_curve(values: list[int]) -> tuple[list[float], list[float]]:
         smooth[i] = acc
     xs = [xmin + width * (i + 0.5) for i in range(n_full)]
     xs, smooth = _densify_curve(xs, smooth, steps=8)
-    return xs, smooth
+    return _clip_density_to_ping_max(xs, smooth)
+
+
+def _clip_density_to_ping_max(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
+    """Stop the distribution curve at 2000 ms even if raw pings were higher."""
+    cap = _PING_DISPLAY_MAX
+    out_x: list[float] = []
+    out_y: list[float] = []
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        if x <= cap + 1e-9:
+            out_x.append(x)
+            out_y.append(y)
+            continue
+        if out_x and out_x[-1] < cap:
+            prev_x, prev_y = xs[i - 1], ys[i - 1]
+            span = x - prev_x
+            t = (cap - prev_x) / span if span else 1.0
+            out_x.append(cap)
+            out_y.append(max(0.0, prev_y + (y - prev_y) * t))
+        break
+    return out_x, out_y
 
 
 def _merged_spans(points: list[TimelinePoint], step: timedelta) -> list[tuple[datetime, datetime, str, str | None]]:
@@ -733,6 +766,8 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
         (stats.mode, "#c084fc", ":", f"мода {stats.mode:.0f} мс ({stats.mode_count}×){mode_note}"),
     )
     for x, color, style, label in markers:
+        if x > _PING_DISPLAY_MAX:
+            continue
         ax.axvline(x, color=color, linewidth=2.4, linestyle=style, label=label, zorder=3)
     ax.set_xlabel("Пинг, мс")
     ax.set_ylabel("замеров")
@@ -765,9 +800,10 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
     ping_handles: list = []
     for segment in _finite_ping_segments(points, gap):
         xs = [point.time for point in segment]
-        ys = [point.ping_ms for point in segment]
+        ys = _clip_ping_ys([point.ping_ms for point in segment])
         if len(segment) >= 3:
             xs, ys = _curve_times(xs, ys)
+            ys = _clip_ping_ys(ys)
         line = ax.plot(
             xs,
             ys,
@@ -785,7 +821,7 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
     avg_handle = None
     if len(finite) >= 2:
         avg_times = [point.time for point in finite]
-        avg_values = smooth_ping_series(avg_times, [point.ping_ms for point in finite])
+        avg_values = _clip_ping_ys(smooth_ping_series(avg_times, [point.ping_ms for point in finite]))
 
         def _plot_avg(seg_t: list[datetime], seg_y: list[float]):
             nonlocal avg_handle
@@ -793,6 +829,7 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
                 return
             if len(seg_t) >= 3:
                 seg_t, seg_y = _curve_times(seg_t, seg_y, steps=12)
+                seg_y = _clip_ping_ys(seg_y)
             handle = ax.plot(
                 seg_t,
                 seg_y,

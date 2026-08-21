@@ -682,8 +682,9 @@ def test_ping_y_ticks_familiar_values():
     assert nice_ping_ymax(340) == 500
     assert nice_ping_ymax(510) == 1000
     assert nice_ping_ymax(1001) == 2000
-    assert nice_ping_ymax(2300) == 3000
-    assert nice_ping_ymax(3000) == 3000
+    assert nice_ping_ymax(2300) == 2000
+    assert nice_ping_ymax(3000) == 2000
+    assert nice_ping_ymax(8000) == 2000
     majors, minors = ping_y_ticks(340)
     for mark in (0, 50, 100, 200, 500):
         assert mark in majors
@@ -694,7 +695,7 @@ def test_ping_y_ticks_familiar_values():
     assert lows
     assert highs[1] - highs[0] >= 50
     high = [tick for tick in ping_y_ticks(2300)[0] if tick >= 1000]
-    assert high == [1000, 2000, 3000]
+    assert high == [1000, 2000]
     majors, minors = ping_y_ticks(340)
     for mark in (0, 50, 100, 200, 500):
         assert mark in majors
@@ -720,6 +721,35 @@ def test_central_chart_ping_axis_uses_timeline_ticks():
     assert list(ax.get_xticks()) == majors
     assert ax.get_xlim() == (0.0, 100.0)
     plt.close(fig)
+
+
+def test_ping_axis_never_exceeds_2000():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from services.vpn_charts import _apply_ping_ticks, clip_ping_display
+
+    assert clip_ping_display(80) == 80
+    assert clip_ping_display(2000) == 2000
+    assert clip_ping_display(8000) == 2000
+    fig, ax = plt.subplots()
+    _apply_ping_ticks(ax, 8000, axis="y")
+    assert ax.get_ylim() == (0.0, 2000.0)
+    plt.close(fig)
+    fig, ax = plt.subplots()
+    _apply_ping_ticks(ax, 8000, axis="x")
+    assert ax.get_xlim() == (0.0, 2000.0)
+    plt.close(fig)
+
+
+def test_density_curve_stops_at_2000():
+    from services.vpn_charts import _PING_DISPLAY_MAX, _smooth_density_curve
+
+    xs, _ys = _smooth_density_curve([50, 55, 60, 80, 5000, 8000, 12000])
+    assert xs
+    assert max(xs) <= _PING_DISPLAY_MAX + 1e-6
 
 
 def test_smooth_ping_series_ignores_spikes():
