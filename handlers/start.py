@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import show_main
+from handlers.common import TZ_PROMPT, show_main, start_payload
 from keyboards.main import back_kb, timezone_kb
 from services.billing import process_user
 from services.reminders import refresh_user_reminder
@@ -56,17 +56,13 @@ async def _activate(
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, repo: Repo, config: Config, db_user: User | None, is_owner: bool) -> None:
     await state.clear()
-    if db_user and db_user.is_banned:
-        await message.answer("Доступ ограничен. Напишите владельцу сервиса.")
-        return
     if db_user and db_user.is_active:
         await show_main(message, db_user, config, is_owner, state)
         return
-    prompt = "Выберите часовой пояс. Он нужен для статистики, границ дня и напоминаний."
-    if db_user and db_user.is_deleted:
-        prompt = "Аккаунт был удалён. Данные сохранены.\n\nВыберите часовой пояс, чтобы восстановить доступ."
-    await state.set_state(RegisterSG.timezone)
-    await message.answer(prompt, reply_markup=timezone_kb())
+    text, markup = start_payload(db_user, config, is_owner)
+    if not (db_user and db_user.is_banned):
+        await state.set_state(RegisterSG.timezone)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data.startswith("tz:"), RegisterSG.timezone)
@@ -90,7 +86,7 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
 async def tz_list_register(cb: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(RegisterSG.timezone)
     await cb.answer()
-    await safe_edit(cb.message, "Выберите часовой пояс. Он нужен для статистики, границ дня и напоминаний.", timezone_kb())
+    await safe_edit(cb.message, TZ_PROMPT, timezone_kb())
 
 
 @router.message(RegisterSG.timezone_custom)

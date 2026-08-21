@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from config import Config
 from database.models import User
 from database.queries import Repo
-from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu
+from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu, timezone_kb
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
+
+TZ_PROMPT = "Выберите часовой пояс. Он нужен для статистики, границ дня и напоминаний."
+TZ_RESTORE_PROMPT = (
+    "Аккаунт был удалён. Данные сохранены.\n\n"
+    "Выберите часовой пояс, чтобы восстановить доступ."
+)
+BANNED_TEXT = "Доступ ограничен. Напишите владельцу сервиса."
 
 
 def menu_text(user: User, config: Config) -> str:
@@ -25,6 +32,20 @@ def menu_text(user: User, config: Config) -> str:
     )
 
 
+def start_payload(
+    user: User | None,
+    config: Config,
+    is_owner: bool,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Text and keyboard of /start — same payload used for lifecycle pings."""
+    if user and user.is_banned:
+        return BANNED_TEXT, None
+    if user and user.is_active:
+        return menu_text(user, config), main_menu(user, is_owner)
+    prompt = TZ_RESTORE_PROMPT if user and user.is_deleted else TZ_PROMPT
+    return prompt, timezone_kb()
+
+
 async def show_main(
     target: CallbackQuery | Message,
     user: User,
@@ -34,8 +55,7 @@ async def show_main(
 ) -> None:
     if state:
         await state.clear()
-    text = menu_text(user, config)
-    markup = main_menu(user, is_owner)
+    text, markup = start_payload(user, config, is_owner)
     if isinstance(target, CallbackQuery):
         await target.answer()
         await safe_edit(target.message, text, markup)

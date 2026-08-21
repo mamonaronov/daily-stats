@@ -221,7 +221,7 @@ async def backup_job(db: Database, bot: Bot, config: Config) -> None:
         logger.info("Scheduled backup %s", path.name)
     except Exception as exc:
         logger.exception("Scheduled backup failed")
-        await notify_owner(bot, config, format_alert("backup", "Сбой резервного копирования", exc=exc))
+        await notify_owner(bot, config, format_alert("backup", "Не удалось сделать бэкап на диск", exc=exc))
 
 
 async def telegram_backup_job(
@@ -258,7 +258,7 @@ async def telegram_backup_job(
         await notify_owner(
             bot,
             config,
-            format_alert("telegram_backup", "Сбой отправки бэкапа в Telegram", exc=exc),
+            format_alert("telegram_backup", "Не удалось сделать или отправить бэкап в Telegram", exc=exc),
         )
         _schedule_telegram_backup_at(
             scheduler,

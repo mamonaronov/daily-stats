@@ -25,7 +25,7 @@ from middlewares import (
     ErrorIsolationMiddleware,
     UserMiddleware,
 )
-from services.alerts import format_alert, notify_owner
+from services.alerts import format_alert, format_backup_problems, notify_owner, notify_owner_lifecycle
 from services.jobs import setup_scheduler
 from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
@@ -41,6 +41,7 @@ _POLLING_RETRY_INITIAL = 2.0
 _POLLING_RETRY_MAX = 30.0
 _POLLING_SESSION_TIMEOUT = 60.0
 _STARTUP_GET_ME_TIMEOUT = 20.0
+_SHUTDOWN_TELEGRAM_BACKUP_TIMEOUT = 15.0
 
 
 def _make_session(proxy_url: str | None) -> AiohttpSession:
@@ -137,17 +138,45 @@ async def _on_error(event, bot: Bot, config) -> None:
     await notify_owner(bot, config, format_alert("dispatcher", "Ошибка диспетчера", exc=exc))
 
 
-async def graceful_shutdown(bot: Bot, db: Database, scheduler: AsyncIOScheduler, config) -> None:
+async def graceful_shutdown(
+    bot: Bot,
+    db: Database,
+    scheduler: AsyncIOScheduler,
+    config,
+    repo: Repo | None = None,
+    *,
+    notify: bool = False,
+) -> None:
     logger.info("Graceful shutdown started")
     try:
         if scheduler.running:
             scheduler.shutdown(wait=False)
     except Exception:
         logger.exception("Scheduler shutdown failed")
+    backup_problems: list[tuple[str, BaseException]] = []
     try:
         await db.backup(prefix="shutdown")
-    except Exception:
+    except Exception as exc:
         logger.exception("Shutdown backup failed")
+        backup_problems.append(("сделать копию на диск", exc))
+    if notify and repo is not None:
+        await notify_owner_lifecycle(bot, repo, config, started=False)
+        if config.telegram_backup_interval_hours > 0:
+            try:
+                from services.telegram_backup import send_telegram_backup
+
+                await await_or_abandon(
+                    send_telegram_backup(db, bot, config, silent=False),
+                    _SHUTDOWN_TELEGRAM_BACKUP_TIMEOUT,
+                    name="shutdown.telegram_backup",
+                )
+            except Exception as exc:
+                logger.exception("Shutdown telegram backup failed")
+                backup_problems.append(("отправить бэкап в Telegram", exc))
+        if backup_problems:
+            await notify_owner(bot, config, format_backup_problems("при выключении", backup_problems))
+    elif backup_problems:
+        await notify_owner(bot, config, format_backup_problems("при выключении", backup_problems))
     try:
         await bot.session.close()
     except Exception:
@@ -206,11 +235,19 @@ async def run() -> None:
         raise SystemExit(1) from exc
     except Exception as exc:
         logger.exception("Startup database failure")
+        backup_error: BaseException | None = None
         try:
             await db.backup(prefix="crash")
-        except Exception:
+        except Exception as backup_exc:
             logger.exception("Crash backup failed")
+            backup_error = backup_exc
         await notify_owner(bot, config, format_alert("startup", "Ошибка инициализации БД", exc=exc))
+        if backup_error is not None:
+            await notify_owner(
+                bot,
+                config,
+                format_alert("backup", "Не удалось сделать бэкап после ошибки запуска", exc=backup_error),
+            )
         await bot.session.close()
         raise SystemExit(1) from exc
 
@@ -245,7 +282,7 @@ async def run() -> None:
     logger.info("Waiting for Telegram API")
     telegram_ok = await _wait_until_telegram_ready(bot, runtime.stop, config.telegram_proxy_url)
     if runtime.stop.is_set() or not telegram_ok:
-        await graceful_shutdown(bot, db, scheduler, config)
+        await graceful_shutdown(bot, db, scheduler, config, repo)
         return
 
     if restore_preview is not None:
@@ -261,11 +298,24 @@ async def run() -> None:
         logger.exception("Failed to start background jobs")
         await notify_owner(bot, config, format_alert("scheduler", "Ошибка запуска задач", exc=exc))
 
-    logger.info("Polling started")
+    became_ready = False
+
+    @dp.startup.register
+    async def _on_bot_ready() -> None:
+        nonlocal became_ready
+        if became_ready:
+            return
+        became_ready = True
+        logger.info("Polling started")
+        try:
+            await notify_owner_lifecycle(bot, repo, config, started=True)
+        except Exception:
+            logger.exception("Failed to send ready notification")
+
     try:
         await _start_polling_with_retry(dp, bot, runtime.stop, proxy_url=config.telegram_proxy_url)
     finally:
-        await graceful_shutdown(bot, db, scheduler, config)
+        await graceful_shutdown(bot, db, scheduler, config, repo, notify=became_ready)
     if runtime.restart:
         logger.info("Exiting for restart after restore")
         raise SystemExit(0)
