@@ -38,7 +38,7 @@ from services.broadcast import (
 )
 from services.statistics import render_stats
 from services.telegram_backup import last_telegram_backup_at, next_backup_caption
-from services.vpn_charts import build_vpn_charts, downtime_ticks
+from services.vpn_charts import build_vpn_availability_charts, build_vpn_charts, downtime_ticks
 from services.vpn_monitor import (
     collect_vpn_log_entries,
     format_vpn_log,
@@ -659,7 +659,7 @@ async def _vpn_window(
     return key, start, end, title
 
 
-async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, top: str = "n") -> str:
+async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, view: str = "n") -> str:
     _key, start, end, title = await _vpn_window(repo, period_key, now)
     start_iso, end_iso = to_iso(start), to_iso(end)
     summary = await repo.vpn_latency_summary(start_iso, end_iso)
@@ -698,7 +698,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
             *_vpn_bucket_lines(summary, interval),
         ]
     )
-    if top == "s":
+    if view == "s":
         top_subs = await repo.vpn_top_subscriptions(start_iso, end_iso, limit=5)
         _append_vpn_top(
             lines,
@@ -709,7 +709,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
                 f"(<code>{html.escape(row['subscription'] or '—')}</code>)"
             ),
         )
-    else:
+    elif view != "a":
         top_nodes = await repo.vpn_top_nodes(start_iso, end_iso, limit=5)
         _append_vpn_top(
             lines,
@@ -729,15 +729,28 @@ def _vpn_period(period_key: str | None) -> tuple[str, timedelta | None, str]:
     return key, delta, title
 
 
-def _parse_vpn_view(data: str | None) -> tuple[str, str]:
-    period, top = "24h", "n"
+def _parse_vpn_view(data: str | None) -> tuple[str, str, bool]:
+    period, view, rounded = "24h", "n", False
     if data and data.startswith("adv:"):
         parts = data.split(":")
         if len(parts) >= 2:
             period = parts[1] if parts[1] in VPN_PERIODS else "24h"
-        if len(parts) >= 3 and parts[2] in {"n", "s"}:
-            top = parts[2]
-    return period, top
+        if len(parts) >= 3 and parts[2] in {"n", "s", "a"}:
+            view = parts[2]
+        if view == "a" and len(parts) >= 4 and parts[3] == "r":
+            rounded = True
+    return period, view, rounded
+
+
+def _parse_vpn_chart(data: str | None) -> tuple[str, bool, bool]:
+    period, availability, rounded = "24h", False, False
+    if data and data.startswith("advc:"):
+        parts = data.split(":")
+        if len(parts) >= 2:
+            period = parts[1] if parts[1] in VPN_PERIODS else "24h"
+        availability = len(parts) >= 3 and parts[2] == "a"
+        rounded = availability and len(parts) >= 4 and parts[3] == "r"
+    return period, availability, rounded
 
 
 @router.callback_query(F.data == "ad:vpn")
@@ -745,24 +758,28 @@ def _parse_vpn_view(data: str | None) -> tuple[str, str]:
 async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
-    period, top = _parse_vpn_view(cb.data)
-    text = await _vpn_report(repo, config, period, top=top)
+    period, view, rounded = _parse_vpn_view(cb.data)
+    text = await _vpn_report(repo, config, period, view=view)
     await cb.answer()
-    await safe_edit(cb.message, text, admin_vpn_kb(period, top))
+    await safe_edit(cb.message, text, admin_vpn_kb(period, view, rounded=rounded))
 
 
 @router.callback_query(F.data.startswith("advc:"))
 async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
-    _period, start, end, title = await _vpn_window(
-        repo, cb.data.split(":", 1)[1] if cb.data else "24h"
-    )
+    period, availability, rounded = _parse_vpn_chart(cb.data)
+    _period, start, end, title = await _vpn_window(repo, period)
     await cb.answer("Строю графики")
     if cb.message is None:
         return
     try:
-        charts = await build_vpn_charts(repo, to_iso(start), to_iso(end), title)
+        if availability:
+            charts = await build_vpn_availability_charts(
+                repo, to_iso(start), to_iso(end), title, rounded=rounded
+            )
+        else:
+            charts = await build_vpn_charts(repo, to_iso(start), to_iso(end), title)
     except Exception:
         logger.exception("VPN charts failed")
         await safe_send(cb.message.answer, "Не удалось построить графики.")
@@ -771,7 +788,12 @@ async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> Non
         await safe_send(cb.message.answer, "Нет данных для графиков.")
         return
     for caption, png in charts:
-        filename = "vpn-timeline.png" if caption.startswith("Пинг по времени") else "vpn-distribution.png"
+        if caption.startswith("Доступность"):
+            filename = "vpn-availability.png"
+        elif caption.startswith("Пинг по времени"):
+            filename = "vpn-timeline.png"
+        else:
+            filename = "vpn-distribution.png"
         await safe_send(
             cb.message.answer_document,
             png_file(png, filename),

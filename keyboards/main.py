@@ -495,22 +495,31 @@ _VPN_SPAN_LABELS = {
 }
 
 
-def admin_vpn_kb(period: str = "24h", top: str = "n") -> InlineKeyboardMarkup:
-    if top not in {"n", "s"}:
-        top = "n"
+def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False) -> InlineKeyboardMarkup:
+    if view not in {"n", "s", "a"}:
+        view = "n"
+    if view != "a":
+        rounded = False
+    token = "a:r" if view == "a" and rounded else view
     b = InlineKeyboardBuilder()
     rows = (
         (("5m", "5 мин"), ("1h", "1 ч"), ("24h", "сутки")),
         (("7d", "неделя"), ("30d", "месяц"), ("all", "всё время")),
     )
     for labels in rows:
-        b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}:{top}") for key, label in labels])
+        b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}:{token}") for key, label in labels])
     b.row(
-        _btn(("• " if top == "n" else "") + "Ноды", f"adv:{period}:n"),
-        _btn(("• " if top == "s" else "") + "Подписки", f"adv:{period}:s"),
+        _btn(("• " if view == "n" else "") + "Ноды", f"adv:{period}:n"),
+        _btn(("• " if view == "s" else "") + "Подписки", f"adv:{period}:s"),
+        _btn(("• " if view == "a" else "") + "Доступность", f"adv:{period}:a" + (":r" if rounded else "")),
     )
     span = _VPN_SPAN_LABELS.get(period, "сутки")
+    if view == "a":
+        b.row(_btn(("• " if rounded else "") + "Округление", f"adv:{period}:a" + ("" if rounded else ":r")))
     b.row(_btn(f"📄 Логи за {span}", f"advl:{period}"))
-    b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
+    if view == "a":
+        b.row(_btn(f"📈 Доступность за {span}", f"advc:{period}:a" + (":r" if rounded else "")))
+    else:
+        b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import math
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from statistics import mean, median
 
@@ -88,6 +88,20 @@ _SIGNAL_LABELS = {
     SIGNAL_SERVICE_DOWN: "сервис не запущен",
     SIGNAL_NO_PING: "нет пинга",
 }
+PING_0_100 = "ping_0_100"
+PING_100_500 = "ping_100_500"
+PING_500_1000 = "ping_500_1000"
+PING_1000 = "ping_1000"
+_PING_BUCKET_KEYS = (PING_0_100, PING_100_500, PING_500_1000, PING_1000)
+_PING_BUCKET_SET = frozenset(_PING_BUCKET_KEYS)
+_PING_BUCKET_LABELS = {
+    PING_0_100: "0–100 мс",
+    PING_100_500: "100–500 мс",
+    PING_500_1000: "500–1000 мс",
+    PING_1000: "> 1000 мс",
+}
+_AVAIL_SLOTS = 64
+_AVAIL_WINDOW_CAP = timedelta(hours=2)
 # Mihomo / VPN path failures — counted as no ping, not a crashed bot.
 _VPN_ISSUE_MARKERS = (
     "mihomo_unreachable",
@@ -161,19 +175,37 @@ def latency_central_tendency(values: list[int]) -> CentralTendency | None:
     )
 
 
-def samples_to_timeline(samples: list[VpnLatencySample], *, color_by_sub: bool) -> list[TimelinePoint]:
+def ping_bucket_key(ping_ms: float) -> str:
+    """Map a successful ping to the availability color bucket."""
+    if math.isnan(ping_ms) or ping_ms < 100:
+        return PING_0_100
+    if ping_ms < 500:
+        return PING_100_500
+    if ping_ms < 1000:
+        return PING_500_1000
+    return PING_1000
+
+
+def samples_to_timeline(
+    samples: list[VpnLatencySample],
+    *,
+    color_by_sub: bool,
+    color_by_ping: bool = False,
+) -> list[TimelinePoint]:
     points: list[TimelinePoint] = []
     for sample in samples:
         signal = classify_vpn_signal(ok=bool(sample.ok), latency_ms=sample.latency_ms, error=sample.error)
         no_ping = not bool(sample.ok) or sample.latency_ms is None
         ping = float("nan") if no_ping else float(sample.latency_ms)
         node = short_node_name(sample.node_name)
-        if color_by_sub:
+        if signal is not None:
+            color_key = signal
+        elif color_by_ping:
+            color_key = ping_bucket_key(ping)
+        elif color_by_sub:
             color_key = subscription_label(sample.subscription)
         else:
             color_key = node
-        if signal is not None:
-            color_key = signal
         points.append(
             TimelinePoint(
                 time=parse_iso(sample.measured_at),
@@ -349,6 +381,113 @@ def fill_downtime_gaps(
         out.extend(markers(*spans[span_i]))
         span_i += 1
     return out
+
+
+def availability_round_window(span: timedelta, step: timedelta) -> timedelta:
+    """Coarsen ping-bucket flicker on long charts; keep a few samples on short ones."""
+    span_s = max(span.total_seconds(), 1.0)
+    step_s = max(step.total_seconds(), 1.0)
+    by_span = span_s / _AVAIL_SLOTS
+    window_s = max(step_s * 3.0, min(by_span, _AVAIL_WINDOW_CAP.total_seconds()))
+    return timedelta(seconds=window_s)
+
+
+def _rekey(point: TimelinePoint, color_key: str) -> TimelinePoint:
+    if point.color_key == color_key:
+        return point
+    return replace(point, color_key=color_key)
+
+
+def _run_duration(points: list[TimelinePoint], start: int, end: int, step: timedelta) -> timedelta:
+    if end < len(points):
+        return points[end].time - points[start].time
+    return points[end - 1].time - points[start].time + step
+
+
+def debounce_ping_buckets(
+    points: list[TimelinePoint],
+    min_duration: timedelta,
+    *,
+    step: timedelta,
+) -> list[TimelinePoint]:
+    """Keep an OK ping bucket until a different one lasts `min_duration`. Signals stay."""
+    if not points:
+        return points
+    out = list(points)
+    current_key: str | None = None
+    pending_key: str | None = None
+    pending_start: int | None = None
+
+    def hold(index: int, key: str) -> None:
+        out[index] = _rekey(out[index], key)
+
+    for index, point in enumerate(points):
+        if point.signal is not None:
+            current_key = None
+            pending_key = None
+            pending_start = None
+            continue
+        key = point.color_key
+        if current_key is None or key == current_key:
+            current_key = key
+            pending_key = None
+            pending_start = None
+            hold(index, current_key)
+            continue
+        if pending_key != key:
+            pending_key = key
+            pending_start = index
+        assert pending_start is not None and pending_key is not None
+        if _run_duration(points, pending_start, index + 1, step) < min_duration:
+            hold(index, current_key)
+            continue
+        current_key = pending_key
+        for held in range(pending_start, index + 1):
+            if points[held].signal is None:
+                hold(held, current_key)
+        pending_key = None
+        pending_start = None
+    return out
+
+
+def round_availability_colors(
+    points: list[TimelinePoint],
+    *,
+    window: timedelta | None = None,
+    step: timedelta | None = None,
+) -> list[TimelinePoint]:
+    """Majority ping-bucket in a time window, then ignore brief leftover flicker."""
+    if not points:
+        return points
+    colored = [_rekey(point, point.signal if point.signal else ping_bucket_key(point.ping_ms)) for point in points]
+    step = step or sample_step([point for point in colored if point.signal not in _GAP_SIGNALS] or colored)
+    span = colored[-1].time - colored[0].time
+    window = window or availability_round_window(span, step)
+    ok_idx = [i for i, point in enumerate(colored) if point.signal is None]
+    if len(ok_idx) >= 2:
+        times = [colored[i].time.timestamp() for i in ok_idx]
+        raw_keys = [colored[i].color_key for i in ok_idx]
+        half = window.total_seconds() / 2.0
+        start = 0
+        n = len(ok_idx)
+        new_keys: list[str] = []
+        for i, t0 in enumerate(times):
+            while start < n and times[start] < t0 - half:
+                start += 1
+            end = i
+            while end < n and times[end] <= t0 + half:
+                end += 1
+            window_keys = raw_keys[start:end]
+            counts = Counter(window_keys)
+            best = counts.most_common(1)[0][1]
+            winners = {key for key, count in counts.items() if count == best}
+            if raw_keys[i] in winners:
+                new_keys.append(raw_keys[i])
+            else:
+                new_keys.append(counts.most_common(1)[0][0])
+        for index, key in zip(ok_idx, new_keys):
+            colored[index] = _rekey(colored[index], key)
+    return debounce_ping_buckets(colored, window, step=step)
 
 
 def downsample_timeline(points: list[TimelinePoint], max_ok: int = _MAX_TIMELINE_OK, max_down: int = _MAX_TIMELINE_DOWN) -> list[TimelinePoint]:
@@ -658,11 +797,15 @@ def _server_colors(count: int) -> list[tuple[float, float, float]]:
     return out
 
 
+_PING_BUCKET_COLORS = dict(zip(_PING_BUCKET_KEYS, _server_colors(4)))
+
+
 def _palette(keys: list[str]) -> dict[str, tuple]:
-    server_keys = [key for key in keys if key not in _SIGNAL_KEYS]
+    server_keys = [key for key in keys if key not in _SIGNAL_KEYS and key not in _PING_BUCKET_SET]
     assigned = _server_colors(len(server_keys))
     colors: dict[str, tuple] = {key: assigned[i] for i, key in enumerate(server_keys)}
     colors.update(_SIGNAL_COLORS)
+    colors.update(_PING_BUCKET_COLORS)
     return colors
 
 
@@ -778,7 +921,14 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     return _png(fig, dpi=_DIST_DPI)
 
 
-def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, color_by_sub: bool) -> bytes:
+def render_timeline_chart(
+    points: list[TimelinePoint],
+    period_title: str,
+    *,
+    color_by_sub: bool,
+    color_by_ping: bool = False,
+    rounded: bool = False,
+) -> bytes:
     fig, ax = plt.subplots(figsize=(18.5, 8.2))
     _apply_dark(fig, ax)
     keys = []
@@ -864,10 +1014,24 @@ def render_timeline_chart(points: list[TimelinePoint], period_title: str, *, col
     ax.xaxis.set_major_formatter(_time_formatter(span))
     ax.set_ylabel("Пинг, мс")
     ax.set_xlabel("Время (UTC)")
-    color_note = "цвет фона — подписка" if color_by_sub else "цвет фона — сервер"
-    ax.set_title(f"Пинг по времени · {period_title}\n{color_note}")
-    legend_keys = [key for key in keys if key not in _SIGNAL_KEYS][:_MAX_LEGEND_NODES]
-    handles = [Patch(facecolor=colors[key], edgecolor="none", alpha=0.85, label=key) for key in legend_keys]
+    if color_by_ping:
+        round_note = " · округление" if rounded else ""
+        color_note = f"цвет фона — пинг{round_note}"
+        ax.set_title(f"Доступность · {period_title}\n{color_note}")
+        legend_keys = [key for key in _PING_BUCKET_KEYS if key in keys]
+    else:
+        color_note = "цвет фона — подписка" if color_by_sub else "цвет фона — сервер"
+        ax.set_title(f"Пинг по времени · {period_title}\n{color_note}")
+        legend_keys = [key for key in keys if key not in _SIGNAL_KEYS][:_MAX_LEGEND_NODES]
+    handles = [
+        Patch(
+            facecolor=colors[key],
+            edgecolor="none",
+            alpha=0.85,
+            label=_PING_BUCKET_LABELS.get(key, key),
+        )
+        for key in legend_keys
+    ]
     present_signals = {point.signal for point in points if point.signal}
     for signal in _SIGNAL_ORDER:
         if signal in present_signals:
@@ -934,6 +1098,62 @@ def render_vpn_charts(
     return charts
 
 
+def render_availability_charts(
+    samples: list[VpnLatencySample],
+    period_title: str,
+    *,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    rounded: bool = False,
+) -> list[tuple[str, bytes]]:
+    if not samples:
+        return []
+    points = samples_to_timeline(samples, color_by_sub=False, color_by_ping=True)
+    points = fill_downtime_gaps(
+        points,
+        window_start=window_start,
+        window_end=window_end,
+        now_host_uptime_s=host_uptime_seconds(),
+    )
+    if rounded:
+        points = round_availability_colors(points)
+    points = downsample_timeline(points)
+    if not points:
+        return []
+    note = " · округление" if rounded else ""
+    caption = f"Доступность · {period_title}{note}"
+    return [
+        (
+            caption,
+            render_timeline_chart(
+                points,
+                period_title,
+                color_by_sub=False,
+                color_by_ping=True,
+                rounded=rounded,
+            ),
+        )
+    ]
+
+
 async def build_vpn_charts(repo: Repo, start: str, end: str, period_title: str) -> list[tuple[str, bytes]]:
     samples = await repo.list_vpn_samples(start, end)
     return render_vpn_charts(samples, period_title, window_start=parse_iso(start), window_end=parse_iso(end))
+
+
+async def build_vpn_availability_charts(
+    repo: Repo,
+    start: str,
+    end: str,
+    period_title: str,
+    *,
+    rounded: bool = False,
+) -> list[tuple[str, bytes]]:
+    samples = await repo.list_vpn_samples(start, end)
+    return render_availability_charts(
+        samples,
+        period_title,
+        window_start=parse_iso(start),
+        window_end=parse_iso(end),
+        rounded=rounded,
+    )

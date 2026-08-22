@@ -526,10 +526,14 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:24h:n" in datas
     assert "adv:5m:n" in datas
     assert "adv:24h:s" in datas
+    assert "adv:24h:a" in datas
     assert "adv:all:n" in datas
     assert "advl:24h" in datas
     assert "advc:24h" in datas
     assert all(len(data.encode()) <= 64 for data in datas)
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert any(text and text.startswith("• Ноды") for text in labels)
+    assert any(text == "Доступность" for text in labels)
 
     week = admin_vpn_kb("7d", "s")
     week_datas = [btn.callback_data for row in week.inline_keyboard for btn in row]
@@ -540,6 +544,27 @@ def test_admin_vpn_kb_callback_limit():
     assert any(text and "Логи за неделю" in text for text in labels)
     assert any(text and "Картинки за неделю" in text for text in labels)
     assert any(text and text.startswith("• Подписки") for text in labels)
+
+    avail = admin_vpn_kb("24h", "a")
+    avail_datas = [btn.callback_data for row in avail.inline_keyboard for btn in row]
+    avail_labels = [btn.text for row in avail.inline_keyboard for btn in row]
+    assert "adv:24h:a" in avail_datas
+    assert "adv:24h:a:r" in avail_datas
+    assert "advc:24h:a" in avail_datas
+    assert "advc:24h" not in avail_datas
+    assert any(text and text.startswith("• Доступность") for text in avail_labels)
+    assert any(text == "Округление" for text in avail_labels)
+    assert any(text and "Доступность за сутки" in text for text in avail_labels)
+    assert all(text and "Картинки" not in text for text in avail_labels)
+
+    rounded = admin_vpn_kb("7d", "a", rounded=True)
+    rounded_datas = [btn.callback_data for row in rounded.inline_keyboard for btn in row]
+    rounded_labels = [btn.text for row in rounded.inline_keyboard for btn in row]
+    assert "adv:7d:a:r" in rounded_datas
+    assert "advc:7d:a:r" in rounded_datas
+    assert any(text and text.startswith("• Округление") for text in rounded_labels)
+    assert any(text and "Доступность за неделю" in text for text in rounded_labels)
+    assert all(len(data.encode()) <= 64 for data in rounded_datas)
 
     all_time = admin_vpn_kb("all", "n")
     all_labels = [btn.text for row in all_time.inline_keyboard for btn in row]
@@ -582,6 +607,12 @@ async def test_vpn_report_hides_live_status_and_supports_all_time(repo):
     assert "За всё время" in all_text
     assert "Замеров: 1" in all_text
     assert "Сейчас AUTO" not in all_text
+    assert "Топ нод:" in all_text
+
+    avail_text = await _vpn_report(repo, repo.db.config, "all", now=now, view="a")
+    assert "Топ нод:" not in avail_text
+    assert "Топ подписок:" not in avail_text
+    assert "0–100 мс:" in avail_text
 
 
 def test_short_node_name():
@@ -1020,3 +1051,165 @@ def test_timeline_keeps_vpn_errors_as_no_ping():
     assert points[0].signal is None
     assert points[1].signal == SIGNAL_NO_PING
     assert points[2].signal == SIGNAL_NO_PING
+
+
+def test_parse_vpn_view_availability():
+    from handlers.admin import _parse_vpn_chart, _parse_vpn_view
+
+    assert _parse_vpn_view("ad:vpn") == ("24h", "n", False)
+    assert _parse_vpn_view("adv:7d:s") == ("7d", "s", False)
+    assert _parse_vpn_view("adv:24h:a") == ("24h", "a", False)
+    assert _parse_vpn_view("adv:30d:a:r") == ("30d", "a", True)
+    assert _parse_vpn_view("adv:5m:n:r") == ("5m", "n", False)
+    assert _parse_vpn_chart("advc:7d") == ("7d", False, False)
+    assert _parse_vpn_chart("advc:24h:a") == ("24h", True, False)
+    assert _parse_vpn_chart("advc:all:a:r") == ("all", True, True)
+
+
+def test_ping_bucket_key_ranges():
+    from services.vpn_charts import PING_0_100, PING_100_500, PING_500_1000, PING_1000, ping_bucket_key
+
+    assert ping_bucket_key(0) == PING_0_100
+    assert ping_bucket_key(99.9) == PING_0_100
+    assert ping_bucket_key(100) == PING_100_500
+    assert ping_bucket_key(499.9) == PING_100_500
+    assert ping_bucket_key(500) == PING_500_1000
+    assert ping_bucket_key(999.9) == PING_500_1000
+    assert ping_bucket_key(1000) == PING_1000
+    assert ping_bucket_key(8000) == PING_1000
+
+
+def test_availability_round_window_grows_then_caps():
+    from datetime import timedelta
+
+    from services.vpn_charts import availability_round_window
+
+    step = timedelta(seconds=10)
+    five_min = availability_round_window(timedelta(minutes=5), step)
+    day = availability_round_window(timedelta(hours=24), step)
+    month = availability_round_window(timedelta(days=30), step)
+    assert five_min == timedelta(seconds=30)
+    assert timedelta(minutes=20) < day < timedelta(minutes=25)
+    assert month == timedelta(hours=2)
+    assert day < month
+
+
+def test_samples_to_timeline_color_by_ping():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import (
+        PING_0_100,
+        PING_100_500,
+        PING_500_1000,
+        PING_1000,
+        SIGNAL_NO_PING,
+        samples_to_timeline,
+    )
+
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 80, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 1, 120, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 1, 600, "s1 | B | n2", "sub1", None),
+        VpnLatencySample(4, "2026-08-19T10:00:30+00:00", 1, 1500, "s1 | B | n2", "sub1", None),
+        VpnLatencySample(5, "2026-08-19T10:00:40+00:00", 0, None, None, None, "timeout"),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False, color_by_ping=True)
+    assert [point.color_key for point in points] == [
+        PING_0_100,
+        PING_100_500,
+        PING_500_1000,
+        PING_1000,
+        SIGNAL_NO_PING,
+    ]
+
+
+def test_round_availability_merges_ping_flicker():
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import PING_0_100, TimelinePoint, round_availability_colors
+
+    utc = timezone.utc
+    start = datetime(2026, 8, 19, 10, tzinfo=utc)
+    points = []
+    for i in range(60):
+        ping = 90.0 if i % 2 == 0 else 110.0
+        points.append(TimelinePoint(start + timedelta(seconds=10 * i), ping, "n", None, "x"))
+    rounded = round_availability_colors(points, window=timedelta(seconds=30), step=timedelta(seconds=10))
+    assert {point.color_key for point in rounded} == {PING_0_100}
+    assert rounded[1].ping_ms == 110.0
+
+
+def test_round_availability_keeps_signals_and_stable_shift():
+    import math
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import (
+        PING_0_100,
+        PING_500_1000,
+        SIGNAL_NO_PING,
+        TimelinePoint,
+        round_availability_colors,
+    )
+
+    utc = timezone.utc
+    start = datetime(2026, 8, 19, 10, tzinfo=utc)
+    points = [
+        TimelinePoint(start, 80.0, "n", None, PING_0_100),
+        TimelinePoint(start + timedelta(seconds=10), float("nan"), "n", SIGNAL_NO_PING, SIGNAL_NO_PING),
+        TimelinePoint(start + timedelta(seconds=20), 80.0, "n", None, PING_0_100),
+    ]
+    rounded = round_availability_colors(points, window=timedelta(seconds=30), step=timedelta(seconds=10))
+    assert rounded[1].signal == SIGNAL_NO_PING
+    assert rounded[1].color_key == SIGNAL_NO_PING
+    assert math.isnan(rounded[1].ping_ms)
+
+    shift = []
+    for i in range(40):
+        ping = 80.0 if i < 20 else 600.0
+        shift.append(TimelinePoint(start + timedelta(seconds=10 * i), ping, "n", None, "x"))
+    shifted = round_availability_colors(shift, window=timedelta(seconds=30), step=timedelta(seconds=10))
+    keys = [point.color_key for point in shifted]
+    assert PING_0_100 in keys
+    assert PING_500_1000 in keys
+    assert keys[0] == PING_0_100
+    assert keys[-1] == PING_500_1000
+    assert keys.count(PING_0_100) >= 15
+    assert keys.count(PING_500_1000) >= 15
+
+
+def test_ping_bucket_colors_avoid_signal_hues():
+    from services.vpn_charts import _PING_BUCKET_COLORS, _PING_BUCKET_KEYS, _palette
+
+    colors = _palette(list(_PING_BUCKET_KEYS))
+    for key in _PING_BUCKET_KEYS:
+        r, g, b = colors[key][:3]
+        assert colors[key] == _PING_BUCKET_COLORS[key]
+        red_orange = r >= 0.72 and b <= 0.40 and g <= 0.55
+        yellow = r >= 0.75 and g >= 0.65 and b <= 0.40
+        orange = r >= 0.80 and 0.35 <= g <= 0.70 and b <= 0.35
+        assert not red_orange, (key, r, g, b)
+        assert not yellow, (key, r, g, b)
+        assert not orange, (key, r, g, b)
+
+
+def test_render_availability_charts_png():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import render_availability_charts
+
+    mixed = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 80, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 1, 120, "s3 | A | n1", "sub3", None),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 0, 8000, "s3 | A | n1", "sub3", "timeout"),
+        VpnLatencySample(4, "2026-08-19T10:00:30+00:00", 1, 90, "s1 | B | n2", "sub1", None),
+        VpnLatencySample(5, "2026-08-19T10:00:40+00:00", 1, 700, "s1 | B | n2", "sub1", None),
+    ]
+    charts = render_availability_charts(mixed, "последние 5 минут")
+    assert len(charts) == 1
+    assert charts[0][0].startswith("Доступность")
+    assert "округление" not in charts[0][0]
+    assert charts[0][1].startswith(b"\x89PNG")
+    assert len(charts[0][1]) <= 1_000_000
+
+    rounded = render_availability_charts(mixed, "последние 5 минут", rounded=True)
+    assert len(rounded) == 1
+    assert "округление" in rounded[0][0]
+    assert rounded[0][1].startswith(b"\x89PNG")
