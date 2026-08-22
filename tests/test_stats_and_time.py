@@ -139,7 +139,58 @@ def test_hours_kb_includes_past_hours_and_date_shortcuts():
     assert "hr:23" in data
     assert "hdt:today" in data
     assert "hdt:yesterday" in data
+    assert "hdt:daybefore" in data
     assert "hdt:calendar" in data
+    assert "hr:manual" in data
+
+
+def test_parse_hhmm_accepts_compact_and_spaced_clock():
+    from utils.time import parse_hhmm
+
+    assert parse_hhmm("10:00") == (10, 0)
+    assert parse_hhmm("1000") == (10, 0)
+    assert parse_hhmm("10 00") == (10, 0)
+    assert parse_hhmm("10.00") == (10, 0)
+    assert parse_hhmm("930") == (9, 30)
+    assert parse_hhmm("14:35") == (14, 35)
+
+
+def test_parse_minutes_ago_units():
+    from utils.time import parse_minutes_ago
+
+    assert parse_minutes_ago("7") == 7
+    assert parse_minutes_ago("90 мин") == 90
+    assert parse_minutes_ago("1 час") == 60
+    assert parse_minutes_ago("1ч 20м") == 80
+    assert parse_minutes_ago("1.5 часа") == 90
+
+
+def test_parse_when_text_clock_or_minutes_ago():
+    from datetime import datetime, timezone
+
+    from utils.time import parse_when_text, to_user
+
+    now = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)  # 15:00 MSK
+    local = to_user(parse_when_text("1000", "Europe/Moscow", now=now), "Europe/Moscow")
+    assert (local.hour, local.minute, local.day) == (10, 0, 23)
+    local = to_user(parse_when_text("10 00", "Europe/Moscow", now=now), "Europe/Moscow")
+    assert (local.hour, local.minute) == (10, 0)
+    local = to_user(parse_when_text("20:00", "Europe/Moscow", now=now), "Europe/Moscow")
+    assert (local.hour, local.minute, local.day) == (20, 0, 22)
+    ago = parse_when_text("15", "Europe/Moscow", now=now)
+    assert int((now - ago).total_seconds()) == 15 * 60
+
+
+def test_parse_calendar_token_relative_days():
+    from datetime import date
+
+    from utils.time import parse_calendar_token
+
+    today = date(2026, 8, 23)
+    assert parse_calendar_token("today", today) == today
+    assert parse_calendar_token("yesterday", today) == date(2026, 8, 22)
+    assert parse_calendar_token("daybefore", today) == date(2026, 8, 21)
+    assert parse_calendar_token("2026-08-10", today) == date(2026, 8, 10)
 
 
 def test_cigarette_stats_text():

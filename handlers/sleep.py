@@ -12,13 +12,13 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_writable, show_main, start_time_pick
-from keyboards.main import score_kb, when_kb
+from keyboards.main import score_kb, sleep_kind_kb, when_kb
 from services import entries
 from services.reminders import refresh_user_reminder
 from states.diary import SleepSG
 from utils.callbacks import ENTRY_SLEEP
 from utils.telegram import safe_edit
-from utils.time import user_now
+from utils.time import parse_iso, user_now
 
 router = Router(name="sleep")
 
@@ -75,12 +75,23 @@ async def sleep_wake_quality(cb: CallbackQuery, state: FSMContext, db_user: User
 
 
 @router.callback_query(F.data.startswith("slq:"), SleepSG.quality)
-async def sleep_quality(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def sleep_quality(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
     quality = int(cb.data.split(":")[1])
     data = await state.get_data()
+    raw_when = data.get("sleep_when")
+    if raw_when:
+        await _save_wake(cb, state, repo, config, user, is_owner, parse_iso(raw_when), quality)
+        return
     if data.get("sleep_action") == "wake_time":
         await start_time_pick(
             cb,
@@ -128,22 +139,36 @@ async def sleep_wake_pick_time(cb: CallbackQuery, state: FSMContext, db_user: Us
 
 
 @router.callback_query(F.data == "slp:time")
-async def sleep_choose_kind(cb: CallbackQuery, db_user: User | None) -> None:
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from keyboards.main import _btn, with_nav
-
+async def sleep_choose_kind(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     if await require_writable(cb, db_user) is None:
         return
-    b = InlineKeyboardBuilder()
-    b.row(_btn("🌙 Отход ко сну", "slp:tbed"), _btn("☀️ Пробуждение", "slp:twake"))
+    await state.update_data(sleep_when=None)
     await cb.answer()
-    await safe_edit(cb.message, "Что указать вручную?", with_nav(b, ENTRY_SLEEP))
+    await safe_edit(cb.message, "Что указать вручную?", sleep_kind_kb())
 
 
 @router.callback_query(F.data == "slp:tbed")
-async def sleep_time_bed(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def sleep_time_bed(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
+        return
+    data = await state.get_data()
+    raw_when = data.get("sleep_when")
+    if raw_when:
+        _, error = await entries.add_sleep_bed(repo, user, parse_iso(raw_when))
+        if error:
+            await cb.answer(error, show_alert=True)
+            return
+        await refresh_user_reminder(repo, user, config)
+        await cb.answer("Спокойной ночи")
+        await show_main(cb, user, config, is_owner, state)
         return
     await start_time_pick(cb, state, "slp_bed", {"tz": user.timezone})
 

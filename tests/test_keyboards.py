@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from keyboards.main import (
+    ago_pick_kb,
     back_kb,
     calendar_kb,
     cancel_kb,
@@ -9,6 +10,7 @@ from keyboards.main import (
     now_or_time,
     score_kb,
     skip_comment_kb,
+    sleep_menu,
     timezone_kb,
     when_kb,
 )
@@ -35,10 +37,36 @@ def test_nav_does_not_label_menu_as_back():
     assert all(text != "✖️ Отмена" for text, _ in pairs)
 
 
+def test_now_or_time_has_relative_options():
+    pairs = _pairs(now_or_time("cig"))
+    assert ("5 мин назад", "cig:ago:5") in pairs
+    assert ("⏱ Сколько назад", "cig:agoask") in pairs
+    assert ("⌨️ Ввести текстом", "cig:txt") in pairs
+
+
 def test_now_or_time_back_goes_to_previous_screen():
     pairs = _pairs(when_kb("caft"))
     assert ("⬅️ Назад", ENTRY_CAF) in pairs
     assert ("🏠 Меню", NAV_MAIN) in pairs
+
+
+def test_ago_pick_has_custom_number():
+    pairs = _pairs(ago_pick_kb("cig"))
+    assert ("1 ч", "cig:ago:60") in pairs
+    assert ("⌨️ Ввести число", "cig:agon") in pairs
+
+
+def test_sleep_menu_has_relative_options():
+    pairs = _pairs(sleep_menu())
+    assert ("5 мин назад", "slp:ago:5") in pairs
+    assert ("⌨️ Ввести текстом", "slp:txt") in pairs
+
+
+def test_calendar_has_yesterday_and_daybefore():
+    pairs = _pairs(calendar_kb(2026, 8))
+    assert ("Сегодня", "cal:today") in pairs
+    assert ("Вчера", "cal:yesterday") in pairs
+    assert ("Позавчера", "cal:daybefore") in pairs
 
 
 def test_cancel_without_target_is_menu():
@@ -103,3 +131,6 @@ def test_time_pick_back_action_stack():
     assert time_pick_back_action(TimePickSG.hour.state, date_shortcuts=True) == "exit"
     assert time_pick_back_action(TimePickSG.date.state, date_shortcuts=False) == "exit"
     assert time_pick_back_action(TimePickSG.date.state, date_shortcuts=True) == "hours"
+    assert time_pick_back_action(TimePickSG.ago_pick.state, date_shortcuts=False) == "when"
+    assert time_pick_back_action(TimePickSG.when_text.state, date_shortcuts=False) == "when"
+    assert time_pick_back_action(TimePickSG.ago_minutes.state, date_shortcuts=False) == "ago_pick"

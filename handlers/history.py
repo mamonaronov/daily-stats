@@ -26,7 +26,7 @@ from services.users import can_write
 from states.diary import HistorySG, TimePickSG
 from utils.callbacks import NAV_HISTORY
 from utils.telegram import safe_edit
-from utils.time import add_days, format_dt, parse_iso, user_today
+from utils.time import add_days, format_dt, parse_calendar_token, parse_iso, user_today
 
 router = Router(name="history")
 
@@ -135,7 +135,11 @@ async def hist_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     if user is None:
         return
     token = cb.data.split(":", 1)[1]
-    day = user_today(user.timezone) if token == "today" else date.fromisoformat(token)
+    try:
+        day = parse_calendar_token(token, user_today(user.timezone))
+    except ValueError:
+        await cb.answer()
+        return
     data = await state.get_data()
     if data.get("hist_mode") == "range" and not data.get("range_start"):
         await state.update_data(range_start=day.isoformat())

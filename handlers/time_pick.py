@@ -12,15 +12,53 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_writable, show_main
-from keyboards.main import back_kb, calendar_kb, hours_kb, minutes_kb, score_kb, sleep_menu, when_kb, when_title
+from keyboards.main import (
+    ago_pick_kb,
+    back_kb,
+    calendar_kb,
+    hours_kb,
+    minutes_kb,
+    score_kb,
+    sleep_kind_kb,
+    sleep_menu,
+    when_kb,
+    when_title,
+)
 from services import entries
 from services.reminders import refresh_user_reminder
 from states.diary import SleepSG, TimePickSG
-from utils.callbacks import ENTRY_SLEEP, NAV_BACK
+from utils.callbacks import NAV_BACK
 from utils.telegram import safe_edit
-from utils.time import combine_local, parse_hhmm, user_today
+from utils.time import (
+    combine_local,
+    minutes_ago,
+    parse_calendar_token,
+    parse_hhmm,
+    parse_minutes_ago,
+    parse_when_text,
+    to_iso,
+    user_today,
+)
 
 router = Router(name="time_pick")
+
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "mdt", "wbt", "nt", "slw", "cmt", "slp")
+WHEN_TO_PURPOSE = {
+    "cig": "cig",
+    "fool": "fool",
+    "caft": "caf",
+    "alct": "alc",
+    "actt": "act",
+    "mdt": "mood",
+    "wbt": "wb",
+    "nt": "note",
+    "slw": "slp_wake",
+    "cmt": "cm",
+}
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|mdt|wbt|nt|slw|cmt|slp)"
+MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
+WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
+AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
 
 
 async def _finish(
@@ -166,16 +204,176 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
     return None
 
 
+def _when_prefix(data: str) -> str:
+    prefix = data.split(":", 1)[0]
+    if prefix not in WHEN_PREFIXES:
+        raise ValueError(prefix)
+    return prefix
+
+
+async def _prepare_when_purpose(state: FSMContext, prefix: str, user: User) -> None:
+    payload: dict = {"when_prefix": prefix, "tz": user.timezone}
+    purpose = WHEN_TO_PURPOSE.get(prefix)
+    if purpose:
+        payload["time_purpose"] = purpose
+    data = await state.get_data()
+    if "time_exit" not in data:
+        payload["time_exit"] = "sleep" if prefix == "slp" else f"when:{prefix}"
+    await state.update_data(**payload)
+
+
+async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) -> None:
+    prefix = data.get("when_prefix") or "cig"
+    await cb.answer()
+    if prefix == "slp":
+        await state.set_state(None)
+        await safe_edit(cb.message, "😴 Сон", sleep_menu())
+        return
+    if prefix == "slw":
+        await state.set_state(SleepSG.when)
+    else:
+        await state.set_state(None)
+    await safe_edit(cb.message, when_title(prefix), when_kb(prefix, metric_id=data.get("metric_id")))
+
+
+async def _sleep_after_when(event: CallbackQuery | Message, state: FSMContext, when) -> None:
+    await state.set_state(None)
+    await state.update_data(sleep_when=to_iso(when))
+    text = "Что отметить?"
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        await safe_edit(event.message, text, sleep_kind_kb())
+    else:
+        await event.answer(text, reply_markup=sleep_kind_kb())
+
+
+async def _save_relative(
+    event: CallbackQuery | Message,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    user: User,
+    is_owner: bool,
+    prefix: str,
+    when,
+) -> None:
+    await _prepare_when_purpose(state, prefix, user)
+    if prefix == "slp":
+        await _sleep_after_when(event, state, when)
+        return
+    await _finish(event, state, repo, config, user, is_owner, when)
+
+
+@router.callback_query(F.data.regexp(_WHEN_RE + r":ago:\d+$"))
+async def when_ago(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    prefix = _when_prefix(cb.data)
+    minutes = int(cb.data.rsplit(":", 1)[1])
+    when = minutes_ago(user.timezone, minutes)
+    await _save_relative(cb, state, repo, config, user, is_owner, prefix, when)
+
+
+@router.callback_query(F.data.regexp(_WHEN_RE + r":agoask$"))
+async def when_ago_ask(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    prefix = _when_prefix(cb.data)
+    await _prepare_when_purpose(state, prefix, user)
+    await state.set_state(TimePickSG.ago_pick)
+    await cb.answer()
+    await safe_edit(cb.message, "Сколько времени назад это было?", ago_pick_kb(prefix))
+
+
+@router.callback_query(F.data.regexp(_WHEN_RE + r":agon$"), TimePickSG.ago_pick)
+async def when_ago_number(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    if await require_writable(cb, db_user) is None:
+        return
+    await state.set_state(TimePickSG.ago_minutes)
+    await cb.answer()
+    await safe_edit(cb.message, AGO_MINUTES_PROMPT, back_kb(NAV_BACK))
+
+
+@router.callback_query(F.data.regexp(_WHEN_RE + r":txt$"))
+async def when_text_ask(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    prefix = _when_prefix(cb.data)
+    await _prepare_when_purpose(state, prefix, user)
+    await state.set_state(TimePickSG.when_text)
+    await cb.answer()
+    await safe_edit(cb.message, WHEN_TEXT_PROMPT, back_kb(NAV_BACK))
+
+
+@router.message(TimePickSG.ago_minutes)
+async def when_ago_minutes_text(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
+    user = await require_writable(message, db_user)
+    if user is None:
+        return
+    try:
+        minutes = parse_minutes_ago(message.text or "")
+    except ValueError:
+        await message.answer("Некорректное число. Пример: 7 или 1 час", reply_markup=back_kb(NAV_BACK))
+        return
+    data = await state.get_data()
+    prefix = data.get("when_prefix") or "cig"
+    when = minutes_ago(user.timezone, minutes)
+    await _save_relative(message, state, repo, config, user, is_owner, prefix, when)
+
+
+@router.message(TimePickSG.when_text)
+async def when_free_text(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
+    user = await require_writable(message, db_user)
+    if user is None:
+        return
+    try:
+        when = parse_when_text(message.text or "", user.timezone)
+    except ValueError:
+        await message.answer(
+            "Не понял время. Примеры: 10:00, 1000, 10 00, 7, 1 час",
+            reply_markup=back_kb(NAV_BACK),
+        )
+        return
+    data = await state.get_data()
+    prefix = data.get("when_prefix") or "cig"
+    await _save_relative(message, state, repo, config, user, is_owner, prefix, when)
+
+
 @router.callback_query(F.data.startswith("cal:"), TimePickSG.date)
 async def pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
     token = cb.data.split(":", 1)[1]
-    if token == "today":
-        day = user_today(user.timezone)
-    else:
-        day = date.fromisoformat(token)
+    try:
+        day = parse_calendar_token(token, user_today(user.timezone))
+    except ValueError:
+        await cb.answer()
+        return
     await state.update_data(picked_date=day.isoformat())
     await state.set_state(TimePickSG.hour)
     await cb.answer()
@@ -190,6 +388,10 @@ async def pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
 
 
 def time_pick_back_action(current: str | None, *, date_shortcuts: bool) -> str:
+    if current == TimePickSG.ago_minutes.state:
+        return "ago_pick"
+    if current in {TimePickSG.when_text.state, TimePickSG.ago_pick.state}:
+        return "when"
     if current in {TimePickSG.minute.state, TimePickSG.manual.state}:
         return "hours"
     if current == TimePickSG.hour.state:
@@ -265,6 +467,9 @@ async def _restore_before_time_pick(
 @router.callback_query(F.data == NAV_BACK, TimePickSG.hour)
 @router.callback_query(F.data == NAV_BACK, TimePickSG.minute)
 @router.callback_query(F.data == NAV_BACK, TimePickSG.manual)
+@router.callback_query(F.data == NAV_BACK, TimePickSG.ago_pick)
+@router.callback_query(F.data == NAV_BACK, TimePickSG.ago_minutes)
+@router.callback_query(F.data == NAV_BACK, TimePickSG.when_text)
 async def time_pick_back(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
@@ -273,6 +478,15 @@ async def time_pick_back(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
     action = time_pick_back_action(await state.get_state(), date_shortcuts=bool(data.get("time_date_shortcuts")))
     if action == "exit":
         await _restore_before_time_pick(cb, state, repo, user)
+        return
+    if action == "when":
+        await _show_when_screen(cb, state, data)
+        return
+    if action == "ago_pick":
+        prefix = data.get("when_prefix") or "cig"
+        await state.set_state(TimePickSG.ago_pick)
+        await cb.answer()
+        await safe_edit(cb.message, "Сколько времени назад это было?", ago_pick_kb(prefix))
         return
     today = user_today(data.get("tz") or user.timezone)
     if action == "date":
@@ -306,6 +520,8 @@ def _hours_prompt(day: date, today: date) -> str:
         label = "сегодня"
     elif day == today - timedelta(days=1):
         label = "вчера"
+    elif day == today - timedelta(days=2):
+        label = "позавчера"
     else:
         label = day.isoformat()
     return f"Дата: {day.isoformat()} ({label})\nВыберите час — можно уже прошедший:"
@@ -325,11 +541,9 @@ async def hour_date_shortcut(cb: CallbackQuery, state: FSMContext, db_user: User
         await cb.answer()
         await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month, back=NAV_BACK))
         return
-    if token == "today":
-        day = today
-    elif token == "yesterday":
-        day = today - timedelta(days=1)
-    else:
+    try:
+        day = parse_calendar_token(token, today)
+    except ValueError:
         await cb.answer()
         return
     await state.update_data(picked_date=day.isoformat())
@@ -345,7 +559,7 @@ async def pick_hour(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     if token == "manual":
         await state.set_state(TimePickSG.manual)
         await cb.answer()
-        await safe_edit(cb.message, "Введите время в формате ЧЧ:ММ", back_kb(NAV_BACK))
+        await safe_edit(cb.message, MANUAL_TIME_PROMPT, back_kb(NAV_BACK))
         return
     await state.update_data(picked_hour=int(token))
     await state.set_state(TimePickSG.minute)
@@ -388,7 +602,7 @@ async def manual_time(
     try:
         hour, minute = parse_hhmm(message.text or "")
     except ValueError:
-        await message.answer("Некорректное время. Пример: 14:35", reply_markup=back_kb(NAV_BACK))
+        await message.answer("Некорректное время. Примеры: 14:35, 1435, 14 35", reply_markup=back_kb(NAV_BACK))
         return
     data = await state.get_data()
     day = date.fromisoformat(data["picked_date"])

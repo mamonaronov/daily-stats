@@ -18,7 +18,7 @@ from services.statistics import render_stats
 from states.diary import StatsSG
 from utils.callbacks import NAV_STATS
 from utils.telegram import png_file, safe_edit
-from utils.time import add_days, user_today
+from utils.time import add_days, parse_calendar_token, user_today
 
 router = Router(name="statistics")
 
@@ -91,7 +91,11 @@ async def stats_date(cb: CallbackQuery, state: FSMContext, db_user: User | None)
     if user is None:
         return
     token = cb.data.split(":", 1)[1]
-    day = user_today(user.timezone) if token == "today" else date.fromisoformat(token)
+    try:
+        day = parse_calendar_token(token, user_today(user.timezone))
+    except ValueError:
+        await cb.answer()
+        return
     data = await state.get_data()
     if not data.get("range_start"):
         await state.update_data(range_start=day.isoformat())

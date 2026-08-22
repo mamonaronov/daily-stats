@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -139,14 +140,106 @@ def format_date_long(day: date) -> str:
     return f"{day.day} {MONTHS_RU[day.month]} {day.year}"
 
 
-def parse_hhmm(value: str) -> tuple[int, int]:
-    parts = value.strip().replace(".", ":").split(":")
-    if len(parts) != 2:
-        raise ValueError("time")
-    hour, minute = int(parts[0]), int(parts[1])
+def parse_calendar_token(token: str, today: date) -> date:
+    if token == "today":
+        return today
+    if token == "yesterday":
+        return today - timedelta(days=1)
+    if token == "daybefore":
+        return today - timedelta(days=2)
+    return date.fromisoformat(token)
+
+
+def _as_clock(hour: int, minute: int) -> tuple[int, int]:
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         raise ValueError("time")
     return hour, minute
+
+
+def parse_hhmm(value: str) -> tuple[int, int]:
+    raw = (value or "").strip().replace("：", ":")
+    if not raw:
+        raise ValueError("time")
+    collapsed = re.sub(r"\s+", " ", raw)
+    if " " in collapsed and not any(sep in collapsed for sep in ":.-"):
+        parts = collapsed.split(" ")
+        if len(parts) != 2:
+            raise ValueError("time")
+        return _as_clock(int(parts[0]), int(parts[1]))
+    normalized = collapsed.replace(".", ":").replace("-", ":")
+    if ":" in normalized:
+        parts = normalized.split(":")
+        if len(parts) != 2:
+            raise ValueError("time")
+        return _as_clock(int(parts[0].strip()), int(parts[1].strip()))
+    digits = collapsed
+    if not digits.isdigit():
+        raise ValueError("time")
+    if len(digits) == 4:
+        return _as_clock(int(digits[:2]), int(digits[2:]))
+    if len(digits) == 3:
+        return _as_clock(int(digits[0]), int(digits[1:]))
+    raise ValueError("time")
+
+
+def looks_like_clock(value: str) -> bool:
+    raw = (value or "").strip()
+    if not raw:
+        return False
+    try:
+        parse_hhmm(raw)
+    except ValueError:
+        return False
+    collapsed = re.sub(r"\s+", " ", raw)
+    if any(sep in collapsed for sep in ":.-："):
+        return True
+    if " " in collapsed:
+        return True
+    return collapsed.isdigit() and len(collapsed) in {3, 4}
+
+
+def parse_minutes_ago(value: str) -> int:
+    raw = (value or "").strip().lower().replace(",", ".")
+    if not raw:
+        raise ValueError("minutes")
+    raw = raw.replace("минуты", "м").replace("минуту", "м").replace("минут", "м").replace("мин", "м")
+    raw = raw.replace("часов", "ч").replace("часа", "ч").replace("час", "ч")
+    raw = re.sub(r"\s+", "", raw)
+    if re.fullmatch(r"\d+", raw):
+        minutes = int(raw)
+    else:
+        hm = re.fullmatch(r"(\d+(?:\.\d+)?)ч(?:(\d+(?:\.\d+)?)м)?", raw)
+        only_m = re.fullmatch(r"(\d+(?:\.\d+)?)м", raw)
+        if hm:
+            minutes = int(round(float(hm.group(1)) * 60 + float(hm.group(2) or 0)))
+        elif only_m:
+            minutes = int(round(float(only_m.group(1))))
+        else:
+            raise ValueError("minutes")
+    if minutes < 0 or minutes > 14 * 24 * 60:
+        raise ValueError("minutes")
+    return minutes
+
+
+def minutes_ago(tz_name: str, minutes: int, *, now: datetime | None = None) -> datetime:
+    current = to_user(now or now_utc(), tz_name)
+    return (current - timedelta(minutes=minutes)).astimezone(UTC)
+
+
+def clock_on_day(tz_name: str, hour: int, minute: int, *, now: datetime | None = None) -> datetime:
+    local_now = to_user(now or now_utc(), tz_name)
+    when = combine_local(tz_name, local_now.date(), hour, minute)
+    if to_user(when, tz_name) > local_now + timedelta(minutes=1):
+        when = combine_local(tz_name, local_now.date() - timedelta(days=1), hour, minute)
+    return when
+
+
+def parse_when_text(value: str, tz_name: str, *, now: datetime | None = None) -> datetime:
+    raw = (value or "").strip()
+    if looks_like_clock(raw):
+        hour, minute = parse_hhmm(raw)
+        return clock_on_day(tz_name, hour, minute, now=now)
+    return minutes_ago(tz_name, parse_minutes_ago(raw), now=now)
 
 
 def minutes_of_day(dt: datetime, tz_name: str) -> int:

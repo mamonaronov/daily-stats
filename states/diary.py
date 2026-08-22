@@ -15,6 +15,9 @@ class TimePickSG(StatesGroup):
     hour = State()
     minute = State()
     manual = State()
+    ago_pick = State()
+    ago_minutes = State()
+    when_text = State()
 
 
 class SleepSG(StatesGroup):

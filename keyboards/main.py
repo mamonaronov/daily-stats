@@ -122,16 +122,54 @@ def when_kb(prefix: str, *, metric_id: int | None = None) -> InlineKeyboardMarku
     return now_or_time(prefix, back)
 
 
+def _relative_when_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
+    builder.row(_btn("5 мин назад", f"{prefix}:ago:5"), _btn("10 мин назад", f"{prefix}:ago:10"))
+    builder.row(_btn("15 мин назад", f"{prefix}:ago:15"), _btn("30 мин назад", f"{prefix}:ago:30"))
+    builder.row(_btn("⏱ Сколько назад", f"{prefix}:agoask"), _btn("⌨️ Ввести текстом", f"{prefix}:txt"))
+
+
 def now_or_time(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сейчас", f"{prefix}:now"), _btn("🕐 Указать время", f"{prefix}:time"))
+    _relative_when_rows(b, prefix)
     return with_nav(b, back)
+
+
+def ago_pick_kb(prefix: str, back: str | None = NAV_BACK) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        _btn("1 мин", f"{prefix}:ago:1"),
+        _btn("2 мин", f"{prefix}:ago:2"),
+        _btn("3 мин", f"{prefix}:ago:3"),
+        _btn("5 мин", f"{prefix}:ago:5"),
+    )
+    b.row(
+        _btn("10 мин", f"{prefix}:ago:10"),
+        _btn("15 мин", f"{prefix}:ago:15"),
+        _btn("20 мин", f"{prefix}:ago:20"),
+        _btn("30 мин", f"{prefix}:ago:30"),
+    )
+    b.row(
+        _btn("45 мин", f"{prefix}:ago:45"),
+        _btn("1 ч", f"{prefix}:ago:60"),
+        _btn("1.5 ч", f"{prefix}:ago:90"),
+        _btn("2 ч", f"{prefix}:ago:120"),
+    )
+    b.row(_btn("⌨️ Ввести число", f"{prefix}:agon"))
+    return with_nav(b, back)
+
+
+def sleep_kind_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("🌙 Отход ко сну", "slp:tbed"), _btn("☀️ Пробуждение", "slp:twake"))
+    return with_nav(b, ENTRY_SLEEP)
 
 
 def sleep_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🌙 Лёг спать", "slp:bed"), _btn("☀️ Проснулся", "slp:wake"))
     b.row(_btn("Сейчас", "slp:now"), _btn("🕐 Указать время", "slp:time"))
+    _relative_when_rows(b, "slp")
     return with_nav(b)
 
 
@@ -207,7 +245,11 @@ def calendar_kb(year: int, month: int, prefix: str = "cal", back: str | None = N
         _btn("«", f"{prefix}m:{prev_month.year:04d}-{prev_month.month:02d}"),
         _btn("»", f"{prefix}m:{next_month.year:04d}-{next_month.month:02d}"),
     )
-    b.row(_btn("Сегодня", f"{prefix}:today"))
+    b.row(
+        _btn("Сегодня", f"{prefix}:today"),
+        _btn("Вчера", f"{prefix}:yesterday"),
+        _btn("Позавчера", f"{prefix}:daybefore"),
+    )
     b.row(*nav_row(back))
     return b.as_markup()
 
@@ -217,8 +259,9 @@ def hours_kb(prefix: str = "hr", *, date_shortcuts: bool = False, back: str | No
     for hour in range(0, 24, 4):
         b.row(*[_btn(f"{h:02d}", f"{prefix}:{h}") for h in range(hour, hour + 4)])
     if date_shortcuts:
-        b.row(_btn("Сегодня", "hdt:today"), _btn("Вчера", "hdt:yesterday"), _btn("📅 Дата", "hdt:calendar"))
-    b.row(_btn("⌨️ Ввести вручную", f"{prefix}:manual"))
+        b.row(_btn("Сегодня", "hdt:today"), _btn("Вчера", "hdt:yesterday"), _btn("Позавчера", "hdt:daybefore"))
+        b.row(_btn("📅 Дата", "hdt:calendar"))
+    b.row(_btn("⌨️ Ввести текстом", f"{prefix}:manual"))
     b.row(*nav_row(back))
     return b.as_markup()
 
