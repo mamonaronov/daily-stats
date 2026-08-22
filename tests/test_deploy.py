@@ -47,6 +47,17 @@ def test_env_value_reads_dotenv(tmp_path):
     assert proxy == "socks5h://127.0.0.1:11808"
 
 
+def test_mihomo_auto_probes_bot_api_not_generic_http():
+    text = (REPO / "deploy" / "mihomo" / "config.yaml").read_text(encoding="utf-8")
+    auto = text.split("proxy-groups:", 1)[1].split("- name: PROXY", 1)[0]
+    assert "url: https://api.telegram.org/bot" in auto
+    assert "expected-status: 404" in auto
+    assert "expected-status: 200/301/302" not in auto
+    assert r"\*CIDR" not in auto
+    assert "^s4" not in auto
+    assert "^s5" not in auto
+
+
 def test_deploy_scripts_are_valid_bash():
     scripts = [
         REPO / "deploy" / "update.sh",
