@@ -19,14 +19,15 @@ Applies configs from the repository:
   deploy/mihomo/config.yaml   -> /etc/mihomo/config.yaml
   deploy/mihomo/mihomo.service -> /etc/systemd/system/mihomo.service
   deploy/daily-stats.service  -> /etc/systemd/system/daily-stats.service
-  deploy/daily-stats-update.timer -> systemd: git pull origin/main + rebuild
+  deploy/daily-stats-update.timer -> systemd: git fetch origin/main, confirm in bot, rebuild
   .env                        VPN keys synced from mihomo config
   docker-compose.override.yml from mihomo mixed-port (not v2rayN 10808)
 
 Then enables systemd units and runs docker compose up -d --build.
 
-After this once, a push to main is picked up by the timer: deploy/update.sh
-notifies the owner before rebuild, after the bot is ready, and on failure.
+After this once, a push to main is offered in the bot: deploy/update.sh
+asks the owner to confirm, then rebuilds, notifies after the bot is ready,
+and on failure.
 
   --skip-docker   only apply host configs / mihomo, do not touch the container
   --skip-mihomo   skip copying and restarting mihomo

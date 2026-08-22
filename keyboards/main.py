@@ -29,6 +29,8 @@ from utils.callbacks import (
     NAV_METRICS,
     NAV_SETTINGS,
     NAV_STATS,
+    ADMIN_DEPLOY_NO,
+    ADMIN_DEPLOY_OK,
 )
 from utils.formatting import SCORE_EMOJI, SCORE_LABELS
 from utils.time import COMMON_TIMEZONES, MONTHS_RU, WEEKDAYS_RU, format_date
@@ -565,4 +567,10 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
     else:
         b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_deploy_confirm_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("🔄 Обновить", ADMIN_DEPLOY_OK), _btn("⏭ Позже", ADMIN_DEPLOY_NO))
     return b.as_markup()

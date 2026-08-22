@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull origin/main (if needed), notify the owner, rebuild the bot container.
+# Pull origin/main (if needed), ask the owner in Telegram, rebuild the bot container.
 # Installed as a systemd timer by ./deploy.sh.
 set -euo pipefail
 
@@ -17,11 +17,12 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [--force]
 
-    Fetches origin/main, rebuilds when HEAD moved, waits until the running bot
-    is idle, then switches the container. Notifies the owner before, after, and
-    on failure. No confirmation step.
+    Fetches origin/main. When HEAD moved, asks the owner in the bot to confirm
+    before rebuild. After approval waits until the running bot is idle, then
+    switches the container. Notifies the owner before, after, and on failure.
 
-  --force   rebuild even if HEAD already matches origin/main
+  --force   rebuild without waiting for confirmation (also if HEAD already
+            matches origin/main)
 EOF
 }
 
@@ -113,6 +114,22 @@ wait_for_bot_idle() {
   return 1
 }
 
+offer_update() {
+  STAGE="уведомление о обновлении"
+  sync_deploy_offer "$LOCAL" "$REMOTE"
+  if [[ "$(deploy_offer_field notified)" == "1" ]]; then
+    echo "waiting for owner confirmation $(git_short "$REMOTE")"
+    return 0
+  fi
+  echo "offering update $(git_short "$LOCAL") -> $(git_short "$REMOTE")"
+  notify_telegram "$(format_deploy_offer "$LOCAL" "$REMOTE")" "$(deploy_confirm_markup)"
+  if [[ "${TELEGRAM_LAST_HTTP:-}" == "200" ]]; then
+    mark_deploy_offer_notified
+  else
+    echo "warning: offer notify failed, will retry" >&2
+  fi
+}
+
 cd "$ROOT"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -135,11 +152,36 @@ REMOTE="$(git rev-parse origin/main)"
 WAS_REV="$LOCAL"
 NEW_REV="$REMOTE"
 
-if [[ "$LOCAL" == "$REMOTE" && "$FORCE" -eq 0 ]]; then
-  echo "already up to date $(git_short HEAD)"
-  trap - ERR
-  exit 0
-fi
+ACTION="$(decide_update_action)"
+case "$ACTION" in
+  up_to_date)
+    clear_deploy_handshake
+    echo "already up to date $(git_short HEAD)"
+    trap - ERR
+    exit 0
+    ;;
+  skipped)
+    echo "owner skipped $(git_short "$REMOTE")"
+    trap - ERR
+    exit 0
+    ;;
+  waiting)
+    echo "waiting for owner confirmation $(git_short "$REMOTE")"
+    trap - ERR
+    exit 0
+    ;;
+  notify)
+    offer_update
+    trap - ERR
+    exit 0
+    ;;
+  deploy)
+    ;;
+  *)
+    echo "error: unknown update action: $ACTION" >&2
+    exit 1
+    ;;
+esac
 
 STAGE="уведомление перед деплоем"
 notify_telegram "$(format_deploy_start "$WAS_REV" "$NEW_REV")"
@@ -173,6 +215,7 @@ while (( SECONDS < ready_deadline )); do
     if docker logs --since 10m daily-stats-bot 2>&1 | grep -qF 'Polling started'; then
       STAGE="уведомление после деплоя"
       notify_telegram "$(format_deploy_done "$NEW_REV")"
+      clear_deploy_handshake
       echo "deployed $(git_short HEAD)"
       trap - ERR
       exit 0
