@@ -602,10 +602,12 @@ async def test_vpn_report_hides_live_status_and_supports_all_time(repo):
     assert "Следующий бекап" in text
     assert "Коммит:" in text
     assert "За последние сутки" in text
+    assert "Замеров: 0 из 8640" in text
+    assert "должно быть 8640 зам." in text
 
     all_text = await _vpn_report(repo, repo.db.config, "all", now=now)
     assert "За всё время" in all_text
-    assert "Замеров: 1" in all_text
+    assert "Замеров: 1 из 18000" in all_text
     assert "Сейчас AUTO" not in all_text
     assert "Топ нод:" in all_text
 
@@ -984,7 +986,7 @@ def test_vpn_bucket_lines_exclusive_layout():
         },
         10,
     )
-    assert lines[0] == "Время в диапазонах (тик 10 с):"
+    assert lines[0] == "Время в диапазонах (тик 10 с, должно быть 100 зам.):"
     assert lines[1].startswith("0–100 мс:")
     assert "1 мин 40 с" in lines[1]
     assert "(10,0%)" in lines[1]
@@ -996,6 +998,55 @@ def test_vpn_bucket_lines_exclusive_layout():
     assert lines[6].startswith("сервис не запущен:")
     assert "(8,0%)" in lines[6]
     assert lines[7].startswith("сервер выключен:")
+
+
+def test_vpn_bucket_lines_use_expected_period_ticks():
+    from handlers.admin import _vpn_bucket_lines
+
+    lines = _vpn_bucket_lines(
+        {
+            "bucket_0_100": 2,
+            "bucket_100_500": 0,
+            "bucket_500_1000": 0,
+            "bucket_1000": 0,
+            "no_ping": 0,
+            "server_off": 0,
+            "service_down": 0,
+        },
+        10,
+        expected=30,
+    )
+    assert lines[0] == "Время в диапазонах (тик 10 с, должно быть 30 зам.):"
+    assert "(6,7%)" in lines[1]
+    assert lines[1].startswith("0–100 мс:")
+
+
+def test_expected_vpn_ticks_matches_period():
+    from datetime import datetime, timezone
+
+    from services.vpn_charts import expected_vpn_ticks
+
+    utc = timezone.utc
+    end = datetime(2026, 8, 21, 12, 0, tzinfo=utc)
+    assert expected_vpn_ticks(end, end, 10) == 0
+    assert expected_vpn_ticks(end - timedelta(minutes=5), end, 10) == 30
+    assert expected_vpn_ticks(end - timedelta(hours=1), end, 10) == 360
+    assert expected_vpn_ticks(end - timedelta(hours=24), end, 10) == 8640
+    assert expected_vpn_ticks(end - timedelta(seconds=25), end, 10) == 2
+
+
+async def test_vpn_report_shows_expected_ticks_when_window_is_sparse(repo):
+    from datetime import datetime, timezone
+
+    from handlers.admin import _vpn_report
+
+    now = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
+    await repo.insert_vpn_sample("2026-08-21T11:59:50+00:00", True, 40, "n", "sub1", None)
+    await repo.insert_vpn_sample("2026-08-21T11:59:40+00:00", False, None, "n", "sub1", "timeout")
+    text = await _vpn_report(repo, repo.db.config, "5m", now=now)
+    assert "Замеров: 2 из 30" in text
+    assert "ошибок: 1 (50,0%)" in text
+    assert "должно быть 30 зам." in text
 
 
 def test_server_palette_avoids_signal_colors():

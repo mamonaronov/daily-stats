@@ -38,7 +38,12 @@ from services.broadcast import (
 )
 from services.statistics import render_stats
 from services.telegram_backup import last_telegram_backup_at, next_backup_caption
-from services.vpn_charts import build_vpn_availability_charts, build_vpn_charts, downtime_ticks
+from services.vpn_charts import (
+    build_vpn_availability_charts,
+    build_vpn_charts,
+    downtime_ticks,
+    expected_vpn_ticks,
+)
 from services.vpn_monitor import (
     collect_vpn_log_entries,
     format_vpn_log,
@@ -603,9 +608,14 @@ def _pct_line(label: str, value, count: int) -> str:
     return f"{label}: {_ms(value)} мс ({count} зам.)"
 
 
+def _pct(count: int, total: int) -> str:
+    if total <= 0:
+        return "—"
+    return f"{(count / total * 100):.1f}%".replace(".", ",")
+
+
 def _bucket_line(label: str, count: int, total: int, interval: int) -> str:
-    pct = f"{(count / total * 100):.1f}%".replace(".", ",") if total else "—"
-    return f"{label}: {seconds_human(count * interval)} ({pct})"
+    return f"{label}: {seconds_human(count * interval)} ({_pct(count, total)})"
 
 
 _VPN_BUCKET_KEYS = (
@@ -619,10 +629,11 @@ _VPN_BUCKET_KEYS = (
 )
 
 
-def _vpn_bucket_lines(summary: dict, interval: int) -> list[str]:
+def _vpn_bucket_lines(summary: dict, interval: int, expected: int = 0) -> list[str]:
     rows = [(label, int(summary.get(key, 0))) for label, key in _VPN_BUCKET_KEYS]
-    total = sum(count for _, count in rows)
-    lines = [f"Время в диапазонах (тик {interval} с):"]
+    observed = sum(count for _, count in rows)
+    total = max(expected, observed) if expected else observed
+    lines = [f"Время в диапазонах (тик {interval} с, должно быть {expected or total} зам.):"]
     lines.extend(_bucket_line(label, count, total, interval) for label, count in rows)
     return lines
 
@@ -682,12 +693,16 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
 
     total = summary["total"]
     fail = summary["fail_count"]
-    fail_pct = f"{(fail / total * 100):.1f}%".replace(".", ",") if total else "—"
+    expected = expected_vpn_ticks(start, end, interval)
+    if expected:
+        samples_line = f"Замеров: {total} из {expected} · ошибок: {fail} ({_pct(fail, total)})"
+    else:
+        samples_line = f"Замеров: {total} · ошибок: {fail} ({_pct(fail, total)})"
     lines.extend(
         [
             "",
             f"<b>За {title}</b>",
-            f"Замеров: {total} · ошибок: {fail} ({fail_pct})",
+            samples_line,
             f"Средняя: {_ms(summary['avg_ms'])} мс",
             f"Минимум: {_ms(summary['min_ms'])} мс",
             f"Максимум: {_ms(summary['max_ms'])} мс",
@@ -695,7 +710,7 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
             _pct_line("p99", summary["p99_ms"], summary["p99_count"]),
             _pct_line("p99.9", summary["p99_9_ms"], summary["p99_9_count"]),
             "",
-            *_vpn_bucket_lines(summary, interval),
+            *_vpn_bucket_lines(summary, interval, expected),
         ]
     )
     if view == "s":

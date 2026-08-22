@@ -304,6 +304,17 @@ def _downtime_spans(
     return spans
 
 
+def expected_vpn_ticks(
+    window_start: datetime,
+    window_end: datetime,
+    interval_seconds: int,
+) -> int:
+    """How many monitor ticks fit in [window_start, window_end)."""
+    step = max(1, int(interval_seconds))
+    seconds = max(0.0, (window_end - window_start).total_seconds())
+    return int(seconds // step)
+
+
 def downtime_ticks(
     heartbeats: list[tuple[str, float | None]],
     *,
