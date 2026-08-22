@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore this repo from a Telegram backup archive (daily-stats-backup_*.tar.gz)
+# Restore this repo from a Telegram backup archive (daily-stats-backup_*.tgz)
 # and optionally start the bot. Does not require Python on the host.
 set -euo pipefail
 
@@ -24,10 +24,10 @@ Usage: $(basename "$0") ARCHIVE [--start] [--keep-env]
 Новый сервер:
 
   git clone <repo> && cd daily-stats
-  ./restore.sh ~/Downloads/daily-stats-backup_….tar.gz
+  ./restore.sh ~/Downloads/daily-stats-backup_….tgz
   ./deploy.sh          # mihomo + контейнер
   # или, если Telegram доступен напрямую:
-  ./restore.sh ~/Downloads/daily-stats-backup_….tar.gz --start
+  ./restore.sh ~/Downloads/daily-stats-backup_….tgz --start
 
 Если бот уже запущен, скрипт сначала остановит контейнер.
 EOF

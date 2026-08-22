@@ -90,7 +90,8 @@ def test_next_backup_caption():
 def test_backup_archive_name_has_start_time_commit_and_db():
     started = datetime(2026, 8, 1, 7, 10, 10, tzinfo=timezone.utc)
     name = backup_archive_name(started, "a1b2c3d", "add telegram backup", 4, "Europe/Moscow")
-    assert name == "daily-stats-backup_01-08-2026_10-10-10_a1b2c3d_add-telegram-backup_db4.tar.gz"
+    assert name == "daily-stats-backup_01-08-2026_10-10-10_a1b2c3d_add-telegram-backup_db4.tgz"
+    assert ":" not in name
 
 
 @pytest.mark.asyncio
@@ -201,7 +202,7 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
     try:
         archive = await create_telegram_archive(db, config)
         assert archive.exists()
-        assert f"_abc1234_add-telegram-backup_db{config.required_db_version}.tar.gz" in archive.name
+        assert f"_abc1234_add-telegram-backup_db{config.required_db_version}.tgz" in archive.name
         assert archive.name.startswith("daily-stats-backup_")
         with tarfile.open(archive, "r:gz") as tar:
             names = set(tar.getnames())
@@ -242,7 +243,7 @@ async def test_send_telegram_backup_is_silent_and_records_time(tmp_path, monkeyp
         assert f"v{config.required_db_version}" in sent["kwargs"]["caption"]
         assert "add telegram backup" in sent["kwargs"]["caption"]
         assert "abc1234" in sent["document"].filename
-        assert sent["document"].filename.endswith(f"_db{config.required_db_version}.tar.gz")
+        assert sent["document"].filename.endswith(f"_db{config.required_db_version}.tgz")
         assert not path.exists()
         stored = await last_telegram_backup_at(db)
         assert stored is not None

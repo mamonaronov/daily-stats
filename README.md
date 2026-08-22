@@ -264,7 +264,7 @@ Backup идёт через SQLite Online Backup API: в копию попада�
 
 Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются.
 
-Отдельно владельцу в этот же бот уходит архив `.tar.gz` (сжатие **pigz**): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.override.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10-10-10_{short-hash}_{тема-коммита}_db{версия}.tar.gz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_HOURS`, по умолчанию **12 часов**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает отправку. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
+Отдельно владельцу в этот же бот уходит архив `.tgz` (gzip-tar, сжатие **pigz**; расширение одно, чтобы Telegram/Ark не принимали файл за «просто .gz»): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.override.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10-10-10_{short-hash}_{тема-коммита}_db{версия}.tgz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_HOURS`, по умолчанию **12 часов**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает отправку. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
 
 Docker-логи ограничены: `max-size: 10m`, `max-file: 5`.
 
@@ -336,7 +336,7 @@ docker compose logs -f bot
 
 ## Восстановление из бэкапа Telegram
 
-Архив `daily-stats-backup_….tar.gz` содержит снимок БД, `.env` и копии конфигов. Им можно поднять бота на новом сервере или откатить повреждённую базу.
+Архив `daily-stats-backup_….tgz` содержит снимок БД, `.env` и копии конфигов. Им можно поднять бота на новом сервере или откатить повреждённую базу. Старые файлы `.tar.gz` тоже подходят.
 
 ### Скрипт на сервере
 
@@ -344,7 +344,7 @@ docker compose logs -f bot
 
 ```bash
 chmod +x restore.sh
-./restore.sh ~/Downloads/daily-stats-backup_01-08-2026_10-10-10_….tar.gz
+./restore.sh ~/Downloads/daily-stats-backup_01-08-2026_10-10-10_….tgz
 ```
 
 Что произойдёт:
@@ -359,32 +359,32 @@ chmod +x restore.sh
 ```bash
 git clone <repo> daily-stats
 cd daily-stats
-./restore.sh ~/Downloads/daily-stats-backup_….tar.gz
+./restore.sh ~/Downloads/daily-stats-backup_….tgz
 ./deploy.sh
 ```
 
 Если Telegram с этой машины доступен напрямую, без mihomo:
 
 ```bash
-./restore.sh ~/Downloads/daily-stats-backup_….tar.gz --start
+./restore.sh ~/Downloads/daily-stats-backup_….tgz --start
 ```
 
 `--start` делает `docker compose up -d --build`.
 
-Внутри контейнера то же самое: `python -m services.telegram_restore /path/to/backup.tar.gz` (сразу ставит БД) или `--stage` (кладёт `backups/pending-restore.tar.gz`, бот применит файл при старте).
+Внутри контейнера то же самое: `python -m services.telegram_restore /path/to/backup.tgz` (сразу ставит БД) или `--stage` (кладёт `backups/pending-restore.tar.gz`, бот применит файл при старте).
 
 ### Кнопка в админке
 
 Раздел **📦 Бэкапы** в админ-панели:
 
 - **📤 Сделать бэкап сейчас** — сразу собирает тот же архив (БД + `.env` + конфиги) и присылает его в этот чат. Следующий автоматический бэкап отсчитывается заново.
-- **🔄 Восстановить из файла** — пришлите `daily-stats-backup_….tar.gz`, подтвердите, бот перезапустится с этими данными.
+- **🔄 Восстановить из файла** — пришлите `daily-stats-backup_….tgz`, подтвердите, бот перезапустится с этими данными.
 - **🗄 Копии на диске** — снимки SQLite из `backups/` (без `.env`): отправить файл в чат или восстановить и перезапустить.
 
 Бот уже должен отвечать (хотя бы пустая/новая база). Восстановление из архива Telegram:
 
 1. Админ-панель → **📦 Бэкапы** → **🔄 Восстановить из файла**
-2. Перешлите сообщение с архивом или отправьте файл `daily-stats-backup_….tar.gz`
+2. Перешлите сообщение с архивом или отправьте файл `daily-stats-backup_….tgz`
 3. Проверьте превью (версия БД, целостность, число пользователей)
 4. **🔄 Восстановить и перезапустить**
 

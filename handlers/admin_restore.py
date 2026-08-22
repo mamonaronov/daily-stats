@@ -156,10 +156,10 @@ async def restore_start(cb: CallbackQuery, state: FSMContext, config: Config) ->
         cb.message,
         "📦 <b>Восстановление из бэкапа</b>\n\n"
         "Пришлите сюда архив, который бот отправлял в этот чат "
-        "(<code>daily-stats-backup_….tar.gz</code>). Можно переслать то сообщение.\n\n"
+        "(<code>daily-stats-backup_….tgz</code>). Можно переслать то сообщение.\n\n"
         "Текущая база сохранится, затем бот перезапустится с данными из файла.\n"
         "Telegram отдаёт боту файлы до 20 МБ. Если архив больше — на сервере:\n"
-        "<code>./restore.sh /path/to/backup.tar.gz --start</code>",
+        "<code>./restore.sh /path/to/backup.tgz --start</code>",
         cancel_kb("ad:bk"),
     )
 
@@ -174,7 +174,7 @@ async def restore_file(
     doc = message.document
     if doc is None:
         return
-    name = doc.file_name or "backup.tar.gz"
+    name = doc.file_name or "backup.tgz"
     if doc.file_size and doc.file_size > TELEGRAM_DOWNLOAD_LIMIT:
         await message.answer(
             "Файл больше 20 МБ — Telegram не отдаст его боту.\n"
@@ -185,7 +185,7 @@ async def restore_file(
         return
     if not looks_like_backup_archive(name):
         await message.answer(
-            "Нужен архив <code>.tar.gz</code> бэкапа бота.",
+            "Нужен архив бэкапа бота (<code>.tgz</code> / <code>.tar.gz</code>).",
             reply_markup=cancel_kb("ad:bk"),
         )
         return
@@ -231,7 +231,7 @@ async def restore_need_file(message: Message, config: Config) -> None:
     if not await _owner(message, config):
         return
     await message.answer(
-        "Пришлите файл архива <code>.tar.gz</code>, не текст.",
+        "Пришлите файл архива <code>.tgz</code>, не текст.",
         reply_markup=cancel_kb("ad:bk"),
     )
 

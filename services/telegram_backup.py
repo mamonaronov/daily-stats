@@ -149,10 +149,12 @@ def backup_archive_name(
     tz_name: str,
 ) -> str:
     # Colons in filenames break KDE Ark/Qt: the name is parsed as a URL (scheme:host).
+    # Telegram Desktop saves "*.tar.gz" as "*.gz"; Ark then treats gzip-of-tar as
+    # an unknown type. ".tgz" is the same stream, mapped to compressed tar.
     stamp = to_user(started, tz_name).strftime("%d-%m-%Y_%H-%M-%S")
     short = re.sub(r"[^A-Za-z0-9]", "", commit)[:12] or "unknown"
     slug = slugify_commit_title(title)
-    return f"daily-stats-backup_{stamp}_{short}_{slug}_db{db_version}.tar.gz"
+    return f"daily-stats-backup_{stamp}_{short}_{slug}_db{db_version}.tgz"
 
 
 def _copy_item(src: Path, dest: Path) -> bool:

@@ -88,6 +88,10 @@ async def test_restore_reads_archive_created_by_backup(tmp_path, monkeypatch):
 def test_looks_like_backup_archive():
     assert looks_like_backup_archive("daily-stats-backup_x.tar.gz") is True
     assert looks_like_backup_archive("x.tgz") is True
+    assert looks_like_backup_archive(
+        "daily_stats_backup_21_08_2026_19_03_56_33feeff_багофикс_polling_.gz"
+    ) is True
+    assert looks_like_backup_archive("notes.gz") is False
     assert looks_like_backup_archive("notes.txt") is False
     assert looks_like_backup_archive(None) is False
 

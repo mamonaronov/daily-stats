@@ -61,7 +61,11 @@ def looks_like_backup_archive(name: str | None) -> bool:
     if not name:
         return False
     lower = name.lower()
-    return lower.endswith(".tar.gz") or lower.endswith(".tgz")
+    if lower.endswith(".tar.gz") or lower.endswith(".tgz"):
+        return True
+    # Telegram Desktop often drops ".tar" from "*.tar.gz".
+    stem = Path(lower).name
+    return stem.endswith(".gz") and "backup" in stem
 
 
 def _member_relpath(name: str) -> Path | None:
@@ -413,7 +417,7 @@ def _cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Восстановить базу daily-stats из архива, который бот шлёт в Telegram.",
     )
-    parser.add_argument("archive", type=Path, help="Файл daily-stats-backup_*.tar.gz")
+    parser.add_argument("archive", type=Path, help="Файл daily-stats-backup_*.tgz")
     parser.add_argument(
         "--stage",
         action="store_true",
