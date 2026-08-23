@@ -8,10 +8,11 @@
 # Apply (preferred): ./deploy.sh
 # Install mihomo once (Arch): yay -S mihomo
 #
-# Add a subscription: duplicate a subN block, set unique name / url / path / prefix.
-# AUTO already includes every provider — do not edit proxy-groups.
+# Add a VLESS/SS subscription: duplicate a subN block (name / url / path / prefix)
+# and append it under AUTO.use. Do not put whitelist CIDR/SNI in AUTO.
 #
-# ~500 nodes: url-test every 2 minutes, switch if another node is >=50ms faster.
+# AUTO is fallback, not url-test: a failed dial to Telegram tries the next
+# node immediately instead of waiting for a full url-test pass.
 # First download uses DIRECT; if the subscription URL is blocked, save the YAML
 # into path: once, later refreshes can use proxy: AUTO.
 
@@ -244,36 +245,34 @@ proxy-providers:
 
 proxy-groups:
   - name: AUTO
-    type: url-test
-    include-all-providers: true
-    # Real Bot API: GET /bot is 404 JSON. 200/301/302 also matches DPI redirects
-    # and whitelist landing pages, which is how AUTO picked a RU CIDR node.
-    # Whitelist providers stay in AUTO; they win only if they can reach Telegram.
+    type: fallback
+    # sub3 first: curated ~150. sub4/sub5 are whitelist — they look fast on
+    # Google/DPI and cannot carry Bot API; keep them off the bot path.
+    use:
+      - sub3
+      - sub1
+      - sub2
+    # Real Bot API: GET /bot is 404 JSON. 200/301/302 matches DPI redirects.
     # Provider health-checks still use gstatic for general liveness.
     url: https://api.telegram.org/bot
-    interval: 120
-    timeout: 8000
-    tolerance: 50
+    interval: 30
+    timeout: 4000
     lazy: false
-    max-failed-times: 3
+    max-failed-times: 1
     expected-status: 404
     exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
-  # - name: FALLBACK
-  #   type: fallback
-  #   include-all-providers: true
-  #   url: https://www.gstatic.com/generate_204
-  #   interval: 600
-  #   timeout: 4000
-  #   lazy: false
-  #   max-failed-times: 3
-  #   expected-status: 204
-  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+  - name: WHITELIST
+    type: select
+    use:
+      - sub4
+      - sub5
 
   - name: PROXY
     type: select
     proxies:
       - AUTO
+      - WHITELIST
       - DIRECT
 
 rules:

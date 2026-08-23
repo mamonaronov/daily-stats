@@ -52,15 +52,35 @@ def test_env_value_reads_dotenv(tmp_path):
     assert proxy == "socks5h://127.0.0.1:11808"
 
 
-def test_mihomo_auto_probes_bot_api_not_generic_http():
+def _mihomo_group(text: str, name: str) -> str:
+    marker = f"- name: {name}"
+    rest = text.split("proxy-groups:", 1)[1]
+    start = rest.index(marker)
+    tail = rest[start + len(marker) :]
+    nxt = tail.find("\n  - name:")
+    return rest[start:] if nxt < 0 else rest[start : start + len(marker) + nxt]
+
+
+def test_mihomo_auto_is_fallback_of_tunnel_providers():
     text = (REPO / "deploy" / "mihomo" / "config.yaml").read_text(encoding="utf-8")
-    auto = text.split("proxy-groups:", 1)[1].split("- name: PROXY", 1)[0]
+    auto = _mihomo_group(text, "AUTO")
+    assert "type: fallback" in auto
+    assert "type: url-test" not in auto
+    assert "include-all-providers:" not in auto
     assert "url: https://api.telegram.org/bot" in auto
     assert "expected-status: 404" in auto
-    assert "expected-status: 200/301/302" not in auto
-    assert r"\*CIDR" not in auto
-    assert "^s4" not in auto
-    assert "^s5" not in auto
+    assert "max-failed-times: 1" in auto
+    use = auto.split("use:", 1)[1].split("url:", 1)[0]
+    assert "- sub3" in use
+    assert "- sub1" in use
+    assert "- sub2" in use
+    assert "- sub4" not in use
+    assert "- sub5" not in use
+    whitelist = _mihomo_group(text, "WHITELIST")
+    assert "- sub4" in whitelist
+    assert "- sub5" in whitelist
+    assert "MATCH,AUTO" in text
+    assert "MATCH,WHITELIST" not in text
 
 
 def test_deploy_scripts_are_valid_bash():
