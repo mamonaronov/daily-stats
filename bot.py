@@ -24,9 +24,11 @@ from middlewares import (
     ContextMiddleware,
     DrainMiddleware,
     ErrorIsolationMiddleware,
+    SpamWatchMiddleware,
     UserMiddleware,
 )
 from services.alerts import format_alert, format_backup_problems, notify_owner, notify_owner_lifecycle
+from services.spam_watch import SpamWatch, set_spam_watch
 from services.jobs import setup_scheduler
 from services.billing import run_billing_tick
 from services.telegram_restore import RestoreError, apply_pending_telegram_restore, format_restore_done
@@ -259,12 +261,14 @@ async def run() -> None:
     scheduler = AsyncIOScheduler(timezone="UTC")
     runtime = RuntimeControl()
     set_runtime(runtime)
+    set_spam_watch(SpamWatch(bot, repo, config))
 
     dp.update.outer_middleware(ContextMiddleware(repo, config, scheduler, bot, runtime))
     dp.update.outer_middleware(DrainMiddleware())
     dp.update.outer_middleware(ErrorIsolationMiddleware())
     dp.update.outer_middleware(UserMiddleware())
     dp.callback_query.outer_middleware(CallbackIdempotencyMiddleware())
+    dp.callback_query.outer_middleware(SpamWatchMiddleware())
     dp.include_router(setup_routers())
 
     @dp.error()
@@ -286,6 +290,7 @@ async def run() -> None:
     logger.info("Waiting for Telegram API")
     telegram_ok = await _wait_until_telegram_ready(bot, runtime.stop, config.telegram_proxy_url)
     if runtime.stop.is_set() or not telegram_ok:
+        set_spam_watch(None)
         set_runtime(None)
         await graceful_shutdown(bot, db, scheduler, config, repo)
         return
@@ -327,6 +332,7 @@ async def run() -> None:
             await drain_task
         except asyncio.CancelledError:
             pass
+        set_spam_watch(None)
         set_runtime(None)
         await graceful_shutdown(bot, db, scheduler, config, repo, notify=became_ready)
     if runtime.restart:

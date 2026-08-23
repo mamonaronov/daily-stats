@@ -26,6 +26,7 @@ from keyboards.main import (
     score_kb,
     skip_comment_kb,
     sleep_row,
+    spam_alert_kb,
     timezone_kb,
     when_kb,
 )
@@ -265,3 +266,9 @@ def test_when_kb_marker_goes_back_to_markers():
     pairs = _pairs(when_kb("mkt"))
     assert ("⬅️ Назад", NAV_MARKERS) in pairs
     assert ("Сейчас", "mkt:now") in pairs
+
+
+def test_spam_alert_kb_opens_user_card():
+    pairs = _pairs(spam_alert_kb(42))
+    assert ("👤 Карточка", "ad:u:42") in pairs
+    assert ("🚫 Заблокировать", "ad:bn:42") in pairs

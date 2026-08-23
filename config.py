@@ -86,6 +86,13 @@ class Config:
     vpn_log_keep_days: int = 31
     telegram_backup_interval_minutes: int = 30
     telegram_backup_root: Path = PROJECT_ROOT
+    spam_button_window_seconds: int = 8
+    spam_button_count: int = 20
+    spam_write_window_seconds: int = 60
+    spam_write_count: int = 15
+    spam_daily_entries: int = 80
+    spam_user_rows: int = 5000
+    spam_alert_cooldown_minutes: int = 30
 
 
 def load_config() -> Config:
@@ -122,4 +129,11 @@ def load_config() -> Config:
         vpn_log_keep_days=_int("VPN_LOG_KEEP_DAYS", 31),
         telegram_backup_interval_minutes=_telegram_backup_interval_minutes(),
         telegram_backup_root=Path(os.getenv("TELEGRAM_BACKUP_ROOT", "").strip() or str(PROJECT_ROOT)),
+        spam_button_window_seconds=max(1, _int("SPAM_BUTTON_WINDOW_SECONDS", 8)),
+        spam_button_count=max(0, _int("SPAM_BUTTON_COUNT", 20)),
+        spam_write_window_seconds=max(1, _int("SPAM_WRITE_WINDOW_SECONDS", 60)),
+        spam_write_count=max(0, _int("SPAM_WRITE_COUNT", 15)),
+        spam_daily_entries=max(0, _int("SPAM_DAILY_ENTRIES", 80)),
+        spam_user_rows=max(0, _int("SPAM_USER_ROWS", 5000)),
+        spam_alert_cooldown_minutes=max(0, _int("SPAM_ALERT_COOLDOWN_MINUTES", 30)),
     )

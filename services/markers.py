@@ -6,6 +6,7 @@ from datetime import datetime
 
 from database.models import EventPeriod, User
 from database.queries import Repo
+from services.spam_watch import note_write
 from services.users import write_block_message
 from utils.time import parse_iso, to_iso
 
@@ -51,12 +52,12 @@ async def add_marker(
     item_id = await repo.add_marker(user.telegram_id, to_iso(when), title, note)
     if as_period_start:
         await repo.add_period(user.telegram_id, item_id, None)
-        return item_id, None
-    if close_period_id is not None:
+    elif close_period_id is not None:
         error = await attach_period_end(repo, user, close_period_id, item_id)
         if error:
             await repo.delete_marker(item_id, user.telegram_id)
             return None, error
+    note_write(user, "метка", when)
     return item_id, None
 
 

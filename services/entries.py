@@ -6,6 +6,7 @@ from datetime import datetime
 
 from database.models import User
 from database.queries import Repo
+from services.spam_watch import note_write
 from services.users import write_block_message
 from utils.time import parse_iso, to_iso
 
@@ -33,20 +34,23 @@ async def require_write(user: User) -> str | None:
     return write_block_message(user)
 
 
+def _saved(user: User, action: str, when: datetime, item_id: int) -> tuple[int, None]:
+    note_write(user, action, when)
+    return item_id, None
+
+
 async def add_cigarette(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    item_id = await repo.add_cigarette(user.telegram_id, to_iso(when))
-    return item_id, None
+    return _saved(user, "сигарета", when, await repo.add_cigarette(user.telegram_id, to_iso(when)))
 
 
 async def add_fooling(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    item_id = await repo.add_fooling(user.telegram_id, to_iso(when))
-    return item_id, None
+    return _saved(user, "валять дурака", when, await repo.add_fooling(user.telegram_id, to_iso(when)))
 
 
 def _sleep_duration(onset: str | None, wake: str | None) -> int | None:
@@ -67,7 +71,7 @@ async def add_sleep_phone_in(repo: Repo, user: User, when: datetime) -> tuple[in
         bedtime=iso,
         phone_in_bed_at=iso,
     )
-    return item_id, None
+    return _saved(user, "сон (с телефоном)", when, item_id)
 
 
 async def add_sleep_phone_away(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
@@ -83,13 +87,13 @@ async def add_sleep_phone_away(repo: Repo, user: User, when: datetime) -> tuple[
             phone_away_at=iso,
             bedtime=_sync_bedtime(rec.phone_in_bed_at, iso),
         )
-        return rec.id, None
+        return _saved(user, "сон (убрал телефон)", when, rec.id)
     item_id = await repo.add_sleep(
         user.telegram_id,
         bedtime=iso,
         phone_away_at=iso,
     )
-    return item_id, None
+    return _saved(user, "сон (без телефона)", when, item_id)
 
 
 async def add_sleep_wake(repo: Repo, user: User, when: datetime, quality: int | None) -> tuple[int | None, str | None]:
@@ -107,9 +111,9 @@ async def add_sleep_wake(repo: Repo, user: User, when: datetime, quality: int | 
             duration_minutes=duration,
             quality=quality,
         )
-        return rec.id, None
+        return _saved(user, "сон (проснулся)", when, rec.id)
     item_id = await repo.add_sleep(user.telegram_id, wake_time=iso, quality=quality)
-    return item_id, None
+    return _saved(user, "сон (проснулся)", when, item_id)
 
 
 async def add_sleep_wake_and_up(
@@ -130,14 +134,14 @@ async def add_sleep_wake_and_up(
             duration_minutes=duration,
             quality=quality,
         )
-        return rec.id, None
+        return _saved(user, "сон (проснулся и встал)", when, rec.id)
     item_id = await repo.add_sleep(
         user.telegram_id,
         wake_time=iso,
         quality=quality,
         out_of_bed_at=iso,
     )
-    return item_id, None
+    return _saved(user, "сон (проснулся и встал)", when, item_id)
 
 
 async def add_sleep_up(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
@@ -148,7 +152,7 @@ async def add_sleep_up(repo: Repo, user: User, when: datetime) -> tuple[int | No
     if rec is None or rec.wake_time is None or rec.out_of_bed_at is not None:
         return None, "Сначала отметьте пробуждение."
     await repo.update_sleep(rec.id, user.telegram_id, out_of_bed_at=to_iso(when))
-    return rec.id, None
+    return _saved(user, "сон (встал)", when, rec.id)
 
 
 async def add_sleep_onset(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
@@ -171,7 +175,7 @@ async def add_sleep_onset(repo: Repo, user: User, when: datetime) -> tuple[int |
         sleep_onset_at=iso,
         duration_minutes=elapsed,
     )
-    return rec.id, None
+    return _saved(user, "сон (заснул)", when, rec.id)
 
 
 async def add_snus_bought(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
@@ -179,7 +183,7 @@ async def add_snus_bought(repo: Repo, user: User, when: datetime) -> tuple[int |
     if blocked:
         return None, blocked
     item_id = await repo.add_snus_pack(user.telegram_id, to_iso(when), None, None)
-    return item_id, None
+    return _saved(user, "снюс (покупка)", when, item_id)
 
 
 async def add_snus_finished(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
@@ -196,21 +200,23 @@ async def add_snus_finished(repo: Repo, user: User, when: datetime) -> tuple[int
     await repo.update_snus_pack(
         open_rec.id, user.telegram_id, finished_at=iso, duration_minutes=duration
     )
-    return open_rec.id, None
+    return _saved(user, "снюс (закончилась)", when, open_rec.id)
 
 
 async def add_caffeine(repo: Repo, user: User, drink_type: str, amount: float | None, unit: str | None, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    return await repo.add_caffeine(user.telegram_id, drink_type, amount, unit, to_iso(when)), None
+    item_id = await repo.add_caffeine(user.telegram_id, drink_type, amount, unit, to_iso(when))
+    return _saved(user, "кофеин", when, item_id)
 
 
 async def add_alcohol(repo: Repo, user: User, drink_type: str, amount: float | None, unit: str | None, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    return await repo.add_alcohol(user.telegram_id, drink_type, amount, unit, to_iso(when)), None
+    item_id = await repo.add_alcohol(user.telegram_id, drink_type, amount, unit, to_iso(when))
+    return _saved(user, "алкоголь", when, item_id)
 
 
 async def add_activity(
@@ -224,7 +230,10 @@ async def add_activity(
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    return await repo.add_activity(user.telegram_id, activity_type, duration_minutes, comment, to_iso(when)), None
+    item_id = await repo.add_activity(
+        user.telegram_id, activity_type, duration_minutes, comment, to_iso(when)
+    )
+    return _saved(user, "активность", when, item_id)
 
 
 async def add_custom_value(repo: Repo, user: User, metric_id: int, when: datetime, **values) -> tuple[int | None, str | None]:
@@ -232,7 +241,7 @@ async def add_custom_value(repo: Repo, user: User, metric_id: int, when: datetim
     if blocked:
         return None, blocked
     item_id = await repo.add_metric_value(user.telegram_id, metric_id, to_iso(when), **values)
-    return item_id, None
+    return _saved(user, "кастомная метрика", when, item_id)
 
 
 def _has_sleep_night(rec) -> bool:

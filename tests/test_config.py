@@ -27,6 +27,34 @@ def test_telegram_proxy_from_env(monkeypatch):
     assert load_config().telegram_proxy_url == "socks5://127.0.0.1:11808"
 
 
+def test_spam_alert_defaults_and_env(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
+    monkeypatch.setattr("config.load_dotenv", lambda: None)
+    for name in (
+        "SPAM_BUTTON_COUNT",
+        "SPAM_BUTTON_WINDOW_SECONDS",
+        "SPAM_WRITE_COUNT",
+        "SPAM_WRITE_WINDOW_SECONDS",
+        "SPAM_DAILY_ENTRIES",
+        "SPAM_USER_ROWS",
+        "SPAM_ALERT_COOLDOWN_MINUTES",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    cfg = load_config()
+    assert cfg.spam_button_count == 20
+    assert cfg.spam_button_window_seconds == 8
+    assert cfg.spam_write_count == 15
+    assert cfg.spam_daily_entries == 80
+    assert cfg.spam_user_rows == 5000
+    assert cfg.spam_alert_cooldown_minutes == 30
+    monkeypatch.setenv("SPAM_DAILY_ENTRIES", "0")
+    monkeypatch.setenv("SPAM_BUTTON_COUNT", "12")
+    cfg = load_config()
+    assert cfg.spam_daily_entries == 0
+    assert cfg.spam_button_count == 12
+
+
 def test_bot_session_without_proxy():
     from bot import _bot_session
     from utils.telegram_session import AbandonableAiohttpSession

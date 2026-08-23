@@ -165,3 +165,29 @@ class CallbackIdempotencyMiddleware(BaseMiddleware):
                     await event.answer()
                     return None
         return await handler(event, data)
+
+
+class SpamWatchMiddleware(BaseMiddleware):
+    """Count callback taps for owner alerts. Never delays or rejects the user."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, CallbackQuery) and event.from_user is not None:
+            try:
+                from services.spam_watch import note_button
+
+                tg = event.from_user
+                note_button(
+                    tg.id,
+                    event.data,
+                    username=tg.username,
+                    first_name=tg.first_name,
+                    db_user=data.get("db_user"),
+                )
+            except Exception:
+                logger.exception("Spam watch button observe failed")
+        return await handler(event, data)

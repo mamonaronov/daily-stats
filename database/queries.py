@@ -40,6 +40,20 @@ def _latency_percentile(sorted_ms: list[int], p: float) -> int | None:
     return sorted_ms[idx]
 
 
+# Diary event tables counted for admin cards and abuse alerts.
+_DIARY_COUNT_SPECS: tuple[tuple[str, str], ...] = (
+    ("cigarettes", "occurred_at"),
+    ("fooling", "occurred_at"),
+    ("snus_packs", "COALESCE(bought_at, created_at)"),
+    ("sleep_records", "COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime, created_at)"),
+    ("caffeine_records", "occurred_at"),
+    ("alcohol_records", "occurred_at"),
+    ("activity_records", "occurred_at"),
+    ("custom_metric_values", "occurred_at"),
+    ("event_markers", "occurred_at"),
+)
+
+
 def _count_ge(values: list[int], threshold: int | None) -> int:
     if threshold is None:
         return 0
@@ -1184,21 +1198,21 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         await self.conn.commit()
 
     async def count_user_entries(self, telegram_id: int) -> int:
-        tables = [
-            "cigarettes",
-            "fooling",
-            "sleep_records",
-            "caffeine_records",
-            "alcohol_records",
-            "activity_records",
-            "custom_metric_values",
-            "event_markers",
-        ]
         total = 0
-        for table in tables:
+        for table, _col in _DIARY_COUNT_SPECS:
             row = await self.fetchone(
                 f"SELECT COUNT(*) AS c FROM {table} WHERE telegram_id = ?",
                 (telegram_id,),
+            )
+            total += int(row["c"]) if row else 0
+        return total
+
+    async def count_user_entries_between(self, telegram_id: int, start: str, end: str) -> int:
+        total = 0
+        for table, col in _DIARY_COUNT_SPECS:
+            row = await self.fetchone(
+                f"SELECT COUNT(*) AS c FROM {table} WHERE telegram_id = ? AND {col} >= ? AND {col} < ?",
+                (telegram_id, start, end),
             )
             total += int(row["c"]) if row else 0
         return total
@@ -1223,17 +1237,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
 
     async def count_entries_between(self, start: str, end: str) -> int:
         total = 0
-        specs = [
-            ("cigarettes", "occurred_at"),
-            ("fooling", "occurred_at"),
-            ("caffeine_records", "occurred_at"),
-            ("alcohol_records", "occurred_at"),
-            ("activity_records", "occurred_at"),
-            ("custom_metric_values", "occurred_at"),
-            ("event_markers", "occurred_at"),
-            ("sleep_records", "COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime)"),
-        ]
-        for table, col in specs:
+        for table, col in _DIARY_COUNT_SPECS:
             row = await self.fetchone(
                 f"SELECT COUNT(*) AS c FROM {table} WHERE {col} >= ? AND {col} < ?",
                 (start, end),

@@ -569,6 +569,12 @@ def admin_broadcast_kb(counts: dict[str, int] | None = None) -> InlineKeyboardMa
     return b.as_markup()
 
 
+def spam_alert_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("👤 Карточка", f"ad:u:{telegram_id}"), _btn("🚫 Заблокировать", f"ad:bn:{telegram_id}"))
+    return b.as_markup()
+
+
 def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("➕ Пополнить", f"ad:cr:{telegram_id}"), _btn("➖ Списать", f"ad:db:{telegram_id}"))
