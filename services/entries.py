@@ -199,20 +199,6 @@ async def add_snus_finished(repo: Repo, user: User, when: datetime) -> tuple[int
     return open_rec.id, None
 
 
-async def add_mood(repo: Repo, user: User, score: int, when: datetime) -> tuple[int | None, str | None]:
-    blocked = await require_write(user)
-    if blocked:
-        return None, blocked
-    return await repo.add_mood(user.telegram_id, score, to_iso(when)), None
-
-
-async def add_wellbeing(repo: Repo, user: User, score: int, comment: str | None, when: datetime) -> tuple[int | None, str | None]:
-    blocked = await require_write(user)
-    if blocked:
-        return None, blocked
-    return await repo.add_wellbeing(user.telegram_id, score, comment, to_iso(when)), None
-
-
 async def add_caffeine(repo: Repo, user: User, drink_type: str, amount: float | None, unit: str | None, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
@@ -239,13 +225,6 @@ async def add_activity(
     if blocked:
         return None, blocked
     return await repo.add_activity(user.telegram_id, activity_type, duration_minutes, comment, to_iso(when)), None
-
-
-async def add_note(repo: Repo, user: User, body: str, when: datetime) -> tuple[int | None, str | None]:
-    blocked = await require_write(user)
-    if blocked:
-        return None, blocked
-    return await repo.add_note(user.telegram_id, body, to_iso(when)), None
 
 
 async def add_custom_value(repo: Repo, user: User, metric_id: int, when: datetime, **values) -> tuple[int | None, str | None]:

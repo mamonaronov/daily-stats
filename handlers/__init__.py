@@ -14,19 +14,15 @@ from handlers import (
     caffeine,
     cigarettes,
     custom_metrics,
-    day_review,
     fooling,
     history,
     menu,
-    mood,
-    notes,
     settings,
     sleep,
     snus,
     start,
     statistics,
     time_pick,
-    wellbeing,
 )
 
 
@@ -43,15 +39,11 @@ def setup_routers() -> Router:
     root.include_router(fooling.router)
     root.include_router(snus.router)
     root.include_router(sleep.router)
-    root.include_router(mood.router)
-    root.include_router(wellbeing.router)
     root.include_router(caffeine.router)
     root.include_router(alcohol.router)
     root.include_router(activity.router)
-    root.include_router(notes.router)
     root.include_router(history.router)
     root.include_router(statistics.router)
     root.include_router(settings.router)
     root.include_router(custom_metrics.router)
-    root.include_router(day_review.router)
     return root

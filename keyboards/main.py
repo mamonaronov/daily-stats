@@ -15,14 +15,10 @@ from utils.callbacks import (
     ENTRY_CAF,
     ENTRY_CIG,
     ENTRY_FOOL,
-    ENTRY_MOOD,
-    ENTRY_NOTE,
     ENTRY_SNUS,
-    ENTRY_WB,
     NAV_ADMIN,
     NAV_BACK,
     NAV_BALANCE,
-    NAV_DAY,
     NAV_HISTORY,
     NAV_MAIN,
     NAV_METRICS,
@@ -87,10 +83,8 @@ def main_menu(user: User, is_owner: bool, sleep: SleepRecord | None = None) -> I
     b.row(_btn("🚬 Сигарета", ENTRY_CIG), _btn("🟢 Снюс", ENTRY_SNUS))
     b.row(_btn("🤌 Валять дурака", ENTRY_FOOL))
     b.row(*sleep_row(sleep))
-    b.row(_btn("🙂 Настроение", ENTRY_MOOD), _btn("❤️ Самочувствие", ENTRY_WB))
     b.row(_btn("☕ Кофеин", ENTRY_CAF), _btn("🍺 Алкоголь", ENTRY_ALC))
-    b.row(_btn("🏃 Активность", ENTRY_ACT), _btn("📝 Заметка", ENTRY_NOTE))
-    b.row(_btn("🌙 Оценить день", NAV_DAY), _btn("📌 Кастом", NAV_METRICS))
+    b.row(_btn("🏃 Активность", ENTRY_ACT), _btn("📌 Кастом", NAV_METRICS))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     if is_owner:
@@ -113,9 +107,6 @@ _WHEN_TITLES = {
     "caft": "Когда это было?",
     "alct": "Когда это было?",
     "actt": "Когда была активность?",
-    "mdt": "Когда оценить настроение?",
-    "wbt": "Когда оценить самочувствие?",
-    "nt": "Когда добавить заметку?",
     "slw": "Когда проснулись? Можно указать время задним числом.",
     "cmt": "Когда зафиксировать?",
 }
@@ -126,9 +117,6 @@ _WHEN_BACK = {
     "caft": ENTRY_CAF,
     "alct": ENTRY_ALC,
     "actt": ENTRY_ACT,
-    "mdt": ENTRY_MOOD,
-    "wbt": ENTRY_WB,
-    "nt": ENTRY_NOTE,
     "slw": "slp:wake",
 }
 
@@ -351,8 +339,6 @@ def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
         ("fooling", "🤌 Валять дурака"),
         ("snus", "🟢 Снюс"),
         ("sleep", "😴 Сон"),
-        ("mood", "🙂 Настроение"),
-        ("wellbeing", "❤️ Самочувствие"),
         ("caffeine", "☕ Кофеин"),
         ("alcohol", "🍺 Алкоголь"),
         ("activity", "🏃 Активность"),

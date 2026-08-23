@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 7
+    assert version == config.required_db_version == 8
 
 
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_admin_sql_and_table_browser(repo):
     result = await repo.run_sql("SELECT telegram_id, username FROM users ORDER BY telegram_id")
     assert result["keyword"] == "SELECT"
     assert result["rows"][0][0] == 21
-    inserted = await repo.run_sql("INSERT INTO notes (telegram_id, body, occurred_at, created_at) VALUES (21, 'hi', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')")
+    inserted = await repo.run_sql("INSERT INTO cigarettes (telegram_id, occurred_at, created_at) VALUES (21, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')")
     assert inserted["keyword"] == "INSERT"
     assert inserted["rowcount"] == 1
     with pytest.raises(SqlError, match="ATTACH"):
@@ -246,14 +246,13 @@ async def test_purge_content_keeps_only_bot_runtime_rows(repo):
     other = await repo.create_user(22, "other", "Other", None, "UTC", 10, "23:00")
     await repo.apply_balance_change(owner.telegram_id, "credit", delta=100, comment="pay", performed_by=1)
     await repo.add_cigarette(owner.telegram_id, to_iso(now_utc()))
-    await repo.add_note(other.telegram_id, "wipe me", to_iso(now_utc()))
+    await repo.add_cigarette(other.telegram_id, to_iso(now_utc()))
     await repo.insert_vpn_sample(to_iso(now_utc()), True, 42, "node", "sub", None)
     await repo.db._set_system("marker", "keep-me")
 
     deleted = await repo.purge_content(owner.telegram_id)
     assert deleted["users"] == 1
-    assert deleted["cigarettes"] >= 1
-    assert deleted["notes"] >= 1
+    assert deleted["cigarettes"] >= 2
     assert deleted["balance_operations"] >= 1
     assert deleted["vpn_latency_samples"] >= 1
 

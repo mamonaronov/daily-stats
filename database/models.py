@@ -119,25 +119,6 @@ class SnusPack:
 
 
 @dataclass(slots=True)
-class MoodRecord:
-    id: int
-    telegram_id: int
-    score: int
-    occurred_at: str
-    created_at: str
-
-
-@dataclass(slots=True)
-class WellbeingRecord:
-    id: int
-    telegram_id: int
-    score: int
-    comment: str | None
-    occurred_at: str
-    created_at: str
-
-
-@dataclass(slots=True)
 class CaffeineRecord:
     id: int
     telegram_id: int
@@ -171,16 +152,6 @@ class ActivityRecord:
     extra_json: str | None
     occurred_at: str
     created_at: str
-
-
-@dataclass(slots=True)
-class Note:
-    id: int
-    telegram_id: int
-    body: str
-    occurred_at: str
-    created_at: str
-    updated_at: str | None
 
 
 @dataclass(slots=True)

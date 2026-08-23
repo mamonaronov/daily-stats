@@ -25,10 +25,6 @@ class SleepSG(StatesGroup):
     when = State()
 
 
-class WellbeingSG(StatesGroup):
-    comment = State()
-
-
 class AmountSG(StatesGroup):
     value = State()
 
@@ -36,10 +32,6 @@ class AmountSG(StatesGroup):
 class ActivitySG(StatesGroup):
     duration = State()
     comment = State()
-
-
-class NoteSG(StatesGroup):
-    text = State()
 
 
 class CustomMetricSG(StatesGroup):
@@ -58,12 +50,6 @@ class HistorySG(StatesGroup):
 class StatsSG(StatesGroup):
     custom_date = State()
     range_end = State()
-
-
-class DayReviewSG(StatesGroup):
-    mood = State()
-    wellbeing = State()
-    comment = State()
 
 
 class SettingsSG(StatesGroup):

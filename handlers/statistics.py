@@ -22,7 +22,7 @@ from utils.time import add_days, parse_calendar_token, user_today
 
 router = Router(name="statistics")
 
-DEFAULT_METRICS = {"cigarettes", "sleep", "mood"}
+DEFAULT_METRICS = {"cigarettes", "sleep"}
 
 
 def _period(user: User, token: str, data: dict) -> tuple[date, date] | None:

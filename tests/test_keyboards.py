@@ -174,6 +174,10 @@ def test_main_menu_custom_metrics_button():
     pairs = _pairs(main_menu(SimpleNamespace(), False))
     assert ("📌 Кастом", "n:cm") in pairs
     assert all(text != "📌 Показатели" for text, _ in pairs)
+    assert all("Настроение" not in text for text, _ in pairs)
+    assert all("Самочувствие" not in text for text, _ in pairs)
+    assert all("Заметка" not in text for text, _ in pairs)
+    assert all("Оценить день" not in text for text, _ in pairs)
 
 
 def test_custom_metrics_list_has_quick_add():

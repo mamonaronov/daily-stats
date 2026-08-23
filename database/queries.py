@@ -22,13 +22,10 @@ from database.models import (
     CustomMetric,
     CustomValue,
     Fooling,
-    MoodRecord,
-    Note,
     SleepRecord,
     SnusPack,
     User,
     VpnLatencySample,
-    WellbeingRecord,
 )
 from utils.time import now_utc, to_iso
 
@@ -839,74 +836,7 @@ class Repo:
         )
         return [SnusPack(**dict(r)) for r in rows]
 
-    # mood / wellbeing
-    async def add_mood(self, telegram_id: int, score: int, occurred_at: str) -> int:
-        return await self._insert(
-            "INSERT INTO mood_records (telegram_id, score, occurred_at, created_at) VALUES (?, ?, ?, ?)",
-            (telegram_id, score, occurred_at, to_iso(now_utc())),
-        )
-
-    async def get_mood(self, item_id: int, telegram_id: int) -> MoodRecord | None:
-        return await self._get("mood_records", MoodRecord, item_id, telegram_id)
-
-    async def update_mood(self, item_id: int, telegram_id: int, score: int | None = None, occurred_at: str | None = None) -> None:
-        if score is not None:
-            await self.conn.execute(
-                "UPDATE mood_records SET score = ? WHERE id = ? AND telegram_id = ?",
-                (score, item_id, telegram_id),
-            )
-        if occurred_at is not None:
-            await self.conn.execute(
-                "UPDATE mood_records SET occurred_at = ? WHERE id = ? AND telegram_id = ?",
-                (occurred_at, item_id, telegram_id),
-            )
-        await self.conn.commit()
-
-    async def delete_mood(self, item_id: int, telegram_id: int) -> bool:
-        return await self._delete("mood_records", item_id, telegram_id)
-
-    async def list_mood(self, telegram_id: int, start: str, end: str) -> list[MoodRecord]:
-        return await self._list_range("mood_records", MoodRecord, telegram_id, start, end)
-
-    async def mood_for_local_day(self, telegram_id: int, start: str, end: str) -> list[MoodRecord]:
-        return await self.list_mood(telegram_id, start, end)
-
-    async def add_wellbeing(self, telegram_id: int, score: int, comment: str | None, occurred_at: str) -> int:
-        return await self._insert(
-            """
-            INSERT INTO wellbeing_records (telegram_id, score, comment, occurred_at, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (telegram_id, score, comment, occurred_at, to_iso(now_utc())),
-        )
-
-    async def get_wellbeing(self, item_id: int, telegram_id: int) -> WellbeingRecord | None:
-        return await self._get("wellbeing_records", WellbeingRecord, item_id, telegram_id)
-
-    async def update_wellbeing(self, item_id: int, telegram_id: int, **fields: Any) -> None:
-        allowed = {"score", "comment", "occurred_at"}
-        sets, params = [], []
-        for key, value in fields.items():
-            if key not in allowed:
-                raise ValueError(key)
-            sets.append(f"{key} = ?")
-            params.append(value)
-        if not sets:
-            return
-        params.extend([item_id, telegram_id])
-        await self.conn.execute(
-            f"UPDATE wellbeing_records SET {', '.join(sets)} WHERE id = ? AND telegram_id = ?",
-            params,
-        )
-        await self.conn.commit()
-
-    async def delete_wellbeing(self, item_id: int, telegram_id: int) -> bool:
-        return await self._delete("wellbeing_records", item_id, telegram_id)
-
-    async def list_wellbeing(self, telegram_id: int, start: str, end: str) -> list[WellbeingRecord]:
-        return await self._list_range("wellbeing_records", WellbeingRecord, telegram_id, start, end)
-
-    # caffeine / alcohol / activity / notes
+    # caffeine / alcohol / activity
     async def add_caffeine(self, telegram_id: int, drink_type: str, amount: float | None, unit: str | None, occurred_at: str) -> int:
         return await self._insert(
             """
@@ -980,29 +910,6 @@ class Repo:
 
     async def list_activity(self, telegram_id: int, start: str, end: str) -> list[ActivityRecord]:
         return await self._list_range("activity_records", ActivityRecord, telegram_id, start, end)
-
-    async def add_note(self, telegram_id: int, body: str, occurred_at: str) -> int:
-        return await self._insert(
-            "INSERT INTO notes (telegram_id, body, occurred_at, created_at) VALUES (?, ?, ?, ?)",
-            (telegram_id, body, occurred_at, to_iso(now_utc())),
-        )
-
-    async def get_note(self, item_id: int, telegram_id: int) -> Note | None:
-        return await self._get("notes", Note, item_id, telegram_id)
-
-    async def update_note(self, item_id: int, telegram_id: int, **fields: Any) -> None:
-        allowed = {"body", "occurred_at"}
-        fields = dict(fields)
-        if fields:
-            fields["updated_at"] = to_iso(now_utc())
-            allowed = allowed | {"updated_at"}
-        await self._update_fields("notes", allowed, item_id, telegram_id, fields)
-
-    async def delete_note(self, item_id: int, telegram_id: int) -> bool:
-        return await self._delete("notes", item_id, telegram_id)
-
-    async def list_notes(self, telegram_id: int, start: str, end: str) -> list[Note]:
-        return await self._list_range("notes", Note, telegram_id, start, end)
 
     async def _update_fields(self, table: str, allowed: set[str], item_id: int, telegram_id: int, fields: dict[str, Any]) -> None:
         sets, params = [], []
@@ -1129,12 +1036,9 @@ class Repo:
             "cigarettes",
             "fooling",
             "sleep_records",
-            "mood_records",
-            "wellbeing_records",
             "caffeine_records",
             "alcohol_records",
             "activity_records",
-            "notes",
             "custom_metric_values",
         ]
         total = 0
@@ -1151,18 +1055,15 @@ class Repo:
             "SELECT occurred_at AS ts FROM cigarettes WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM fooling WHERE telegram_id = ?",
             "SELECT COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime) AS ts FROM sleep_records WHERE telegram_id = ?",
-            "SELECT occurred_at AS ts FROM mood_records WHERE telegram_id = ?",
-            "SELECT occurred_at AS ts FROM wellbeing_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM caffeine_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM alcohol_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM activity_records WHERE telegram_id = ?",
-            "SELECT occurred_at AS ts FROM notes WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM custom_metric_values WHERE telegram_id = ?",
         ]
         sql = " UNION ALL ".join(parts)
         row = await self.fetchone(
             f"SELECT MAX(ts) AS ts FROM ({sql})",
-            tuple([telegram_id] * 10),
+            tuple([telegram_id] * 7),
         )
         return row["ts"] if row and row["ts"] else None
 
@@ -1171,12 +1072,9 @@ class Repo:
         specs = [
             ("cigarettes", "occurred_at"),
             ("fooling", "occurred_at"),
-            ("mood_records", "occurred_at"),
-            ("wellbeing_records", "occurred_at"),
             ("caffeine_records", "occurred_at"),
             ("alcohol_records", "occurred_at"),
             ("activity_records", "occurred_at"),
-            ("notes", "occurred_at"),
             ("custom_metric_values", "occurred_at"),
             ("sleep_records", "COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime)"),
         ]

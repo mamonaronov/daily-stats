@@ -41,12 +41,9 @@ KIND_MAP = {
     "sleep_onset": "so",
     "sleep_wake": "sw",
     "sleep_up": "su",
-    "mood": "mood",
-    "wellbeing": "wb",
     "caffeine": "caf",
     "alcohol": "alc",
     "activity": "act",
-    "note": "note",
     "custom": "cm",
 }
 
@@ -190,12 +187,9 @@ async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
         "sw": repo.get_sleep,
         "su": repo.get_sleep,
         "slp": repo.get_sleep,
-        "mood": repo.get_mood,
-        "wb": repo.get_wellbeing,
         "caf": repo.get_caffeine,
         "alc": repo.get_alcohol,
         "act": repo.get_activity,
-        "note": repo.get_note,
         "cm": repo.get_metric_value,
     }
     loader = loaders.get(kind)
@@ -281,12 +275,9 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "sw": repo.delete_sleep,
         "su": repo.delete_sleep,
         "slp": repo.delete_sleep,
-        "mood": repo.delete_mood,
-        "wb": repo.delete_wellbeing,
         "caf": repo.delete_caffeine,
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
-        "note": repo.delete_note,
         "cm": repo.delete_metric_value,
     }
     fn = mapping.get(kind)

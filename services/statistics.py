@@ -35,8 +35,6 @@ METRIC_KEYS = [
     "fooling",
     "snus",
     "sleep",
-    "mood",
-    "wellbeing",
     "caffeine",
     "alcohol",
     "activity",
@@ -73,12 +71,9 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "fooling": await repo.list_fooling(tid, a, b),
         "snus": await repo.list_snus_packs(tid, a, b),
         "sleep": await repo.list_sleep(tid, a, b),
-        "mood": await repo.list_mood(tid, a, b),
-        "wellbeing": await repo.list_wellbeing(tid, a, b),
         "caffeine": await repo.list_caffeine(tid, a, b),
         "alcohol": await repo.list_alcohol(tid, a, b),
         "activity": await repo.list_activity(tid, a, b),
-        "notes": await repo.list_notes(tid, a, b),
         "custom": await repo.list_metric_values(tid, a, b),
     }
 
@@ -256,33 +251,6 @@ def sleep_stats(user: User, items, start: date, end: date) -> str:
     return "\n".join(lines)
 
 
-def score_stats(title: str, user: User, items, attr: str = "score") -> str:
-    if not items:
-        return f"{title}: нет данных за период."
-    scores = [getattr(i, attr) for i in items]
-    by_day: dict[date, list[int]] = defaultdict(list)
-    for item in items:
-        local = to_user(parse_iso(item.occurred_at), user.timezone).date()
-        by_day[local].append(getattr(item, attr))
-    day_avg = {d: mean(v) for d, v in by_day.items()}
-    best = max(day_avg.items(), key=lambda kv: kv[1]) if day_avg else None
-    worst = min(day_avg.items(), key=lambda kv: kv[1]) if day_avg else None
-    dist = Counter(scores)
-    lines = [
-        title,
-        f"Оценок: {len(scores)}",
-        f"Среднее: {mean(scores):.2f} ({score_text(int(round(mean(scores))))})",
-        f"Минимум: {score_text(min(scores))}",
-        f"Максимум: {score_text(max(scores))}",
-        "Распределение: " + ", ".join(f"{score_text(k)} — {dist[k]}" for k in sorted(dist)),
-    ]
-    if best:
-        lines.append(f"Лучший день: {format_date(best[0])} ({best[1]:.1f})")
-    if worst:
-        lines.append(f"Худший день: {format_date(worst[0])} ({worst[1]:.1f})")
-    return "\n".join(lines)
-
-
 def _item_milliliters(item) -> float | None:
     return milliliters_of(getattr(item, "amount", None), getattr(item, "unit", None))
 
@@ -398,8 +366,6 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "cigarettes": lambda items: daily_series(user, items, start, end, lambda xs: float(len(xs))),
         "fooling": lambda items: daily_series(user, items, start, end, lambda xs: float(len(xs))),
         "snus": lambda items: _snus_series(user, items, start, end),
-        "mood": lambda items: daily_series(user, items, start, end, lambda xs: mean([i.score for i in xs]) if xs else 0.0),
-        "wellbeing": lambda items: daily_series(user, items, start, end, lambda xs: mean([i.score for i in xs]) if xs else 0.0),
         "caffeine": lambda items: daily_volume_ml(user, items, start, end),
         "alcohol": lambda items: daily_volume_ml(user, items, start, end),
         "sleep": lambda items: _sleep_series(user, items, start, end),
@@ -420,8 +386,6 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "fooling": "валять дурака",
         "snus": "снюс",
         "sleep": "сон",
-        "mood": "настроение",
-        "wellbeing": "самочувствие",
         "caffeine": "кофеин",
         "alcohol": "алкоголь",
         "activity": "активность",
@@ -455,13 +419,8 @@ def _snus_series(user: User, items, start: date, end: date) -> dict[date, float]
 PAIRS = [
     ("sleep", "cigarettes"),
     ("sleep", "fooling"),
-    ("sleep", "mood"),
-    ("sleep", "wellbeing"),
-    ("cigarettes", "mood"),
-    ("fooling", "mood"),
     ("fooling", "cigarettes"),
     ("snus", "cigarettes"),
-    ("snus", "mood"),
     ("caffeine", "sleep"),
     ("alcohol", "sleep"),
 ]
@@ -478,10 +437,6 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         parts.append(snus_stats(user, data["snus"], start, end))
     if "sleep" in selected:
         parts.append(sleep_stats(user, data["sleep"], start, end))
-    if "mood" in selected:
-        parts.append(score_stats("🙂 <b>Настроение</b>", user, data["mood"]))
-    if "wellbeing" in selected:
-        parts.append(score_stats("❤️ <b>Самочувствие</b>", user, data["wellbeing"]))
     if "caffeine" in selected:
         parts.append(
             drink_stats("☕ <b>Кофеин</b>", user, data["caffeine"], "drink_type", CAFFEINE_TYPES, start, end)

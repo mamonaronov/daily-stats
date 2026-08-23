@@ -40,20 +40,17 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "mdt", "wbt", "nt", "slw", "cmt", "slp")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "cmt", "slp")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
     "caft": "caf",
     "alct": "alc",
     "actt": "act",
-    "mdt": "mood",
-    "wbt": "wb",
-    "nt": "note",
     "slw": "slp_wake",
     "cmt": "cm",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|mdt|wbt|nt|slw|cmt|slp)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|cmt|slp)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -82,10 +79,6 @@ async def _finish(
         item_id, error = await entries.add_snus_bought(repo, user, when)
     elif purpose == "snus_end":
         item_id, error = await entries.add_snus_finished(repo, user, when)
-    elif purpose == "mood":
-        item_id, error = await entries.add_mood(repo, user, int(data["score"]), when)
-    elif purpose == "wb":
-        item_id, error = await entries.add_wellbeing(repo, user, int(data["score"]), data.get("comment"), when)
     elif purpose == "caf":
         item_id, error = await entries.add_caffeine(
             repo, user, data["drink_type"], data.get("amount"), data.get("unit") or "шт", when
@@ -98,8 +91,6 @@ async def _finish(
         item_id, error = await entries.add_activity(
             repo, user, data["activity_type"], data.get("duration"), data.get("comment"), when
         )
-    elif purpose == "note":
-        item_id, error = await entries.add_note(repo, user, data["body"], when)
     elif purpose == "cm":
         item_id, error = await entries.add_custom_value(
             repo,
@@ -211,12 +202,9 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
     mapping = {
         "cig": repo.update_cigarette_time,
         "fool": repo.update_fooling_time,
-        "mood": lambda i, t, v: repo.update_mood(i, t, occurred_at=v),
-        "wb": lambda i, t, v: repo.update_wellbeing(i, t, occurred_at=v),
         "caf": lambda i, t, v: repo.update_caffeine(i, t, occurred_at=v),
         "alc": lambda i, t, v: repo.update_alcohol(i, t, occurred_at=v),
         "act": lambda i, t, v: repo.update_activity(i, t, occurred_at=v),
-        "note": lambda i, t, v: repo.update_note(i, t, occurred_at=v),
     }
     fn = mapping.get(kind)
     if fn is None:

@@ -138,12 +138,9 @@ async def start_time_pick(
                 "slp_wake": "when:slw",
                 "snus_buy": "snus",
                 "snus_end": "snus",
-                "mood": "when:mdt",
-                "wb": "when:wbt",
                 "caf": "when:caft",
                 "alc": "when:alct",
                 "act": "when:actt",
-                "note": "when:nt",
                 "cm": "when:cmt",
             }.get(purpose, "when:cig")
     user_tz = extra.get("tz")

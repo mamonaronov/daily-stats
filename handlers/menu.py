@@ -17,11 +17,8 @@ from utils.callbacks import (
     ENTRY_CAF,
     ENTRY_CIG,
     ENTRY_FOOL,
-    ENTRY_MOOD,
-    ENTRY_NOTE,
     ENTRY_SLEEP,
     ENTRY_SNUS,
-    ENTRY_WB,
     NAV_BALANCE,
     NAV_CANCEL,
     NAV_MAIN,
@@ -137,30 +134,6 @@ async def sleep_entry(
     await show_main(cb, user, config, is_owner, state, repo)
 
 
-@router.callback_query(F.data == ENTRY_MOOD)
-async def mood_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    from handlers.common import require_writable
-    from keyboards.main import score_kb
-
-    if await require_writable(cb, db_user) is None:
-        return
-    await state.clear()
-    await cb.answer()
-    await safe_edit(cb.message, "🙂 Как настроение?", score_kb("md"))
-
-
-@router.callback_query(F.data == ENTRY_WB)
-async def wb_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    from handlers.common import require_writable
-    from keyboards.main import score_kb
-
-    if await require_writable(cb, db_user) is None:
-        return
-    await state.clear()
-    await cb.answer()
-    await safe_edit(cb.message, "❤️ Как самочувствие?", score_kb("wb"))
-
-
 @router.callback_query(F.data == ENTRY_CAF)
 async def caf_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     from handlers.common import require_writable
@@ -195,16 +168,3 @@ async def act_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     await state.clear()
     await cb.answer()
     await safe_edit(cb.message, "🏃 Какая активность?", activity_types())
-
-
-@router.callback_query(F.data == ENTRY_NOTE)
-async def note_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    from handlers.common import require_writable
-    from keyboards.main import back_kb
-    from states.diary import NoteSG
-
-    if await require_writable(cb, db_user) is None:
-        return
-    await state.set_state(NoteSG.text)
-    await cb.answer()
-    await safe_edit(cb.message, "📝 Напишите текст заметки", back_kb())

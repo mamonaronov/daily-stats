@@ -140,10 +140,6 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             )
         )
 
-    if "mood" in selected:
-        charts.append(("Настроение", _score_chart("Настроение", user, data["mood"], days, labels)))
-    if "wellbeing" in selected:
-        charts.append(("Самочувствие", _score_chart("Самочувствие", user, data["wellbeing"], days, labels)))
     if "activity" in selected:
         mins = {d: 0 for d in days}
         for item in data["activity"]:
@@ -185,13 +181,3 @@ def _drink_chart(name: str, title: str, user: User, items, days, labels) -> tupl
         return (name, _line(title, labels, [volumes.get(d, 0.0) / 1000 for d in days], "л"))
     counts = daily_event_counts(user, items, days[0], days[-1]) if days else {}
     return (name, _line(title, labels, [counts.get(d, 0) for d in days], "раз"))
-
-
-def _score_chart(title: str, user: User, items, days, labels) -> bytes:
-    buckets: dict[date, list[int]] = defaultdict(list)
-    for item in items:
-        day = to_user(parse_iso(item.occurred_at), user.timezone).date()
-        if day in {d for d in days}:
-            buckets[day].append(item.score)
-    ys = [mean(buckets[d]) if buckets[d] else 0 for d in days]
-    return _line(title, labels, ys, "оценка 1–5")

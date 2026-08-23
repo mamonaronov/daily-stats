@@ -12,7 +12,6 @@ from utils.formatting import (
     CAFFEINE_TYPES,
     duration_human,
     score_text,
-    truncate,
 )
 from utils.quantity import format_quantity
 from utils.time import format_time, parse_iso, range_bounds_utc, to_iso
@@ -73,17 +72,6 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
             dt = parse_iso(rec.out_of_bed_at)
             items.append(TimelineItem("sleep_up", rec.id, dt, "🛏 Встал", "", {"kind": "up"}))
 
-    for rec in await repo.list_mood(tid, start_iso, end_iso):
-        dt = parse_iso(rec.occurred_at)
-        items.append(TimelineItem("mood", rec.id, dt, "🙂 Настроение", score_text(rec.score), {}))
-
-    for rec in await repo.list_wellbeing(tid, start_iso, end_iso):
-        dt = parse_iso(rec.occurred_at)
-        detail = score_text(rec.score)
-        if rec.comment:
-            detail += f" — {truncate(rec.comment, 40)}"
-        items.append(TimelineItem("wellbeing", rec.id, dt, "❤️ Самочувствие", detail, {}))
-
     for rec in await repo.list_caffeine(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
         label = CAFFEINE_TYPES.get(rec.drink_type, rec.drink_type)
@@ -101,10 +89,6 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
         label = ACTIVITY_TYPES.get(rec.activity_type, rec.activity_type)
         extra = duration_human(rec.duration_minutes)
         items.append(TimelineItem("activity", rec.id, dt, f"🏃 {label.capitalize()}", extra, {}))
-
-    for rec in await repo.list_notes(tid, start_iso, end_iso):
-        dt = parse_iso(rec.occurred_at)
-        items.append(TimelineItem("note", rec.id, dt, "📝 Заметка", truncate(rec.body), {}))
 
     for rec in await repo.list_metric_values(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
