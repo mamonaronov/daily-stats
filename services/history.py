@@ -117,6 +117,16 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
     return items
 
 
+PAGE_SIZE = 8
+
+
+def paginate(items: list, page: int, size: int = PAGE_SIZE) -> tuple[list, int, int]:
+    pages = max(1, (len(items) + size - 1) // size)
+    page = max(0, min(page, pages - 1))
+    start = page * size
+    return items[start : start + size], page, pages
+
+
 def format_timeline(user: User, start: date, items: list[TimelineItem]) -> str:
     from utils.time import format_date_long
 

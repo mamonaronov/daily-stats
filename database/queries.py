@@ -130,7 +130,8 @@ SELECT u.telegram_id, u.username, u.first_name, u.last_name, u.registered_at,
        u.paid_until_date, u.last_charge_date, u.deleted_at, u.bot_blocked_at,
        u.created_at, u.updated_at,
        COALESCE(s.default_sleep_time, '23:00') AS default_sleep_time,
-       s.stats_prefs_json
+       s.stats_prefs_json,
+       s.ui_prefs_json
 FROM users u
 LEFT JOIN user_settings s ON s.telegram_id = u.telegram_id
 """
@@ -395,6 +396,7 @@ class Repo:
         telegram_id: int,
         default_sleep_time: str | None = None,
         stats_prefs_json: str | None = None,
+        ui_prefs_json: str | None = None,
     ) -> None:
         current = await self.fetchone(
             "SELECT * FROM user_settings WHERE telegram_id = ?", (telegram_id,)
@@ -402,13 +404,16 @@ class Repo:
         if current is None:
             await self.conn.execute(
                 """
-                INSERT INTO user_settings (telegram_id, default_sleep_time, stats_prefs_json)
-                VALUES (?, ?, ?)
+                INSERT INTO user_settings (
+                    telegram_id, default_sleep_time, stats_prefs_json, ui_prefs_json
+                )
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     telegram_id,
                     default_sleep_time or "23:00",
                     stats_prefs_json,
+                    ui_prefs_json,
                 ),
             )
         else:
@@ -416,10 +421,11 @@ class Repo:
                 """
                 UPDATE user_settings
                 SET default_sleep_time = COALESCE(?, default_sleep_time),
-                    stats_prefs_json = COALESCE(?, stats_prefs_json)
+                    stats_prefs_json = COALESCE(?, stats_prefs_json),
+                    ui_prefs_json = COALESCE(?, ui_prefs_json)
                 WHERE telegram_id = ?
                 """,
-                (default_sleep_time, stats_prefs_json, telegram_id),
+                (default_sleep_time, stats_prefs_json, ui_prefs_json, telegram_id),
             )
         await self.conn.commit()
 
@@ -943,6 +949,36 @@ class Repo:
     async def list_caffeine(self, telegram_id: int, start: str, end: str) -> list[CaffeineRecord]:
         return await self._list_range("caffeine_records", CaffeineRecord, telegram_id, start, end)
 
+    async def recent_drink_portions(
+        self,
+        table: str,
+        telegram_id: int,
+        drink_type: str,
+        limit: int = 3,
+    ) -> list[tuple[float, str]]:
+        if table not in {"caffeine_records", "alcohol_records"}:
+            raise ValueError(table)
+        rows = await self.fetchall(
+            f"""
+            SELECT amount, unit FROM {table}
+            WHERE telegram_id = ? AND drink_type = ? AND amount IS NOT NULL
+            ORDER BY occurred_at DESC
+            LIMIT 20
+            """,
+            (telegram_id, drink_type),
+        )
+        seen: list[tuple[float, str]] = []
+        keys: set[tuple[float, str]] = set()
+        for row in rows:
+            key = (float(row["amount"]), row["unit"] or "мл")
+            if key in keys:
+                continue
+            keys.add(key)
+            seen.append(key)
+            if len(seen) >= limit:
+                break
+        return seen
+
     async def add_alcohol(self, telegram_id: int, drink_type: str, amount: float | None, unit: str | None, occurred_at: str) -> int:
         return await self._insert(
             """
@@ -1036,12 +1072,12 @@ class Repo:
         params: list[Any] = [telegram_id]
         if enabled_only:
             sql += " AND enabled = 1"
-        sql += " ORDER BY id"
+        sql += " ORDER BY pinned DESC, id"
         rows = await self.fetchall(sql, params)
         return [CustomMetric(**dict(r)) for r in rows]
 
     async def update_metric(self, metric_id: int, telegram_id: int, **fields: Any) -> None:
-        allowed = {"name", "data_type", "unit", "choices_json", "enabled"}
+        allowed = {"name", "data_type", "unit", "choices_json", "enabled", "pinned"}
         await self._update_fields("custom_metrics", allowed, metric_id, telegram_id, fields)
 
     async def add_metric_value(

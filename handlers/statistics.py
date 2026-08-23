@@ -25,6 +25,11 @@ router = Router(name="statistics")
 DEFAULT_METRICS = {"cigarettes", "sleep"}
 
 
+async def _metrics_kb(repo: Repo, user: User, selected: set[str]):
+    custom = await repo.list_metrics(user.telegram_id, enabled_only=True)
+    return stats_metrics_kb(selected, custom)
+
+
 def _period(user: User, token: str, data: dict) -> tuple[date, date] | None:
     today = user_today(user.timezone)
     if token == "today":
@@ -56,7 +61,7 @@ async def stats_root(cb: CallbackQuery, state: FSMContext, db_user: User | None)
 
 
 @router.callback_query(F.data.startswith("stp:"))
-async def stats_period(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def stats_period(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
@@ -72,7 +77,7 @@ async def stats_period(cb: CallbackQuery, state: FSMContext, db_user: User | Non
     data = await state.get_data()
     selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
     await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", stats_metrics_kb(selected))
+    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
 
 
 @router.callback_query(F.data.startswith("scalm:"))
@@ -86,7 +91,7 @@ async def stats_month(cb: CallbackQuery, db_user: User | None) -> None:
 
 
 @router.callback_query(F.data.startswith("scal:"), StatsSG.custom_date)
-async def stats_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def stats_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
@@ -107,19 +112,20 @@ async def stats_date(cb: CallbackQuery, state: FSMContext, db_user: User | None)
     await state.set_state(None)
     selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
     await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", stats_metrics_kb(selected))
+    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
 
 
 @router.callback_query(F.data.startswith("scal:"), StatsSG.range_end)
-async def stats_date_end(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    await stats_date(cb, state, db_user)
+async def stats_date_end(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    await stats_date(cb, state, repo, db_user)
 
 
 @router.callback_query(F.data.startswith("stm:"))
-async def toggle_metric(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_active(cb, db_user) is None:
+async def toggle_metric(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
         return
-    key = cb.data.split(":")[1]
+    key = cb.data.removeprefix("stm:")
     data = await state.get_data()
     selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
     if key in selected:
@@ -130,7 +136,7 @@ async def toggle_metric(cb: CallbackQuery, state: FSMContext, db_user: User | No
         selected.add(key)
     await state.update_data(stats_metrics=list(selected))
     await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", stats_metrics_kb(selected))
+    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
 
 
 @router.callback_query(F.data.startswith("stv:"))
@@ -158,13 +164,14 @@ async def stats_view(
     await cb.answer("Считаю…")
     if mode == "text":
         text = await render_stats(repo, user, start, end, selected)
-        from keyboards.main import stats_metrics_kb
-
-        await safe_edit(cb.message, text[:4000], stats_metrics_kb(set(selected)))
+        await safe_edit(cb.message, text[:4000], await _metrics_kb(repo, user, set(selected)))
         return
     charts = await build_charts(repo, user, start, end, selected)
     if not charts:
         await safe_edit(cb.message, "Недостаточно данных для графика.")
         return
+    from keyboards.main import charts_done_kb
+
     for title, png in charts[:8]:
         await cb.message.answer_photo(png_file(png, f"{title}.png"), caption=title)
+    await cb.message.answer("Готово", reply_markup=charts_done_kb())

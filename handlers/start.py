@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -28,8 +28,9 @@ async def _activate(
     first_name: str | None,
     last_name: str | None,
     timezone: str,
-) -> User:
+) -> tuple[User, bool]:
     existing = await repo.get_user(telegram_id)
+    is_new = existing is None
     if existing is None:
         user = await repo.create_user(
             telegram_id,
@@ -48,14 +49,14 @@ async def _activate(
     await process_user(repo, user)
     user = await repo.get_user(telegram_id)
     assert user is not None
-    return user
+    return user, is_new
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, repo: Repo, config: Config, db_user: User | None, is_owner: bool) -> None:
     await state.clear()
     if db_user and db_user.is_active:
-        await show_main(message, db_user, config, is_owner, state, repo)
+        await show_main(message, db_user, config, is_owner, state, repo, attach_reply=True)
         return
     text, markup = start_payload(db_user, config, is_owner)
     if db_user and db_user.is_banned:
@@ -79,9 +80,17 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
         await cb.answer("Неизвестный пояс", show_alert=True)
         return
     user = cb.from_user
-    db_user = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
+    db_user, is_new = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
     await cb.answer()
-    await show_main(cb, db_user, config, is_owner, state, repo)
+    if is_new:
+        from handlers.common import HOW_TO
+        from keyboards.main import how_to_kb, reply_main_kb
+
+        await state.clear()
+        await cb.message.answer("Быстрый ввод: Сигарета · Снюс · Сон · Ещё", reply_markup=reply_main_kb())
+        await safe_edit(cb.message, HOW_TO, how_to_kb())
+        return
+    await show_main(cb, db_user, config, is_owner, state, repo, attach_reply=True)
 
 
 @router.callback_query(F.data == "tz:list", RegisterSG.timezone_custom)
@@ -101,5 +110,62 @@ async def custom_tz(message: Message, state: FSMContext, repo: Repo, config: Con
         )
         return
     user = message.from_user
-    db_user = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
-    await show_main(message, db_user, config, is_owner, state, repo)
+    db_user, is_new = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
+    if is_new:
+        from handlers.common import HOW_TO
+        from keyboards.main import how_to_kb, reply_main_kb
+
+        await state.clear()
+        await message.answer("Быстрый ввод: Сигарета · Снюс · Сон · Ещё", reply_markup=reply_main_kb())
+        await message.answer(HOW_TO, reply_markup=how_to_kb())
+        return
+    await show_main(message, db_user, config, is_owner, state, repo, attach_reply=True)
+
+
+@router.message(Command("menu"))
+@router.message(Command("today"))
+async def cmd_menu(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
+    from handlers.common import require_active
+
+    user = await require_active(message, db_user)
+    if user is None:
+        return
+    await show_main(message, user, config, is_owner, state, repo, attach_reply=True)
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, state: FSMContext, db_user: User | None) -> None:
+    from handlers.common import require_active
+    from handlers.statistics import DEFAULT_METRICS
+    from keyboards.main import stats_period_kb
+
+    user = await require_active(message, db_user)
+    if user is None:
+        return
+    await state.clear()
+    await state.update_data(stats_metrics=list(DEFAULT_METRICS))
+    await message.answer("📊 Статистика\nСначала выберите период:", reply_markup=stats_period_kb())
+
+
+@router.callback_query(F.data == "onb:ok")
+async def onboarding_ok(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
+    from handlers.common import require_active
+
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await show_main(cb, user, config, is_owner, state, repo, attach_reply=True)

@@ -26,6 +26,7 @@ class User:
     updated_at: str
     default_sleep_time: str = "23:00"
     stats_prefs_json: str | None = None
+    ui_prefs_json: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -164,6 +165,7 @@ class CustomMetric:
     choices_json: str | None
     enabled: int
     created_at: str
+    pinned: int = 0
 
 
 @dataclass(slots=True)

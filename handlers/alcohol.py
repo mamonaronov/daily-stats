@@ -28,7 +28,27 @@ ALC_AMOUNT_PROMPT = (
 
 
 @router.callback_query(F.data.startswith("alc:t:"))
-async def alc_type(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def alc_type(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    drink = cb.data.split(":")[2]
+    await state.set_state(AmountSG.value)
+    await state.update_data(drink_type=drink, amount_kind="alc")
+    recents = await repo.recent_drink_portions("alcohol_records", user.telegram_id, drink, 3)
+    from keyboards.main import drink_recent_kb
+
+    markup = (
+        drink_recent_kb("alc", drink, recents, ENTRY_ALC)
+        if recents
+        else drink_amount_kb("alc", drink, ENTRY_ALC)
+    )
+    await cb.answer()
+    await safe_edit(cb.message, ALC_AMOUNT_PROMPT, markup)
+
+
+@router.callback_query(F.data.startswith("alc:x:"))
+async def alc_other_amount(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
@@ -67,6 +87,31 @@ async def alc_now(
     data = await state.get_data()
     item_id, error = await entries.add_alcohol(
         repo, user, data["drink_type"], data.get("amount"), data.get("unit"), user_now(user.timezone)
+    )
+    if error:
+        await cb.answer(error, show_alert=True)
+        return
+    await show_saved_entry(cb, repo, user, "alc", item_id, state)
+
+
+@router.callback_query(F.data.startswith("more:alc:"))
+async def alc_more(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    config: Config,
+    db_user: User | None,
+    is_owner: bool,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    rec = await repo.get_alcohol(int(cb.data.split(":")[2]), user.telegram_id)
+    if rec is None:
+        await cb.answer("Запись не найдена", show_alert=True)
+        return
+    item_id, error = await entries.add_alcohol(
+        repo, user, rec.drink_type, rec.amount, rec.unit, user_now(user.timezone)
     )
     if error:
         await cb.answer(error, show_alert=True)

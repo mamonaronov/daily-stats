@@ -10,11 +10,19 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_active, show_main
-from keyboards.main import back_kb, cancel_kb, confirm_delete_kb, settings_kb, timezone_kb
+from keyboards.main import (
+    back_kb,
+    cancel_kb,
+    confirm_delete_kb,
+    export_period_kb,
+    menu_types_kb,
+    settings_kb,
+    timezone_kb,
+)
 from states.diary import SettingsSG
 from utils.callbacks import NAV_SETTINGS
-from utils.telegram import safe_edit
-from utils.time import is_valid_timezone, parse_hhmm
+from utils.telegram import safe_edit, text_file
+from utils.time import add_days, is_valid_timezone, parse_hhmm, user_today
 
 router = Router(name="settings")
 
@@ -62,7 +70,9 @@ async def set_tz_pick(
     await repo.set_timezone(user.telegram_id, token)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await show_main(cb, user, config, is_owner, state, repo)
+    await state.clear()
+    await cb.answer()
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
 
 
 @router.message(SettingsSG.timezone_custom)
@@ -84,7 +94,8 @@ async def set_tz_custom(
     await repo.set_timezone(user.telegram_id, token)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await show_main(message, user, config, is_owner, state, repo)
+    await state.clear()
+    await message.answer("Сохранено", reply_markup=settings_kb(user))
 
 
 @router.callback_query(F.data == "tz:list", SettingsSG.timezone_custom)
@@ -165,3 +176,56 @@ async def delete_yes(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
         cb.message,
         "Аккаунт помечен как удалённый. Данные сохранены.\n/start — восстановить доступ.",
     )
+
+
+@router.callback_query(F.data == "set:vis")
+async def vis_root(cb: CallbackQuery, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    from services.ui_prefs import prefs_of
+
+    await cb.answer()
+    await safe_edit(cb.message, "Что показывать в главном меню:", menu_types_kb(prefs_of(user).hidden))
+
+
+@router.callback_query(F.data.startswith("set:vis:"))
+async def vis_toggle(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    from services.ui_prefs import prefs_of, save_prefs, toggle_hidden
+
+    key = cb.data.split(":")[2]
+    prefs = toggle_hidden(prefs_of(user), key)
+    user = await save_prefs(repo, user, prefs)
+    await cb.answer("Сохранено")
+    await safe_edit(cb.message, "Что показывать в главном меню:", menu_types_kb(prefs.hidden))
+
+
+@router.callback_query(F.data == "set:exp")
+async def export_root(cb: CallbackQuery, db_user: User | None) -> None:
+    if await require_active(cb, db_user) is None:
+        return
+    await cb.answer()
+    await safe_edit(cb.message, "За какой период выгрузить CSV?", export_period_kb())
+
+
+@router.callback_query(F.data.startswith("exp:"))
+async def export_send(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    from services.export import export_user_csv
+
+    token = cb.data.split(":")[1]
+    today = user_today(user.timezone)
+    if token == "today":
+        start = end = today
+    elif token == "7":
+        start, end = add_days(today, -6), today
+    else:
+        start, end = add_days(today, -29), today
+    filename, body = await export_user_csv(repo, user, start, end)
+    await cb.answer()
+    await cb.message.answer_document(text_file(body, filename), caption="Ваши записи")

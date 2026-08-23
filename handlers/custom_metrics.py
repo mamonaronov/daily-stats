@@ -99,11 +99,21 @@ async def _show_card(
     target: CallbackQuery | Message,
     user: User,
     metric: CustomMetric,
+    repo: Repo,
     *,
     text: str | None = None,
 ) -> None:
+    from services.ui_prefs import MAX_PINS
+
     body = text or metric_card_text(metric)
-    markup = metric_card_kb(metric.id, bool(metric.enabled), can_write(user))
+    pinned_n = sum(1 for item in await repo.list_metrics(user.telegram_id) if item.pinned)
+    markup = metric_card_kb(
+        metric.id,
+        bool(metric.enabled),
+        can_write(user),
+        pinned=bool(metric.pinned),
+        can_pin=bool(metric.pinned) or pinned_n < MAX_PINS,
+    )
     if isinstance(target, CallbackQuery):
         await safe_edit(target.message, body, markup)
         return
@@ -156,7 +166,7 @@ async def _finish_create(
         return
     if isinstance(target, CallbackQuery):
         await target.answer(toast)
-    await _show_card(target, user, metric, text=created_metric_text(metric))
+    await _show_card(target, user, metric, repo, text=created_metric_text(metric))
 
 
 async def _ask_when(event: CallbackQuery | Message, state: FSMContext, payload: dict) -> None:
@@ -344,7 +354,7 @@ async def metric_open(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user:
         await cb.answer("Не найдено", show_alert=True)
         return
     await cb.answer()
-    await _show_card(cb, user, metric)
+    await _show_card(cb, user, metric, repo)
 
 
 @router.callback_query(F.data.startswith("cm:tog:"))
@@ -362,7 +372,34 @@ async def metric_toggle(cb: CallbackQuery, repo: Repo, db_user: User | None) -> 
     await cb.answer("Сохранено")
     if metric is None:
         return
-    await _show_card(cb, user, metric)
+    await _show_card(cb, user, metric, repo)
+
+
+@router.callback_query(F.data.startswith("cm:pin:"))
+async def metric_pin(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    from services.ui_prefs import MAX_PINS
+
+    metric_id = int(cb.data.split(":")[2])
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    if metric is None:
+        await cb.answer("Не найдено", show_alert=True)
+        return
+    if metric.pinned:
+        await repo.update_metric(metric_id, user.telegram_id, pinned=0)
+    else:
+        pinned_n = sum(1 for item in await repo.list_metrics(user.telegram_id) if item.pinned)
+        if pinned_n >= MAX_PINS:
+            await cb.answer("На главной уже 3 метрики", show_alert=True)
+            return
+        await repo.update_metric(metric_id, user.telegram_id, pinned=1)
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    await cb.answer("Сохранено")
+    if metric is None:
+        return
+    await _show_card(cb, user, metric, repo)
 
 
 @router.callback_query(F.data.startswith("cm:add:"))

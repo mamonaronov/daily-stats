@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import SleepRecord, User
@@ -15,6 +15,7 @@ from utils.callbacks import (
     ENTRY_CAF,
     ENTRY_CIG,
     ENTRY_FOOL,
+    ENTRY_SLEEP,
     ENTRY_SNUS,
     NAV_ADMIN,
     NAV_BACK,
@@ -79,14 +80,53 @@ def sleep_row(sleep: SleepRecord | None) -> list[InlineKeyboardButton]:
     return [wake, phone, nophone]
 
 
-def main_menu(user: User, is_owner: bool, sleep: SleepRecord | None = None) -> InlineKeyboardMarkup:
+def sleep_actions_kb(sleep: SleepRecord | None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("🚬 Сигарета", ENTRY_CIG), _btn("🟢 Снюс", ENTRY_SNUS))
-    b.row(_btn("🤌 Валять дурака", ENTRY_FOOL))
     b.row(*sleep_row(sleep))
-    b.row(_btn("☕ Кофеин", ENTRY_CAF), _btn("🍺 Алкоголь", ENTRY_ALC))
-    b.row(_btn("🏃 Активность", ENTRY_ACT), _btn("📌 Кастом", NAV_METRICS))
-    b.row(_btn("🔖 Метки", NAV_MARKERS))
+    return with_nav(b)
+
+
+def main_menu(
+    user: User,
+    is_owner: bool,
+    sleep: SleepRecord | None = None,
+    *,
+    hidden: set[str] | None = None,
+    pinned: list | None = None,
+) -> InlineKeyboardMarkup:
+    hidden = hidden or set()
+    b = InlineKeyboardBuilder()
+    cig = _btn("🚬 Сигарета", ENTRY_CIG)
+    if "snus" in hidden:
+        b.row(cig)
+    else:
+        b.row(cig, _btn("🟢 Снюс", ENTRY_SNUS))
+    if "fooling" not in hidden:
+        b.row(_btn("🤌 Валять дурака", ENTRY_FOOL))
+    phase = sleep.phase() if sleep else "idle"
+    if phase == "idle":
+        b.row(_btn("😴 Сон", ENTRY_SLEEP))
+    else:
+        b.row(*sleep_row(sleep))
+    drinks: list[InlineKeyboardButton] = []
+    if "caffeine" not in hidden:
+        drinks.append(_btn("☕ Кофеин", ENTRY_CAF))
+    if "alcohol" not in hidden:
+        drinks.append(_btn("🍺 Алкоголь", ENTRY_ALC))
+    if drinks:
+        b.row(*drinks)
+    extras: list[InlineKeyboardButton] = []
+    if "activity" not in hidden:
+        extras.append(_btn("🏃 Активность", ENTRY_ACT))
+    if "custom" not in hidden:
+        extras.append(_btn("📌 Кастом", NAV_METRICS))
+    if extras:
+        b.row(*extras)
+    if "markers" not in hidden:
+        b.row(_btn("🔖 Метки", NAV_MARKERS))
+    for metric in (pinned or [])[:3]:
+        name = (metric.name or "Метрика")[:20]
+        b.row(_btn(name, f"cm:o:{metric.id}"), _btn("➕", f"cm:add:{metric.id}"))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     if is_owner:
@@ -191,8 +231,7 @@ def snus_menu() -> InlineKeyboardMarkup:
 
 def score_kb(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    for score in range(1, 6):
-        b.row(_btn(f"{SCORE_EMOJI[score]} {SCORE_LABELS[score].capitalize()}", f"{prefix}:{score}"))
+    b.row(*[_btn(SCORE_EMOJI[score], f"{prefix}:{score}") for score in range(1, 6)])
     b.row(*nav_row(back))
     return b.as_markup()
 
@@ -244,6 +283,25 @@ def drink_amount_kb(kind: str, drink_type: str, back: str) -> InlineKeyboardMark
         b.row(_btn("1 порция", f"{prefix}:pcs:1"))
     elif drink_type in {"coffee", "tea"}:
         b.row(_btn("1 чашка", f"{prefix}:pcs:1"))
+    return with_nav(b, back)
+
+
+def drink_recent_kb(
+    kind: str,
+    drink_type: str,
+    recents: list[tuple[float, str]],
+    back: str,
+) -> InlineKeyboardMarkup:
+    prefix = "caf:q" if kind == "caf" else "alc:q"
+    b = InlineKeyboardBuilder()
+    for amount, unit in recents:
+        if unit in {"шт", "pcs"}:
+            b.row(_btn(f"{amount:g} шт", f"{prefix}:pcs:{int(amount)}"))
+        else:
+            token = str(int(amount)) if amount == int(amount) else f"{amount:g}"
+            b.row(_btn(f"{amount:g} {unit}", f"{prefix}:{token}"))
+    other = "caf:x:" if kind == "caf" else "alc:x:"
+    b.row(_btn("Другое", f"{other}{drink_type}"))
     return with_nav(b, back)
 
 
@@ -332,6 +390,43 @@ def history_period_kb() -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
+def history_day_kb(
+    rows: list[tuple[str, str]],
+    *,
+    page: int,
+    pages: int,
+    day: date,
+    period_start: date,
+    period_end: date,
+    today: date,
+) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for label, data in rows:
+        b.row(_btn(label[:40], data))
+    nav: list[InlineKeyboardButton] = []
+    prev_day = day - timedelta(days=1)
+    next_day = day + timedelta(days=1)
+    if prev_day >= period_start:
+        left = "‹ вчера" if prev_day == today - timedelta(days=1) else f"‹ {prev_day.strftime('%d.%m')}"
+        nav.append(_btn(left, f"h:d:{prev_day.isoformat()}"))
+    mid = "сегодня" if day == today else day.strftime("%d.%m")
+    nav.append(_btn(mid, "noop"))
+    if next_day <= period_end:
+        right = "завтра ›" if next_day == today + timedelta(days=1) else f"{next_day.strftime('%d.%m')} ›"
+        nav.append(_btn(right, f"h:d:{next_day.isoformat()}"))
+    if nav:
+        b.row(*nav)
+    if pages > 1:
+        prow: list[InlineKeyboardButton] = []
+        if page > 0:
+            prow.append(_btn("«", f"h:p:{page - 1}"))
+        prow.append(_btn(f"{page + 1}/{pages}", "noop"))
+        if page + 1 < pages:
+            prow.append(_btn("»", f"h:p:{page + 1}"))
+        b.row(*prow)
+    return with_nav(b, NAV_HISTORY)
+
+
 def stats_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "stp:today"), _btn("Вчера", "stp:yesterday"))
@@ -340,7 +435,7 @@ def stats_period_kb() -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
-def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
+def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKeyboardMarkup:
     options = [
         ("cigarettes", "🚬 Сигареты"),
         ("fooling", "🤌 Валять дурака"),
@@ -354,6 +449,10 @@ def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
     for key, label in options:
         mark = "☑" if key in selected else "☐"
         b.row(_btn(f"{mark} {label}", f"stm:{key}"))
+    for metric in custom or []:
+        key = f"m{metric.id}"
+        mark = "☑" if key in selected else "☐"
+        b.row(_btn(f"{mark} {metric.name[:24]}", f"stm:{key}"))
     b.row(_btn("📝 Текст", "stv:text"), _btn("📈 График", "stv:chart"))
     return with_nav(b, NAV_STATS)
 
@@ -362,11 +461,71 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
+    b.row(_btn("📋 Кнопки меню", "set:vis"))
+    b.row(_btn("📤 Выгрузить CSV", "set:exp"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
     b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:s"))
     b.row(_btn("📜 Пользовательское соглашение", "lg:t:0:s"))
     b.row(_btn("🗑 Удалить аккаунт", "set:del"))
     return with_nav(b)
+
+
+def menu_types_kb(hidden: set[str]) -> InlineKeyboardMarkup:
+    from services.ui_prefs import HIDEABLE_LABELS, HIDEABLE_TYPES
+
+    b = InlineKeyboardBuilder()
+    for key in HIDEABLE_TYPES:
+        mark = "☐" if key in hidden else "☑"
+        b.row(_btn(f"{mark} {HIDEABLE_LABELS[key]}", f"set:vis:{key}"))
+    return with_nav(b, NAV_SETTINGS)
+
+
+def export_period_kb(back: str = NAV_SETTINGS, *, prefix: str = "exp") -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Сегодня", f"{prefix}:today"), _btn("7 дней", f"{prefix}:7"))
+    b.row(_btn("30 дней", f"{prefix}:30"))
+    return with_nav(b, back)
+
+
+def how_to_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Понятно", "onb:ok"))
+    return b.as_markup()
+
+
+def charts_done_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Другой период", NAV_STATS), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def paid_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Пропустить сумму", "bal:paid:0"))
+    return with_nav(b, NAV_BALANCE)
+
+
+def balance_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Я оплатил", "bal:paid"))
+    return with_nav(b)
+
+
+REPLY_CIG = "Сигарета"
+REPLY_SNUS = "Снюс"
+REPLY_SLEEP = "Сон"
+REPLY_MORE = "Ещё"
+
+
+def reply_main_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=REPLY_CIG), KeyboardButton(text=REPLY_SNUS)],
+            [KeyboardButton(text=REPLY_SLEEP), KeyboardButton(text=REPLY_MORE)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def legal_consent_kb() -> InlineKeyboardMarkup:
@@ -409,13 +568,21 @@ def entry_actions(
     writable: bool,
     *,
     undo: bool = False,
+    from_history: bool = False,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
         delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
         delete_cb = f"un:{kind}:{item_id}" if undo else f"rm:{kind}:{item_id}"
         b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
-    b.row(_btn("📅 История", NAV_HISTORY), _btn("🏠 Меню", NAV_MAIN))
+        if kind in {"cig", "fool"}:
+            b.row(_btn("Ещё одну", f"more:{kind}:{item_id}"))
+        elif kind in {"caf", "alc"}:
+            b.row(_btn("Как тогда", f"more:{kind}:{item_id}"))
+        if kind == "act":
+            b.row(_btn("💬 Коммент", f"act:cmt:{item_id}"))
+    hist = _btn("⬅️ Назад", "h:back") if from_history else _btn("📅 История", NAV_HISTORY)
+    b.row(hist, _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
@@ -541,12 +708,23 @@ def metric_time_kb(back: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def metric_card_kb(metric_id: int, enabled: bool, writable: bool) -> InlineKeyboardMarkup:
+def metric_card_kb(
+    metric_id: int,
+    enabled: bool,
+    writable: bool,
+    *,
+    pinned: bool = False,
+    can_pin: bool = True,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
         b.row(_btn("➕ Записать значение", f"cm:add:{metric_id}"))
         label = "Выключить" if enabled else "Включить"
         b.row(_btn(label, f"cm:tog:{metric_id}"))
+        if pinned:
+            b.row(_btn("📍 Убрать с главной", f"cm:pin:{metric_id}"))
+        elif can_pin:
+            b.row(_btn("📌 На главную", f"cm:pin:{metric_id}"))
     b.row(_btn("⬅️ К метрикам", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
@@ -609,6 +787,7 @@ def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:
     b.row(_btn("➕ Пополнить", f"ad:cr:{telegram_id}"), _btn("➖ Списать", f"ad:db:{telegram_id}"))
     b.row(_btn("🎯 Установить баланс", f"ad:st:{telegram_id}"), _btn("💸 Стоимость/день", f"ad:pr:{telegram_id}"))
     b.row(_btn("📋 Операции", f"ad:op:{telegram_id}"), _btn("📊 Статистика", f"ad:us:{telegram_id}"))
+    b.row(_btn("📤 CSV", f"ad:exp:{telegram_id}"))
     b.row(_btn("🚫 Заблокировать", f"ad:bn:{telegram_id}"), _btn("✅ Разблокировать", f"ad:un:{telegram_id}"))
     b.row(_btn("🔎 Поиск", "ad:search"), _btn("🛠 Админка", NAV_ADMIN))
     b.row(_btn("🏠 Меню", NAV_MAIN))

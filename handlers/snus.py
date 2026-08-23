@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from config import Config
 from database.models import User
@@ -21,7 +21,7 @@ from utils.time import format_dt, parse_iso, to_iso, user_now
 router = Router(name="snus")
 
 
-async def show_snus_menu(cb: CallbackQuery, repo: Repo, user: User) -> None:
+async def show_snus_menu(target: CallbackQuery | Message, repo: Repo, user: User) -> None:
     open_pack = await repo.oldest_open_snus(user.telegram_id)
     open_count = await repo.count_open_snus(user.telegram_id)
     if open_pack and open_pack.bought_at:
@@ -32,8 +32,13 @@ async def show_snus_menu(cb: CallbackQuery, repo: Repo, user: User) -> None:
             extra += f"\nОткрытых шайб: {open_count}"
     else:
         extra = "Открытой шайбы нет. Отметьте покупку, потом — когда закончится."
-    await cb.answer()
-    await safe_edit(cb.message, f"🟢 Снюс\n\n{extra}", snus_menu())
+    text = f"🟢 Снюс\n\n{extra}"
+    markup = snus_menu()
+    if isinstance(target, CallbackQuery):
+        await target.answer()
+        await safe_edit(target.message, text, markup)
+        return
+    await target.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data == "sns:buy")

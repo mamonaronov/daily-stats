@@ -13,6 +13,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import ConfigError, load_config
@@ -256,7 +257,9 @@ async def run() -> None:
         raise SystemExit(1) from exc
 
     repo = Repo(db)
-    storage = MemoryStorage()
+    from database.fsm_storage import SqliteStorage
+
+    storage = SqliteStorage(db)
     dp = Dispatcher(storage=storage)
     scheduler = AsyncIOScheduler(timezone="UTC")
     runtime = RuntimeControl()
@@ -315,6 +318,17 @@ async def run() -> None:
             return
         became_ready = True
         logger.info("Polling started")
+        try:
+            await bot.set_my_commands(
+                [
+                    BotCommand(command="start", description="Регистрация и вход"),
+                    BotCommand(command="menu", description="Главный экран"),
+                    BotCommand(command="today", description="Сводка дня"),
+                    BotCommand(command="stats", description="Статистика"),
+                ]
+            )
+        except Exception:
+            logger.exception("Failed to set bot commands")
         try:
             await notify_owner_lifecycle(bot, repo, config, started=True)
         except Exception:

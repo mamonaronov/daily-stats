@@ -109,6 +109,16 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        notices_job,
+        "interval",
+        hours=6,
+        id="coverage_notices",
+        replace_existing=True,
+        kwargs={"repo": repo, "bot": bot, "config": config},
+        max_instances=1,
+        coalesce=True,
+    )
     if config.vpn_monitor_enabled:
         from services.vpn_monitor import VpnMonitor, make_probe_bot
 
@@ -231,6 +241,17 @@ async def cleanup_job(repo: Repo) -> None:
         await repo.cleanup_callbacks(to_iso(threshold))
     except Exception:
         logger.exception("Callback cleanup failed")
+
+
+async def notices_job(repo: Repo, bot: Bot, config: Config) -> None:
+    if _skip_if_draining():
+        return
+    try:
+        from services.notices import send_coverage_notices
+
+        await send_coverage_notices(repo, bot, config)
+    except Exception:
+        logger.exception("Coverage notices failed")
 
 
 def vpn_monitor_job_timeout(monitor) -> float:

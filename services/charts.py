@@ -277,11 +277,15 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
     if "alcohol" in selected:
         charts.append(_drink_chart("Алкоголь", "Алкоголь по дням", user, data["alcohol"], days, labels, overlay))
 
-    numeric_custom = [v for v in data["custom"] if v.value_number is not None]
-    grouped: dict[str, list] = defaultdict(list)
+    wanted = {int(key[1:]) for key in selected if key.startswith("m") and key[1:].isdigit()}
+    numeric_custom = [
+        v for v in data["custom"] if v.value_number is not None and v.metric_id in wanted
+    ]
+    grouped: dict[int, list] = defaultdict(list)
     for item in numeric_custom:
-        grouped[item.metric_name or "метрика"].append(item)
-    for name, items in grouped.items():
+        grouped[item.metric_id].append(item)
+    for metric_id, items in grouped.items():
+        name = items[0].metric_name or "метрика"
         series = {d: 0.0 for d in days}
         buckets: dict[date, list[float]] = defaultdict(list)
         for item in items:

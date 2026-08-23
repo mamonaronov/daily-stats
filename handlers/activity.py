@@ -14,7 +14,7 @@ from handlers.history import show_saved_entry
 from keyboards.main import activity_duration_kb, skip_comment_kb, when_kb
 from services import entries
 from states.diary import ActivitySG
-from utils.callbacks import ENTRY_ACT
+from utils.callbacks import ENTRY_ACT, NAV_MAIN
 from utils.telegram import safe_edit
 from utils.time import parse_minutes_ago, user_now
 
@@ -48,10 +48,9 @@ async def act_duration_pick(cb: CallbackQuery, state: FSMContext, db_user: User 
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    await state.update_data(duration=int(cb.data.split(":")[2]))
-    await state.set_state(ActivitySG.comment)
+    await state.update_data(duration=int(cb.data.split(":")[2]), comment=None)
     await cb.answer()
-    await safe_edit(cb.message, "Комментарий? Можно пропустить.", skip_comment_kb(ENTRY_ACT))
+    await safe_edit(cb.message, "Когда была активность?", when_kb("actt"))
 
 
 @router.message(ActivitySG.duration)
@@ -67,14 +66,18 @@ async def act_duration(message: Message, state: FSMContext, db_user: User | None
             reply_markup=activity_duration_kb(ENTRY_ACT),
         )
         return
-    await state.update_data(duration=duration)
-    await state.set_state(ActivitySG.comment)
-    await message.answer("Комментарий? Можно пропустить.", reply_markup=skip_comment_kb(ENTRY_ACT))
+    await state.update_data(duration=duration, comment=None)
+    await message.answer("Когда была активность?", reply_markup=when_kb("actt"))
 
 
 @router.callback_query(F.data == "wb:skip", ActivitySG.comment)
-async def act_skip(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(cb, db_user) is None:
+async def act_skip(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if data.get("act_comment_id"):
+        await show_saved_entry(cb, repo, user, "act", int(data["act_comment_id"]), state)
         return
     await state.update_data(comment=None)
     await cb.answer()
@@ -82,10 +85,17 @@ async def act_skip(cb: CallbackQuery, state: FSMContext, db_user: User | None) -
 
 
 @router.message(ActivitySG.comment)
-async def act_comment(message: Message, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(message, db_user) is None:
+async def act_comment(message: Message, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(message, db_user)
+    if user is None:
         return
-    await state.update_data(comment=(message.text or "").strip() or None)
+    data = await state.get_data()
+    comment = (message.text or "").strip() or None
+    if data.get("act_comment_id"):
+        await repo.update_activity(int(data["act_comment_id"]), user.telegram_id, comment=comment)
+        await show_saved_entry(message, repo, user, "act", int(data["act_comment_id"]), state)
+        return
+    await state.update_data(comment=comment)
     await message.answer("Когда была активность?", reply_markup=when_kb("actt"))
 
 
@@ -133,3 +143,14 @@ async def act_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -
             "comment": data.get("comment"),
         },
     )
+
+
+@router.callback_query(F.data.startswith("act:cmt:"))
+async def act_comment_start(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await state.set_state(ActivitySG.comment)
+    await state.update_data(act_comment_id=int(cb.data.split(":")[2]))
+    await cb.answer()
+    await safe_edit(cb.message, "Комментарий к активности:", skip_comment_kb(NAV_MAIN))

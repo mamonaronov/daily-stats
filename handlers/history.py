@@ -14,14 +14,13 @@ from database.models import User
 from database.queries import Repo
 from handlers.common import require_active, start_time_pick
 from keyboards.main import (
-    _btn,
     calendar_kb,
     confirm_remove_kb,
     entry_actions,
+    history_day_kb,
     history_period_kb,
-    with_nav,
 )
-from services.history import build_timeline, format_timeline
+from services.history import build_timeline, format_timeline, paginate
 from services.users import can_write
 from states.diary import HistorySG, TimePickSG
 from utils.callbacks import NAV_HISTORY
@@ -49,24 +48,45 @@ KIND_MAP = {
 }
 
 
-async def _show_day(cb: CallbackQuery, repo: Repo, user: User, start: date, end: date) -> None:
-    items = await build_timeline(repo, user, start, end)
-    text = format_timeline(user, start, items)
-    if start != end:
-        from utils.time import format_date_long
-
-        text = format_timeline(user, start, items).replace(
-            format_date_long(start),
-            f"{format_date_long(start)} — {format_date_long(end)}",
-            1,
-        )
-    b = InlineKeyboardBuilder()
-    for item in items[:20]:
-        kind = KIND_MAP.get(item.kind, item.kind)
-        label = f"{item.title}"
-        b.row(_btn(label[:40], f"h:o:{kind}:{item.id}"))
+async def _show_day(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    day: date,
+    period_start: date,
+    period_end: date,
+    page: int = 0,
+) -> None:
+    items = await build_timeline(repo, user, day, day)
+    page_items, page, pages = paginate(items, page)
+    text = format_timeline(user, day, page_items)
+    if pages > 1:
+        text += f"\n\n{page + 1}/{pages} · всего {len(items)}"
+    rows = [
+        (item.title, f"h:o:{KIND_MAP.get(item.kind, item.kind)}:{item.id}")
+        for item in page_items
+    ]
+    await state.update_data(
+        hist_day=day.isoformat(),
+        hist_from=period_start.isoformat(),
+        hist_to=period_end.isoformat(),
+        hist_page=page,
+    )
     await cb.answer()
-    await safe_edit(cb.message, text, with_nav(b, NAV_HISTORY))
+    await safe_edit(
+        cb.message,
+        text,
+        history_day_kb(
+            rows,
+            page=page,
+            pages=pages,
+            day=day,
+            period_start=period_start,
+            period_end=period_end,
+            today=user_today(user.timezone),
+        ),
+    )
 
 
 @router.callback_query(F.data == NAV_HISTORY)
@@ -80,21 +100,21 @@ async def history_root(cb: CallbackQuery, state: FSMContext, db_user: User | Non
 
 
 @router.callback_query(F.data == "hist:today")
-async def hist_today(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+async def hist_today(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
     today = user_today(user.timezone)
-    await _show_day(cb, repo, user, today, today)
+    await _show_day(cb, state, repo, user, today, today, today)
 
 
 @router.callback_query(F.data == "hist:yesterday")
-async def hist_yesterday(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+async def hist_yesterday(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
     day = add_days(user_today(user.timezone), -1)
-    await _show_day(cb, repo, user, day, day)
+    await _show_day(cb, state, repo, user, day, day, day)
 
 
 @router.callback_query(F.data == "hist:date")
@@ -153,8 +173,8 @@ async def hist_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     end = day
     if end < start:
         start, end = end, start
-    await state.clear()
-    await _show_day(cb, repo, user, start, end)
+    await state.set_state(None)
+    await _show_day(cb, state, repo, user, end, start, end)
 
 
 @router.callback_query(F.data.startswith("hcal:"), HistorySG.range_end)
@@ -162,14 +182,25 @@ async def hist_got_end(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
     await hist_got_date(cb, state, repo, db_user)
 
 
-async def _entry_markup(repo: Repo, user: User, kind: str, item_id: int, *, undo: bool = False):
+async def _entry_markup(
+    repo: Repo,
+    user: User,
+    kind: str,
+    item_id: int,
+    *,
+    undo: bool = False,
+    from_history: bool = False,
+):
     if kind == "mk":
         from keyboards.main import marker_card_kb
 
         rec = await repo.get_marker(item_id, user.telegram_id)
         period_id = rec.period_id if rec else None
         return marker_card_kb(item_id, can_write(user), period_id=period_id, undo=undo)
-    return entry_actions(kind, item_id, can_write(user), undo=undo)
+    return entry_actions(kind, item_id, can_write(user), undo=undo, from_history=from_history)
+
+
+_HIST_KEYS = ("hist_day", "hist_from", "hist_to", "hist_page")
 
 
 async def show_saved_entry(
@@ -182,20 +213,93 @@ async def show_saved_entry(
     *,
     toast: str = "Записано",
     heading: str = "✅ Записано",
+    keep_history: bool = False,
 ) -> None:
+    kept: dict = {}
     if state:
+        if keep_history:
+            data = await state.get_data()
+            kept = {key: data[key] for key in _HIST_KEYS if key in data}
         await state.clear()
+        if kept:
+            await state.update_data(**kept)
     if not item_id:
         text = heading
         markup = None
     else:
         text = await entry_text(repo, user, kind, item_id, heading=heading)
-        markup = await _entry_markup(repo, user, kind, item_id, undo=True)
+        markup = await _entry_markup(repo, user, kind, item_id, undo=True, from_history=keep_history)
     if isinstance(event, CallbackQuery):
         await event.answer(toast)
         await safe_edit(event.message, text, markup)
         return
     await event.answer(text, reply_markup=markup)
+
+
+@router.callback_query(F.data.startswith("h:p:"))
+async def hist_page(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if not data.get("hist_day"):
+        await cb.answer()
+        return
+    page = int(cb.data.split(":")[2])
+    day = date.fromisoformat(data["hist_day"])
+    await _show_day(
+        cb,
+        state,
+        repo,
+        user,
+        day,
+        date.fromisoformat(data["hist_from"]),
+        date.fromisoformat(data["hist_to"]),
+        page,
+    )
+
+
+@router.callback_query(F.data.startswith("h:d:"))
+async def hist_neighbor(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if not data.get("hist_from"):
+        await cb.answer()
+        return
+    day = date.fromisoformat(cb.data.split(":", 2)[2])
+    await _show_day(
+        cb,
+        state,
+        repo,
+        user,
+        day,
+        date.fromisoformat(data["hist_from"]),
+        date.fromisoformat(data["hist_to"]),
+        0,
+    )
+
+
+@router.callback_query(F.data == "h:back")
+async def hist_back(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if not data.get("hist_day"):
+        await history_root(cb, state, db_user)
+        return
+    await _show_day(
+        cb,
+        state,
+        repo,
+        user,
+        date.fromisoformat(data["hist_day"]),
+        date.fromisoformat(data["hist_from"]),
+        date.fromisoformat(data["hist_to"]),
+        int(data.get("hist_page") or 0),
+    )
 
 
 @router.callback_query(F.data.startswith("h:o:"))
@@ -215,7 +319,7 @@ async def hist_open(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None
         _, _, kind, raw_id = parts
         item_id = int(raw_id)
         text = await entry_text(repo, user, kind, item_id)
-        markup = await _entry_markup(repo, user, kind, item_id)
+        markup = await _entry_markup(repo, user, kind, item_id, from_history=True)
     await cb.answer()
     await safe_edit(cb.message, text, markup)
 

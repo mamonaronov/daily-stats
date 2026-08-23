@@ -463,6 +463,18 @@ def marker_stats(user: User, markers, periods) -> str:
     return "\n".join(lines)
 
 
+def _custom_metric_stats(items: list) -> str:
+    if not items:
+        return "📌 Нет данных по выбранной метрике."
+    name = items[0].metric_name or "Метрика"
+    numbers = [item.value_number for item in items if item.value_number is not None]
+    lines = [f"📌 <b>{name}</b>", f"Записей: {len(items)}"]
+    if numbers:
+        lines.append(f"Среднее: {mean(numbers):g}")
+        lines.append(f"Мин: {min(numbers):g} · Макс: {max(numbers):g}")
+    return "\n".join(lines)
+
+
 async def render_stats(repo: Repo, user: User, start: date, end: date, selected: list[str]) -> str:
     data = await load_period(repo, user, start, end)
     parts = [f"📊 <b>Статистика</b>\n{format_date(start)} — {format_date(end)}"]
@@ -484,6 +496,16 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         )
     if "activity" in selected:
         parts.append(activity_stats(user, data["activity"], start, end))
+    custom_ids = [int(key[1:]) for key in selected if key.startswith("m") and key[1:].isdigit()]
+    if custom_ids:
+        from collections import defaultdict as _dd
+
+        by_id: dict[int, list] = _dd(list)
+        for value in data["custom"]:
+            if value.metric_id in custom_ids:
+                by_id[value.metric_id].append(value)
+        for metric_id in custom_ids:
+            parts.append(_custom_metric_stats(by_id.get(metric_id, [])))
     marker_block = marker_stats(user, data["markers"], data["periods"])
     if marker_block:
         parts.append(marker_block)

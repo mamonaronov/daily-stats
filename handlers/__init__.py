@@ -19,6 +19,7 @@ from handlers import (
     legal,
     markers,
     menu,
+    quick,
     settings,
     sleep,
     snus,
@@ -50,4 +51,5 @@ def setup_routers() -> Router:
     root.include_router(statistics.router)
     root.include_router(settings.router)
     root.include_router(custom_metrics.router)
+    root.include_router(quick.router)
     return root

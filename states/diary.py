@@ -79,3 +79,7 @@ class AdminSG(StatesGroup):
     restore_confirm = State()
     restore_disk = State()
     broadcast = State()
+
+
+class PaidSG(StatesGroup):
+    amount = State()

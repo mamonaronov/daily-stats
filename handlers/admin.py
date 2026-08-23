@@ -295,6 +295,51 @@ async def admin_user(cb: CallbackQuery, state: FSMContext, config: Config, repo:
     await _send_card(cb, repo, user)
 
 
+@router.callback_query(F.data.startswith("ad:exp:"))
+async def admin_export_root(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    telegram_id = int(cb.data.split(":")[2])
+    user = await repo.get_user(telegram_id)
+    if user is None:
+        await cb.answer("Пользователь не найден", show_alert=True)
+        return
+    from keyboards.main import export_period_kb
+
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        f"CSV для {user.display_name}:",
+        export_period_kb(f"ad:u:{telegram_id}", prefix=f"adx:{telegram_id}"),
+    )
+
+
+@router.callback_query(F.data.startswith("adx:"))
+async def admin_export_send(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    _, raw_id, token = cb.data.split(":", 2)
+    telegram_id = int(raw_id)
+    user = await repo.get_user(telegram_id)
+    if user is None:
+        await cb.answer("Пользователь не найден", show_alert=True)
+        return
+    from services.export import export_user_csv
+    from utils.telegram import text_file
+    from utils.time import add_days, user_today
+
+    today = user_today(user.timezone)
+    if token == "today":
+        start = end = today
+    elif token == "7":
+        start, end = add_days(today, -6), today
+    else:
+        start, end = add_days(today, -29), today
+    filename, body = await export_user_csv(repo, user, start, end)
+    await cb.answer()
+    await cb.message.answer_document(text_file(body, filename), caption=f"Выгрузка {user.display_name}")
+
+
 async def _ask_amount(cb: CallbackQuery, state: FSMContext, config: Config, action: str, telegram_id: int) -> None:
     if not await _owner(cb, config):
         return

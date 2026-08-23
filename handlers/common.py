@@ -13,7 +13,7 @@ from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
 
-TZ_PROMPT = "Выберите часовой пояс. Он нужен для статистики, границ дня и напоминаний."
+TZ_PROMPT = "Выберите часовой пояс. Он нужен для статистики и границ дня."
 TZ_RESTORE_PROMPT = (
     "Аккаунт был удалён. Данные сохранены.\n\n"
     "Продолжая, вы подтверждаете Пользовательское соглашение и Политику конфиденциальности "
@@ -30,15 +30,25 @@ LEGAL_PROMPT = (
 )
 
 
-def menu_text(user: User, config: Config) -> str:
+HOW_TO = (
+    "Как писать день\n\n"
+    "• отметьте привычку, когда случилась\n"
+    "• вечером закройте сон\n"
+    "• статистика копится сама"
+)
+
+
+def menu_text(user: User, config: Config, today_block: str | None = None) -> str:
     write_ok = "доступны" if can_write(user) else "временно недоступны"
-    return (
+    text = (
         f"📓 <b>Дневник</b>\n\n"
         f"Привет, {user.display_name}!\n"
         f"💰 Баланс: {money(user.balance)} · {money(user.daily_price)}/день · {balance_runway(user)}\n"
-        f"Новые записи: {write_ok}\n\n"
-        f"Выберите действие:"
+        f"Новые записи: {write_ok}"
     )
+    if today_block:
+        text += f"\n\n{today_block}"
+    return text + "\n\nВыберите действие:"
 
 
 def start_payload(
@@ -64,16 +74,38 @@ async def show_main(
     is_owner: bool,
     state: FSMContext | None = None,
     repo: Repo | None = None,
+    *,
+    attach_reply: bool = False,
 ) -> None:
     if state:
         await state.clear()
     sleep = await repo.latest_sleep(user.telegram_id) if repo is not None else None
-    text, markup = start_payload(user, config, is_owner, sleep)
+    today_block = None
+    hidden: set[str] = set()
+    pinned: list = []
+    if repo is not None:
+        from services.today import today_block as today_text
+        from services.ui_prefs import MAX_PINS, prefs_of
+
+        today_block = await today_text(repo, user)
+        hidden = prefs_of(user).hidden
+        metrics = await repo.list_metrics(user.telegram_id, enabled_only=True)
+        pinned = [item for item in metrics if item.pinned][:MAX_PINS]
+    text = menu_text(user, config, today_block)
+    markup = main_menu(user, is_owner, sleep, hidden=hidden, pinned=pinned)
+    if attach_reply:
+        from keyboards.main import reply_main_kb
+
+        hint = "Быстрый ввод: Сигарета · Снюс · Сон · Ещё"
+        if isinstance(target, CallbackQuery):
+            await target.message.answer(hint, reply_markup=reply_main_kb())
+        else:
+            await target.answer(hint, reply_markup=reply_main_kb())
     if isinstance(target, CallbackQuery):
         await target.answer()
         await safe_edit(target.message, text, markup)
-    else:
-        await target.answer(text, reply_markup=markup)
+        return
+    await target.answer(text, reply_markup=markup)
 
 
 async def require_active(event: CallbackQuery | Message, user: User | None) -> User | None:

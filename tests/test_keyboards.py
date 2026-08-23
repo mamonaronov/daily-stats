@@ -322,3 +322,91 @@ def test_admin_period_kb_has_all_time():
     pairs = _pairs(admin_period_kb())
     assert ("Сегодня", "ads:today") in pairs
     assert ("Всё время", "ads:all") in pairs
+
+def test_score_kb_is_one_row():
+    from utils.formatting import SCORE_EMOJI
+
+    markup = score_kb("md")
+    assert len(markup.inline_keyboard[0]) == 5
+    assert [btn.callback_data for btn in markup.inline_keyboard[0]] == [f"md:{n}" for n in range(1, 6)]
+    assert [btn.text for btn in markup.inline_keyboard[0]] == [SCORE_EMOJI[n] for n in range(1, 6)]
+
+
+def test_main_menu_collapses_idle_sleep_and_hides_types():
+    from utils.callbacks import ENTRY_SLEEP
+
+    pairs = _pairs(main_menu(SimpleNamespace(), False))
+    assert ("😴 Сон", ENTRY_SLEEP) in pairs
+    assert "slp:wake" not in {cb for _, cb in pairs}
+    hidden = _pairs(main_menu(SimpleNamespace(), False, hidden={"caffeine", "alcohol", "fooling", "snus"}))
+    texts = {t for t, _ in hidden}
+    assert "☕ Кофеин" not in texts
+    assert "🍺 Алкоголь" not in texts
+    assert "🤌 Валять дурака" not in texts
+    assert "🟢 Снюс" not in texts
+    assert "🚬 Сигарета" in texts
+    assert "😴 Сон" in texts
+
+
+def test_main_menu_shows_pinned_metric():
+    metric = SimpleNamespace(id=9, name="Вода")
+    pairs = _pairs(main_menu(SimpleNamespace(), False, pinned=[metric]))
+    assert ("Вода", "cm:o:9") in pairs
+    assert ("➕", "cm:add:9") in pairs
+
+
+def test_entry_actions_repeat_and_history_back():
+    from keyboards.main import entry_actions
+
+    cig = dict(_pairs(entry_actions("cig", 4, True, undo=True)))
+    assert cig["Ещё одну"] == "more:cig:4"
+    assert cig["🏠 Меню"] == NAV_MAIN
+    caf = dict(_pairs(entry_actions("caf", 2, True, undo=True)))
+    assert caf["Как тогда"] == "more:caf:2"
+    hist = dict(_pairs(entry_actions("cig", 4, True, from_history=True)))
+    assert hist["⬅️ Назад"] == "h:back"
+
+
+def test_history_day_kb_paginates_and_neighbors():
+    from datetime import date
+    from keyboards.main import history_day_kb
+
+    today = date(2026, 8, 23)
+    markup = history_day_kb(
+        [("🚬 12:00", "h:o:cig:1")],
+        page=1,
+        pages=3,
+        day=today,
+        period_start=date(2026, 8, 22),
+        period_end=date(2026, 8, 24),
+        today=today,
+    )
+    pairs = dict(_pairs(markup))
+    assert pairs["‹ вчера"] == "h:d:2026-08-22"
+    assert pairs["сегодня"] == "noop"
+    assert pairs["завтра ›"] == "h:d:2026-08-24"
+    assert pairs["«"] == "h:p:0"
+    assert pairs["2/3"] == "noop"
+    assert pairs["»"] == "h:p:2"
+
+
+def test_stats_metrics_kb_includes_custom():
+    from keyboards.main import stats_metrics_kb
+
+    metric = SimpleNamespace(id=5, name="Вода")
+    pairs = dict(_pairs(stats_metrics_kb({"cigarettes", "m5"}, [metric])))
+    assert "☑ 🚬 Сигареты" in pairs
+    assert pairs["☑ Вода"] == "stm:m5"
+
+
+def test_reply_and_followup_keyboards():
+    from keyboards.main import charts_done_kb, how_to_kb, reply_main_kb
+    from utils.callbacks import NAV_STATS
+
+    reply = reply_main_kb()
+    labels = [btn.text for row in reply.keyboard for btn in row]
+    assert labels == ["Сигарета", "Снюс", "Сон", "Ещё"]
+    assert dict(_pairs(how_to_kb()))["Понятно"] == "onb:ok"
+    done = dict(_pairs(charts_done_kb()))
+    assert done["Другой период"] == NAV_STATS
+    assert done["🏠 Меню"] == NAV_MAIN
