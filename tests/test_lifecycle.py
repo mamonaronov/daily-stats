@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from database.database import Database
 from database.models import User
 from database.queries import Repo
-from handlers.common import BANNED_TEXT, TZ_PROMPT, TZ_RESTORE_PROMPT, menu_text, start_payload
+from handlers.common import BANNED_TEXT, LEGAL_PROMPT, TZ_RESTORE_PROMPT, menu_text, start_payload
 from services.alerts import (
     BOT_STARTED_TEXT,
     BOT_STOPPED_TEXT,
@@ -55,8 +55,10 @@ def test_start_payload_active_owner(tmp_path):
 
 def test_start_payload_unregistered(tmp_path):
     text, markup = start_payload(None, make_config(tmp_path), True)
-    assert text == TZ_PROMPT
-    assert any(btn.callback_data.startswith("tz:") for row in markup.inline_keyboard for btn in row)
+    assert text == LEGAL_PROMPT
+    assert any(btn.callback_data == "lg:ok" for row in markup.inline_keyboard for btn in row)
+    assert any(btn.callback_data == "lg:p:0:c" for row in markup.inline_keyboard for btn in row)
+    assert any(btn.callback_data == "lg:t:0:c" for row in markup.inline_keyboard for btn in row)
 
 
 def test_start_payload_deleted_and_banned(tmp_path):

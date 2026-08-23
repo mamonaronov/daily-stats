@@ -58,8 +58,12 @@ async def cmd_start(message: Message, state: FSMContext, repo: Repo, config: Con
         await show_main(message, db_user, config, is_owner, state, repo)
         return
     text, markup = start_payload(db_user, config, is_owner)
-    if not (db_user and db_user.is_banned):
+    if db_user and db_user.is_banned:
+        pass
+    elif db_user and db_user.is_deleted:
         await state.set_state(RegisterSG.timezone)
+    else:
+        await state.set_state(RegisterSG.consent)
     await message.answer(text, reply_markup=markup)
 
 

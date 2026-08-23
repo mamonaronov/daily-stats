@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from config import Config
 from database.models import SleepRecord, User
 from database.queries import Repo
-from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu, timezone_kb, when_kb
+from keyboards.main import back_kb, calendar_kb, hours_kb, legal_consent_kb, main_menu, timezone_kb, when_kb
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
@@ -16,9 +16,18 @@ from utils.telegram import safe_edit
 TZ_PROMPT = "Выберите часовой пояс. Он нужен для статистики, границ дня и напоминаний."
 TZ_RESTORE_PROMPT = (
     "Аккаунт был удалён. Данные сохранены.\n\n"
+    "Продолжая, вы подтверждаете Пользовательское соглашение и Политику конфиденциальности "
+    "(их можно снова открыть в Настройках).\n\n"
     "Выберите часовой пояс, чтобы восстановить доступ."
 )
 BANNED_TEXT = "Доступ ограничен. Напишите владельцу сервиса."
+LEGAL_PROMPT = (
+    "📓 <b>Daily Stats</b> — персональный дневник привычек в Telegram.\n\n"
+    "Перед регистрацией прочитайте документы. Нажимая «Принимаю», вы соглашаетесь "
+    "с Пользовательским соглашением и даёте согласие на обработку персональных данных "
+    "по Политике конфиденциальности.\n\n"
+    "Дальше нужно выбрать часовой пояс."
+)
 
 
 def menu_text(user: User, config: Config) -> str:
@@ -43,8 +52,9 @@ def start_payload(
         return BANNED_TEXT, None
     if user and user.is_active:
         return menu_text(user, config), main_menu(user, is_owner, sleep)
-    prompt = TZ_RESTORE_PROMPT if user and user.is_deleted else TZ_PROMPT
-    return prompt, timezone_kb()
+    if user and user.is_deleted:
+        return TZ_RESTORE_PROMPT, timezone_kb()
+    return LEGAL_PROMPT, legal_consent_kb()
 
 
 async def show_main(

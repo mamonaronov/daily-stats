@@ -363,8 +363,37 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
+    b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:s"))
+    b.row(_btn("📜 Пользовательское соглашение", "lg:t:0:s"))
     b.row(_btn("🗑 Удалить аккаунт", "set:del"))
     return with_nav(b)
+
+
+def legal_consent_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:c"))
+    b.row(_btn("📜 Пользовательское соглашение", "lg:t:0:c"))
+    b.row(_btn("✅ Принимаю", "lg:ok"))
+    return b.as_markup()
+
+
+def legal_page_kb(doc_token: str, page: int, pages: int, origin: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_btn("«", f"lg:{doc_token}:{page - 1}:{origin}"))
+    if pages > 1:
+        nav.append(_btn(f"{page + 1}/{pages}", "noop"))
+    if page + 1 < pages:
+        nav.append(_btn("»", f"lg:{doc_token}:{page + 1}:{origin}"))
+    if nav:
+        b.row(*nav)
+    if origin == "c":
+        b.row(_btn("⬅️ Назад", "lg:home"))
+        b.row(_btn("✅ Принимаю", "lg:ok"))
+    else:
+        b.row(*nav_row(NAV_SETTINGS))
+    return b.as_markup()
 
 
 def confirm_delete_kb() -> InlineKeyboardMarkup:

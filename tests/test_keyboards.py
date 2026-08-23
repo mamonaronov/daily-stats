@@ -11,6 +11,8 @@ from keyboards.main import (
     custom_metrics_kb,
     drink_amount_kb,
     hours_kb,
+    legal_consent_kb,
+    legal_page_kb,
     main_menu,
     marker_card_kb,
     marker_name_kb,
@@ -24,6 +26,7 @@ from keyboards.main import (
     minutes_kb,
     now_or_time,
     score_kb,
+    settings_kb,
     skip_comment_kb,
     sleep_row,
     spam_alert_kb,
@@ -112,6 +115,35 @@ def test_score_first_step_is_menu_not_cancel():
     assert ("🏠 Меню", NAV_MAIN) in pairs
     assert all(text != "✖️ Отмена" for text, _ in pairs)
     assert all(text != "⬅️ Назад" for text, _ in pairs)
+
+
+def test_legal_consent_kb_has_docs_and_accept():
+    pairs = _pairs(legal_consent_kb())
+    assert ("📄 Политика конфиденциальности", "lg:p:0:c") in pairs
+    assert ("📜 Пользовательское соглашение", "lg:t:0:c") in pairs
+    assert ("✅ Принимаю", "lg:ok") in pairs
+    assert all(data != NAV_MAIN for _, data in pairs)
+
+
+def test_legal_page_kb_paginates_and_returns():
+    consent = dict(_pairs(legal_page_kb("p", 1, 3, "c")))
+    assert consent["«"] == "lg:p:0:c"
+    assert consent["2/3"] == "noop"
+    assert consent["»"] == "lg:p:2:c"
+    assert consent["⬅️ Назад"] == "lg:home"
+    assert consent["✅ Принимаю"] == "lg:ok"
+    settings = dict(_pairs(legal_page_kb("t", 0, 1, "s")))
+    assert settings["⬅️ Назад"] == NAV_SETTINGS
+    assert settings["🏠 Меню"] == NAV_MAIN
+    assert "✅ Принимаю" not in settings
+
+
+def test_settings_kb_includes_legal_docs():
+    user = SimpleNamespace(timezone="Europe/Moscow", default_sleep_time="23:00")
+    pairs = _pairs(settings_kb(user))
+    assert ("📄 Политика конфиденциальности", "lg:p:0:s") in pairs
+    assert ("📜 Пользовательское соглашение", "lg:t:0:s") in pairs
+    assert ("🗑 Удалить аккаунт", "set:del") in pairs
 
 
 def test_timezone_registration_has_no_menu_cancel():

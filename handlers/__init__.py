@@ -16,6 +16,7 @@ from handlers import (
     custom_metrics,
     fooling,
     history,
+    legal,
     markers,
     menu,
     settings,
@@ -30,6 +31,7 @@ from handlers import (
 def setup_routers() -> Router:
     root = Router(name="root")
     root.include_router(start.router)
+    root.include_router(legal.router)
     root.include_router(menu.router)
     root.include_router(admin.router)
     root.include_router(admin_deploy.router)

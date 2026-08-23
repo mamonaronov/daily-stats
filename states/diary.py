@@ -6,6 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class RegisterSG(StatesGroup):
+    consent = State()
     timezone = State()
     timezone_custom = State()
 
