@@ -189,6 +189,8 @@ async def test_graceful_shutdown_reports_telegram_send_reason(tmp_path, monkeypa
         raise RuntimeError("file is too big")
 
     monkeypatch.setattr("services.telegram_backup.send_telegram_backup", fail_send)
+    await db._set_system("telegram_backup_chat_id", "-100123")
+    await db._set_system("telegram_backup_chat_title", "Backups")
 
     class Session:
         def __init__(self) -> None:

@@ -8,8 +8,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from aiogram import Bot, F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, FSInputFile
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import Config
@@ -22,13 +23,22 @@ from keyboards.main import (
     admin_restore_confirm_kb,
     cancel_kb,
 )
+from services.alerts import notify_owner
 from services.jobs import reschedule_telegram_backup
 from services.telegram_backup import (
     TELEGRAM_DOCUMENT_LIMIT,
     TelegramBackupError,
+    backup_group_bound_text,
+    backup_group_membership_action,
+    backup_group_unbound_text,
+    clear_telegram_backup_chat,
     format_backups_panel,
+    is_backup_group_chat,
     last_telegram_backup_at,
+    membership_in_chat,
     send_telegram_backup,
+    set_telegram_backup_chat,
+    telegram_backup_chat,
 )
 from services.telegram_restore import (
     TELEGRAM_DOWNLOAD_LIMIT,
@@ -68,13 +78,38 @@ async def _backups_text(repo: Repo, config) -> str:
             last_disk_at = parse_iso(raw)
         except ValueError:
             last_disk_at = None
+    group_id, group_title = await telegram_backup_chat(repo.db)
     return format_backups_panel(
         last_sent=last_tg,
-        interval_hours=config.telegram_backup_interval_hours,
+        interval_minutes=config.telegram_backup_interval_minutes,
         disk_count=len(files),
         latest_disk=files[0].name if files else None,
         last_disk_at=last_disk_at,
+        group_id=group_id,
+        group_title=group_title,
     )
+
+
+def _is_owner_user(user, config: Config) -> bool:
+    return user is not None and user.id == config.owner_id
+
+
+async def _bind_backup_group(
+    repo: Repo,
+    config: Config,
+    bot: Bot,
+    scheduler: AsyncIOScheduler | None,
+    chat_id: int,
+    title: str | None,
+) -> str:
+    await set_telegram_backup_chat(repo.db, chat_id, title)
+    last = await last_telegram_backup_at(repo.db)
+    if scheduler is not None:
+        try:
+            reschedule_telegram_backup(scheduler, bot, repo.db, config, last)
+        except Exception:
+            logger.exception("Failed to reschedule telegram backup after group bind")
+    return backup_group_bound_text(title, config.telegram_backup_interval_minutes)
 
 
 async def _show_backups(cb: CallbackQuery, repo: Repo, config: Config) -> None:
@@ -90,6 +125,59 @@ def _disk_index(data: str | None, prefix: str) -> int | None:
     except ValueError:
         return None
     return index if index >= 0 else None
+
+
+@router.my_chat_member()
+async def backup_chat_member_update(
+    event: ChatMemberUpdated,
+    config: Config,
+    repo: Repo,
+    bot: Bot,
+    scheduler: AsyncIOScheduler | None,
+) -> None:
+    stored_id, stored_title = await telegram_backup_chat(repo.db)
+    action = backup_group_membership_action(
+        event.chat.type,
+        chat_id=event.chat.id,
+        stored_id=stored_id,
+        old_in=membership_in_chat(event.old_chat_member),
+        new_in=membership_in_chat(event.new_chat_member),
+        actor_is_owner=_is_owner_user(event.from_user, config),
+    )
+    if action == "bind":
+        text = await _bind_backup_group(
+            repo, config, bot, scheduler, event.chat.id, event.chat.title
+        )
+        try:
+            await event.answer(text)
+        except Exception:
+            logger.exception("Failed to announce backup group bind in %s", event.chat.id)
+        return
+    if action == "unbind":
+        await clear_telegram_backup_chat(repo.db)
+        await notify_owner(bot, config, backup_group_unbound_text(stored_title or event.chat.title))
+
+
+@router.message(Command("backup_here"))
+async def backup_here(
+    message: Message,
+    config: Config,
+    repo: Repo,
+    bot: Bot,
+    scheduler: AsyncIOScheduler | None,
+) -> None:
+    if not _is_owner_user(message.from_user, config):
+        return
+    chat = message.chat
+    if chat is None or not is_backup_group_chat(chat.type):
+        await message.answer(
+            "Добавьте бота в группу и напишите там /backup_here — "
+            "автоматические бэкапы будут уходить в эту группу. "
+            "В личку архив приходит только по кнопке в админке."
+        )
+        return
+    text = await _bind_backup_group(repo, config, bot, scheduler, chat.id, chat.title)
+    await message.answer(text)
 
 
 @router.callback_query(F.data == "ad:bk")
@@ -114,8 +202,9 @@ async def backups_send_now(
     if not await _owner(cb, config):
         return
     await cb.answer("Собираю архив")
+    dest = cb.message.chat.id if cb.message and cb.message.chat else config.owner_id
     try:
-        await send_telegram_backup(repo.db, bot, config, silent=False)
+        await send_telegram_backup(repo.db, bot, config, silent=False, chat_id=dest)
     except TelegramBackupError as exc:
         await safe_edit(
             cb.message,

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import FSInputFile
 
 from config import Config
@@ -37,6 +38,10 @@ CONFIG_ITEMS = (
 )
 _IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".git", ".gitignore")
 LAST_SENT_KEY = "last_telegram_backup_at"
+CHAT_ID_KEY = "telegram_backup_chat_id"
+CHAT_TITLE_KEY = "telegram_backup_chat_title"
+_ACTIVE_MEMBER = frozenset({"member", "administrator", "creator"})
+_GROUP_TYPES = frozenset({"group", "supergroup"})
 
 
 class TelegramBackupError(RuntimeError):
@@ -45,58 +50,119 @@ class TelegramBackupError(RuntimeError):
 
 def telegram_backup_due(
     last_sent: datetime | None,
-    interval_hours: int,
+    interval_minutes: int,
     now: datetime | None = None,
 ) -> bool:
-    if interval_hours <= 0:
+    if interval_minutes <= 0:
         return False
     now = now or now_utc()
     if last_sent is None:
         return True
-    return now >= last_sent + timedelta(hours=interval_hours)
+    return now >= last_sent + timedelta(minutes=interval_minutes)
 
 
 def next_telegram_backup_at(
     last_sent: datetime | None,
-    interval_hours: int,
+    interval_minutes: int,
     now: datetime | None = None,
 ) -> datetime:
     now = now or now_utc()
-    if last_sent is None or interval_hours <= 0:
+    if last_sent is None or interval_minutes <= 0:
         return now
-    due_at = last_sent + timedelta(hours=interval_hours)
+    due_at = last_sent + timedelta(minutes=interval_minutes)
     return now if now >= due_at else due_at
 
 
 def next_backup_caption(
     last_sent: datetime | None,
-    interval_hours: int,
+    interval_minutes: int,
     now: datetime | None = None,
 ) -> str:
     now = now or now_utc()
-    if interval_hours <= 0:
+    if interval_minutes <= 0:
         return "Следующий бекап: выкл"
-    when = next_telegram_backup_at(last_sent, interval_hours, now)
+    when = next_telegram_backup_at(last_sent, interval_minutes, now)
     remaining = (when - now).total_seconds()
     if remaining <= 0:
         return "Следующий бекап: сейчас"
     return f"Следующий бекап через {seconds_human(remaining)}"
 
 
+def backup_interval_caption(interval_minutes: int) -> str:
+    if interval_minutes <= 0:
+        return "выкл"
+    return f"каждые {seconds_human(interval_minutes * 60)}, без звука"
+
+
+def is_backup_group_chat(chat_type: str | None) -> bool:
+    return (chat_type or "") in _GROUP_TYPES
+
+
+def backup_group_membership_action(
+    chat_type: str | None,
+    *,
+    chat_id: int,
+    stored_id: int | None,
+    old_in: bool,
+    new_in: bool,
+    actor_is_owner: bool,
+) -> str | None:
+    if not is_backup_group_chat(chat_type):
+        return None
+    if bot_joined_chat(old_in, new_in) and actor_is_owner:
+        return "bind"
+    if bot_left_chat(old_in, new_in) and stored_id == chat_id:
+        return "unbind"
+    return None
+
+
+def member_is_in_chat(status: str | None, *, is_member: bool | None = None) -> bool:
+    if status in _ACTIVE_MEMBER:
+        return True
+    if status == "restricted":
+        return bool(is_member)
+    return False
+
+
+def bot_joined_chat(old_in: bool, new_in: bool) -> bool:
+    return (not old_in) and new_in
+
+
+def bot_left_chat(old_in: bool, new_in: bool) -> bool:
+    return old_in and (not new_in)
+
+
+def membership_in_chat(member) -> bool:
+    status = getattr(member, "status", None)
+    if hasattr(status, "value"):
+        status = status.value
+    return member_is_in_chat(str(status or ""), is_member=getattr(member, "is_member", None))
+
+
 def format_backups_panel(
     *,
     last_sent: datetime | None,
-    interval_hours: int,
+    interval_minutes: int,
     disk_count: int,
     latest_disk: str | None,
     last_disk_at: datetime | None = None,
+    group_id: int | None = None,
+    group_title: str | None = None,
     now: datetime | None = None,
 ) -> str:
     now = now or now_utc()
-    if interval_hours > 0:
-        tg_line = f"в Telegram каждые {interval_hours} ч, без звука"
+    interval_line = backup_interval_caption(interval_minutes)
+    if interval_minutes <= 0:
+        dest_line = f"Автоотправка в группу: {interval_line}"
+    elif group_id is not None:
+        title = html.escape(group_title) if group_title else str(group_id)
+        dest_line = f"Автоотправка в группу «{title}»: {interval_line}"
     else:
-        tg_line = "в Telegram: выкл"
+        dest_line = (
+            "Автоотправка: группа не привязана.\n"
+            "Добавьте бота в группу или напишите там /backup_here — "
+            f"архивы будут уходить туда {interval_line}."
+        )
     last_line = "ещё не отправлялся"
     if last_sent is not None:
         last_line = last_sent.strftime("%d.%m.%Y %H:%M UTC")
@@ -104,9 +170,10 @@ def format_backups_panel(
     lines = [
         "📦 <b>Бэкапы</b>",
         "",
-        tg_line,
+        dest_line,
+        "В личку — только по кнопке «Сделать бэкап сейчас».",
         f"Последний архив: {last_line}",
-        next_backup_caption(last_sent, interval_hours, now),
+        next_backup_caption(last_sent, interval_minutes, now),
         "",
         f"Копий SQLite на диске: {disk_count}",
         f"Последняя: <code>{latest}</code>",
@@ -131,6 +198,45 @@ async def mark_telegram_backup_sent(db: Database, when: datetime | None = None) 
     stamp = when or now_utc()
     await db._set_system(LAST_SENT_KEY, to_iso(stamp))
     return stamp
+
+
+async def telegram_backup_chat(db: Database) -> tuple[int | None, str | None]:
+    raw = await db.get_system(CHAT_ID_KEY)
+    if not raw:
+        return None, None
+    try:
+        chat_id = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s value: %s", CHAT_ID_KEY, raw)
+        return None, None
+    title = await db.get_system(CHAT_TITLE_KEY)
+    return chat_id, title or None
+
+
+async def set_telegram_backup_chat(db: Database, chat_id: int, title: str | None) -> None:
+    await db._set_system(CHAT_ID_KEY, str(int(chat_id)))
+    await db._set_system(CHAT_TITLE_KEY, (title or "").strip())
+
+
+async def clear_telegram_backup_chat(db: Database) -> None:
+    await db._set_system(CHAT_ID_KEY, "")
+    await db._set_system(CHAT_TITLE_KEY, "")
+
+
+def backup_group_bound_text(title: str | None, interval_minutes: int) -> str:
+    name = html.escape(title) if title else "этой группе"
+    interval = backup_interval_caption(interval_minutes)
+    return (
+        "📦 Эта группа будет получать автоматические бэкапы "
+        f"({interval}).\n"
+        "Дайте боту право отправлять файлы. В личку владельцу архив уходит "
+        "только по кнопке в админке."
+    )
+
+
+def backup_group_unbound_text(title: str | None) -> str:
+    name = f"«{html.escape(title)}»" if title else "группы"
+    return f"Автоотправка бэкапов в {name} отключена."
 
 
 async def backup_timezone(db: Database, config: Config) -> str:
@@ -296,7 +402,15 @@ async def send_telegram_backup(
     config: Config,
     *,
     silent: bool = True,
+    chat_id: int | None = None,
 ) -> Path:
+    dest = chat_id
+    stored_id: int | None = None
+    if dest is None:
+        stored_id, _ = await telegram_backup_chat(db)
+        dest = stored_id
+    if dest is None:
+        raise TelegramBackupError("Backup group is not set")
     path = await create_telegram_archive(db, config)
     size = path.stat().st_size
     if size > TELEGRAM_DOCUMENT_LIMIT:
@@ -316,16 +430,24 @@ async def send_telegram_backup(
     )
     try:
         await bot.send_document(
-            config.owner_id,
+            dest,
             FSInputFile(path, filename=path.name),
             caption=caption,
             disable_notification=silent,
             request_timeout=120,
         )
+    except TelegramForbiddenError:
+        if stored_id is None:
+            stored_id, _ = await telegram_backup_chat(db)
+        if stored_id is not None and stored_id == dest:
+            await clear_telegram_backup_chat(db)
+            logger.warning("Backup group %s is gone, binding cleared", dest)
+        logger.exception("Failed to send telegram backup %s, file kept at %s", path.name, path)
+        raise
     except Exception:
         logger.exception("Failed to send telegram backup %s, file kept at %s", path.name, path)
         raise
     path.unlink(missing_ok=True)
     await mark_telegram_backup_sent(db)
-    logger.info("Telegram backup sent %s (%s bytes) silent=%s", path.name, size, silent)
+    logger.info("Telegram backup sent %s (%s bytes) silent=%s chat=%s", path.name, size, silent, dest)
     return path

@@ -162,15 +162,17 @@ async def graceful_shutdown(
         backup_problems.append(("сделать копию на диск", exc))
     if notify and repo is not None:
         await notify_owner_lifecycle(bot, repo, config, started=False)
-        if config.telegram_backup_interval_hours > 0:
+        if config.telegram_backup_interval_minutes > 0:
             try:
-                from services.telegram_backup import send_telegram_backup
+                from services.telegram_backup import send_telegram_backup, telegram_backup_chat
 
-                await await_or_abandon(
-                    send_telegram_backup(db, bot, config, silent=False),
-                    _SHUTDOWN_TELEGRAM_BACKUP_TIMEOUT,
-                    name="shutdown.telegram_backup",
-                )
+                chat_id, _ = await telegram_backup_chat(db)
+                if chat_id is not None:
+                    await await_or_abandon(
+                        send_telegram_backup(db, bot, config, silent=False),
+                        _SHUTDOWN_TELEGRAM_BACKUP_TIMEOUT,
+                        name="shutdown.telegram_backup",
+                    )
             except Exception as exc:
                 logger.exception("Shutdown telegram backup failed")
                 backup_problems.append(("отправить бэкап в Telegram", exc))

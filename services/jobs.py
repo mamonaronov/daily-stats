@@ -42,7 +42,7 @@ def reschedule_telegram_backup(
     config: Config,
     last_sent: datetime | None,
 ) -> None:
-    if config.telegram_backup_interval_hours <= 0:
+    if config.telegram_backup_interval_minutes <= 0:
         try:
             scheduler.remove_job("telegram_backup")
         except Exception:
@@ -50,7 +50,7 @@ def reschedule_telegram_backup(
         return
     from services.telegram_backup import next_telegram_backup_at
 
-    when = next_telegram_backup_at(last_sent, config.telegram_backup_interval_hours)
+    when = next_telegram_backup_at(last_sent, config.telegram_backup_interval_minutes)
     _schedule_telegram_backup_at(scheduler, bot, db, config, when)
 
 
@@ -61,7 +61,7 @@ def _schedule_telegram_backup_at(
     config: Config,
     when: datetime,
 ) -> None:
-    grace = max(3600, config.telegram_backup_interval_hours * 3600)
+    grace = max(3600, config.telegram_backup_interval_minutes * 60)
     scheduler.add_job(
         telegram_backup_job,
         "date",
@@ -106,7 +106,7 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         max_instances=1,
         coalesce=True,
     )
-    if config.telegram_backup_interval_hours > 0:
+    if config.telegram_backup_interval_minutes > 0:
         _schedule_telegram_backup_at(
             scheduler,
             bot,
@@ -255,10 +255,11 @@ async def telegram_backup_job(
         last_telegram_backup_at,
         next_telegram_backup_at,
         send_telegram_backup,
+        telegram_backup_chat,
         telegram_backup_due,
     )
 
-    interval = config.telegram_backup_interval_hours
+    interval = config.telegram_backup_interval_minutes
     if _skip_if_draining():
         _schedule_telegram_backup_at(scheduler, bot, db, config, now_utc() + timedelta(seconds=30))
         return
@@ -269,13 +270,24 @@ async def telegram_backup_job(
             logger.info("Telegram backup not due, next at %s", when.isoformat())
             _schedule_telegram_backup_at(scheduler, bot, db, config, when)
             return
+        chat_id, _ = await telegram_backup_chat(db)
+        if chat_id is None:
+            logger.info("Telegram backup skipped: group is not bound")
+            _schedule_telegram_backup_at(
+                scheduler,
+                bot,
+                db,
+                config,
+                now_utc() + timedelta(minutes=max(interval, 1)),
+            )
+            return
         async with hold("telegram_backup"):
             await await_or_abandon(
                 send_telegram_backup(db, bot, config),
                 _TELEGRAM_BACKUP_SEND_TIMEOUT,
                 name="telegram_backup",
             )
-        when = now_utc() + timedelta(hours=interval)
+        when = now_utc() + timedelta(minutes=interval)
         logger.info("Telegram backup next at %s", when.isoformat())
         _schedule_telegram_backup_at(scheduler, bot, db, config, when)
     except Exception as exc:

@@ -37,7 +37,11 @@ from services.broadcast import (
     send_broadcast,
 )
 from services.statistics import render_stats
-from services.telegram_backup import last_telegram_backup_at, next_backup_caption
+from services.telegram_backup import (
+    backup_interval_caption,
+    last_telegram_backup_at,
+    next_backup_caption,
+)
 from services.vpn_charts import (
     build_vpn_availability_charts,
     build_vpn_charts,
@@ -111,7 +115,7 @@ async def _admin_status_lines(repo: Repo, config: Config, now: datetime | None =
     last_backup = await last_telegram_backup_at(repo.db)
     return [
         f"Возраст сервиса: {seconds_human(_service_age_seconds(started, now))}",
-        next_backup_caption(last_backup, config.telegram_backup_interval_hours, now),
+        next_backup_caption(last_backup, config.telegram_backup_interval_minutes, now),
     ]
 
 
@@ -546,10 +550,7 @@ async def admin_stats(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 async def admin_cfg(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
-    if config.telegram_backup_interval_hours > 0:
-        tg_backup = f"каждые {config.telegram_backup_interval_hours} ч, без звука"
-    else:
-        tg_backup = "выкл"
+    tg_backup = backup_interval_caption(config.telegram_backup_interval_minutes)
     extra = await _admin_status_lines(repo, config)
     text = (
         "⚙️ <b>Настройки сервиса</b>\n\n"

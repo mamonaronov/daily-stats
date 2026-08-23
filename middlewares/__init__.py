@@ -81,7 +81,7 @@ def _extract_user(event: TelegramObject):
     from aiogram.types import Update
 
     if isinstance(event, Update):
-        for attr in ("message", "callback_query", "edited_message"):
+        for attr in ("message", "callback_query", "edited_message", "my_chat_member", "chat_member"):
             obj = getattr(event, attr, None)
             if obj is not None and getattr(obj, "from_user", None) is not None:
                 return obj.from_user

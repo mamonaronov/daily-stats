@@ -43,6 +43,16 @@ def _optional(name: str) -> str | None:
     return value or None
 
 
+def _telegram_backup_interval_minutes() -> int:
+    minutes_raw = os.getenv("TELEGRAM_BACKUP_INTERVAL_MINUTES")
+    if minutes_raw is not None and minutes_raw.strip() != "":
+        return max(0, int(minutes_raw))
+    hours_raw = os.getenv("TELEGRAM_BACKUP_INTERVAL_HOURS")
+    if hours_raw is not None and hours_raw.strip() != "":
+        return max(0, int(hours_raw) * 60)
+    return 30
+
+
 def _bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -77,7 +87,7 @@ class Config:
     mihomo_proxy_group: str = "AUTO"
     vpn_log_dir: Path | None = None
     vpn_log_keep_days: int = 31
-    telegram_backup_interval_hours: int = 12
+    telegram_backup_interval_minutes: int = 30
     telegram_backup_root: Path = PROJECT_ROOT
 
 
@@ -116,6 +126,6 @@ def load_config() -> Config:
         mihomo_proxy_group=os.getenv("MIHOMO_PROXY_GROUP", "AUTO").strip() or "AUTO",
         vpn_log_dir=Path(os.getenv("VPN_LOG_DIR", str(db_path.parent / "vpn"))),
         vpn_log_keep_days=_int("VPN_LOG_KEEP_DAYS", 31),
-        telegram_backup_interval_hours=max(0, _int("TELEGRAM_BACKUP_INTERVAL_HOURS", 12)),
+        telegram_backup_interval_minutes=_telegram_backup_interval_minutes(),
         telegram_backup_root=Path(os.getenv("TELEGRAM_BACKUP_ROOT", "").strip() or str(PROJECT_ROOT)),
     )

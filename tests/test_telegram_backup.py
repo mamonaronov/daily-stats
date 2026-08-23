@@ -18,12 +18,15 @@ from services.telegram_backup import (
     TelegramBackupError,
     add_dotenv,
     backup_archive_name,
+    backup_group_membership_action,
     backup_timezone,
     collect_configs,
     create_telegram_archive,
     last_telegram_backup_at,
     next_telegram_backup_at,
     send_telegram_backup,
+    set_telegram_backup_chat,
+    telegram_backup_chat,
     telegram_backup_due,
     write_env_snapshot,
     write_tar_pigz,
@@ -43,48 +46,129 @@ def test_telegram_backup_interval_default(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "1:test")
     monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
     monkeypatch.delenv("TELEGRAM_BACKUP_INTERVAL_HOURS", raising=False)
+    monkeypatch.delenv("TELEGRAM_BACKUP_INTERVAL_MINUTES", raising=False)
     monkeypatch.setattr("config.load_dotenv", lambda: None)
     from config import load_config
 
-    assert load_config().telegram_backup_interval_hours == 12
+    assert load_config().telegram_backup_interval_minutes == 30
+
+
+def test_telegram_backup_interval_minutes_from_env(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
+    monkeypatch.setenv("TELEGRAM_BACKUP_INTERVAL_MINUTES", "45")
+    monkeypatch.setenv("TELEGRAM_BACKUP_INTERVAL_HOURS", "12")
+    monkeypatch.setattr("config.load_dotenv", lambda: None)
+    from config import load_config
+
+    assert load_config().telegram_backup_interval_minutes == 45
+
+
+def test_telegram_backup_interval_hours_compat(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
+    monkeypatch.delenv("TELEGRAM_BACKUP_INTERVAL_MINUTES", raising=False)
+    monkeypatch.setenv("TELEGRAM_BACKUP_INTERVAL_HOURS", "12")
+    monkeypatch.setattr("config.load_dotenv", lambda: None)
+    from config import load_config
+
+    assert load_config().telegram_backup_interval_minutes == 720
 
 
 def test_telegram_backup_interval_zero_disables(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "1:test")
     monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
-    monkeypatch.setenv("TELEGRAM_BACKUP_INTERVAL_HOURS", "0")
+    monkeypatch.setenv("TELEGRAM_BACKUP_INTERVAL_MINUTES", "0")
     monkeypatch.setattr("config.load_dotenv", lambda: None)
     from config import load_config
 
-    assert load_config().telegram_backup_interval_hours == 0
+    assert load_config().telegram_backup_interval_minutes == 0
 
 
 def test_telegram_backup_due_from_last_send():
     now = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
-    assert telegram_backup_due(None, 12, now) is True
-    assert telegram_backup_due(now - timedelta(hours=1), 12, now) is False
-    assert telegram_backup_due(now - timedelta(hours=12), 12, now) is True
-    assert telegram_backup_due(now - timedelta(hours=13), 12, now) is True
-    assert telegram_backup_due(now - timedelta(hours=6), 6, now) is True
+    assert telegram_backup_due(None, 30, now) is True
+    assert telegram_backup_due(now - timedelta(minutes=1), 30, now) is False
+    assert telegram_backup_due(now - timedelta(minutes=30), 30, now) is True
+    assert telegram_backup_due(now - timedelta(minutes=31), 30, now) is True
+    assert telegram_backup_due(now - timedelta(minutes=15), 15, now) is True
     assert telegram_backup_due(None, 0, now) is False
 
 
 def test_next_telegram_backup_at_counts_from_last_send():
     now = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
-    last = now - timedelta(hours=3)
-    assert next_telegram_backup_at(last, 12, now) == last + timedelta(hours=12)
-    assert next_telegram_backup_at(now - timedelta(hours=13), 12, now) == now
-    assert next_telegram_backup_at(None, 12, now) == now
+    last = now - timedelta(minutes=10)
+    assert next_telegram_backup_at(last, 30, now) == last + timedelta(minutes=30)
+    assert next_telegram_backup_at(now - timedelta(minutes=31), 30, now) == now
+    assert next_telegram_backup_at(None, 30, now) == now
 
 
 def test_next_backup_caption():
     from services.telegram_backup import next_backup_caption
 
     now = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
-    last = now - timedelta(hours=6)
-    assert next_backup_caption(last, 12, now) == "Следующий бекап через 6 ч"
-    assert next_backup_caption(None, 12, now) == "Следующий бекап: сейчас"
+    last = now - timedelta(minutes=15)
+    assert next_backup_caption(last, 30, now) == "Следующий бекап через 15 мин"
+    assert next_backup_caption(None, 30, now) == "Следующий бекап: сейчас"
     assert next_backup_caption(last, 0, now) == "Следующий бекап: выкл"
+
+
+def test_backup_group_membership_action():
+    assert (
+        backup_group_membership_action(
+            "supergroup",
+            chat_id=-100,
+            stored_id=None,
+            old_in=False,
+            new_in=True,
+            actor_is_owner=True,
+        )
+        == "bind"
+    )
+    assert (
+        backup_group_membership_action(
+            "supergroup",
+            chat_id=-100,
+            stored_id=None,
+            old_in=False,
+            new_in=True,
+            actor_is_owner=False,
+        )
+        is None
+    )
+    assert (
+        backup_group_membership_action(
+            "private",
+            chat_id=1,
+            stored_id=None,
+            old_in=False,
+            new_in=True,
+            actor_is_owner=True,
+        )
+        is None
+    )
+    assert (
+        backup_group_membership_action(
+            "supergroup",
+            chat_id=-100,
+            stored_id=-100,
+            old_in=True,
+            new_in=False,
+            actor_is_owner=False,
+        )
+        == "unbind"
+    )
+    assert (
+        backup_group_membership_action(
+            "supergroup",
+            chat_id=-200,
+            stored_id=-100,
+            old_in=True,
+            new_in=False,
+            actor_is_owner=True,
+        )
+        is None
+    )
 
 
 def test_backup_archive_name_has_start_time_commit_and_db():
@@ -132,7 +216,7 @@ def test_telegram_backup_job_scheduled(tmp_path):
 
 
 def test_telegram_backup_job_skipped_when_disabled(tmp_path):
-    config = replace(make_config(tmp_path), telegram_backup_interval_hours=0)
+    config = replace(make_config(tmp_path), telegram_backup_interval_minutes=0)
     scheduler = AsyncIOScheduler(timezone="UTC")
     setup_scheduler(scheduler, bot=object(), repo=object(), db=object(), config=config)
     assert scheduler.get_job("telegram_backup") is None
@@ -237,8 +321,11 @@ async def test_send_telegram_backup_is_silent_and_records_time(tmp_path, monkeyp
 
     try:
         before = now_utc()
+        with pytest.raises(TelegramBackupError, match="not set"):
+            await send_telegram_backup(db, FakeBot(), config)
+        await set_telegram_backup_chat(db, -100123, "Backups")
         path = await send_telegram_backup(db, FakeBot(), config)
-        assert sent["chat_id"] == 1
+        assert sent["chat_id"] == -100123
         assert sent["kwargs"]["disable_notification"] is True
         assert f"v{config.required_db_version}" in sent["kwargs"]["caption"]
         assert "add telegram backup" in sent["kwargs"]["caption"]
@@ -270,7 +357,7 @@ async def test_send_telegram_backup_manual_is_not_silent(tmp_path, monkeypatch):
             return SimpleNamespace(message_id=1)
 
     try:
-        await send_telegram_backup(db, FakeBot(), config, silent=False)
+        await send_telegram_backup(db, FakeBot(), config, silent=False, chat_id=1)
         assert sent["kwargs"]["disable_notification"] is False
         assert "вручную" in sent["kwargs"]["caption"]
     finally:
@@ -283,28 +370,42 @@ def test_format_backups_panel():
     from services.telegram_backup import format_backups_panel
 
     now = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
-    last = now.replace(hour=6)
+    last = now - timedelta(minutes=15)
     text = format_backups_panel(
         last_sent=last,
-        interval_hours=12,
+        interval_minutes=30,
         disk_count=3,
         latest_disk="scheduled_20260821.sqlite3",
         last_disk_at=last,
+        group_id=-100123,
+        group_title="Backups",
         now=now,
     )
     assert "Бэкапы" in text
-    assert "каждые 12 ч" in text
+    assert "каждые 30 мин" in text
+    assert "Backups" in text
+    assert "В личку — только по кнопке" in text
     assert "Копий SQLite на диске: 3" in text
     assert "scheduled_20260821.sqlite3" in text
-    assert "Следующий бекап через 6 ч" in text
+    assert "Следующий бекап через 15 мин" in text
+
+    unbound = format_backups_panel(
+        last_sent=last,
+        interval_minutes=30,
+        disk_count=0,
+        latest_disk=None,
+        now=now,
+    )
+    assert "группа не привязана" in unbound
+    assert "/backup_here" in unbound
 
 
 @pytest.mark.asyncio
 async def test_job_skips_and_reschedules_when_recently_sent(tmp_path):
-    config = replace(make_config(tmp_path), telegram_backup_interval_hours=12)
+    config = replace(make_config(tmp_path), telegram_backup_interval_minutes=30)
     db = Database(config)
     await db.initialize()
-    last = now_utc() - timedelta(hours=3)
+    last = now_utc() - timedelta(minutes=10)
     await db._set_system(LAST_SENT_KEY, to_iso(last))
     scheduler = AsyncIOScheduler(timezone="UTC")
     sent = {"n": 0}
@@ -321,8 +422,35 @@ async def test_job_skips_and_reschedules_when_recently_sent(tmp_path):
         assert sent["n"] == 0
         job = scheduler.get_job("telegram_backup")
         assert job is not None
-        expected = last + timedelta(hours=12)
+        expected = last + timedelta(minutes=30)
         assert abs((job.trigger.run_date - expected).total_seconds()) < 2
+    finally:
+        tb.send_telegram_backup = original
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_job_skips_when_group_not_bound(tmp_path):
+    config = replace(make_config(tmp_path), telegram_backup_interval_minutes=30)
+    db = Database(config)
+    await db.initialize()
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    sent = {"n": 0}
+
+    async def fake_send(*_args, **_kwargs):
+        sent["n"] += 1
+
+    try:
+        import services.telegram_backup as tb
+
+        original = tb.send_telegram_backup
+        tb.send_telegram_backup = fake_send
+        before = now_utc()
+        await telegram_backup_job(scheduler, db, object(), config)
+        assert sent["n"] == 0
+        job = scheduler.get_job("telegram_backup")
+        assert job is not None
+        assert job.trigger.run_date >= before + timedelta(minutes=29, seconds=50)
     finally:
         tb.send_telegram_backup = original
         await db.close()
@@ -333,10 +461,11 @@ async def test_job_sends_when_interval_elapsed(tmp_path, monkeypatch):
     root = tmp_path / "host"
     root.mkdir()
     (root / ".env").write_text("BOT_TOKEN=secret\n", encoding="utf-8")
-    config = replace(make_config(tmp_path), telegram_backup_root=root, telegram_backup_interval_hours=12)
+    config = replace(make_config(tmp_path), telegram_backup_root=root, telegram_backup_interval_minutes=30)
     db = Database(config)
     await db.initialize()
-    await db._set_system(LAST_SENT_KEY, to_iso(now_utc() - timedelta(hours=13)))
+    await db._set_system(LAST_SENT_KEY, to_iso(now_utc() - timedelta(minutes=31)))
+    await set_telegram_backup_chat(db, -100123, "Backups")
     monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
     scheduler = AsyncIOScheduler(timezone="UTC")
     sent = {"n": 0}
@@ -352,10 +481,129 @@ async def test_job_sends_when_interval_elapsed(tmp_path, monkeypatch):
         assert sent["n"] == 1
         job = scheduler.get_job("telegram_backup")
         assert job is not None
-        assert job.trigger.run_date >= before + timedelta(hours=11, minutes=59)
+        assert job.trigger.run_date >= before + timedelta(minutes=29, seconds=50)
         stored = await last_telegram_backup_at(db)
         assert stored is not None
         assert stored >= before
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_telegram_backup_chat_roundtrip(tmp_path):
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    try:
+        assert await telegram_backup_chat(db) == (None, None)
+        await set_telegram_backup_chat(db, -100123, "Backups")
+        assert await telegram_backup_chat(db) == (-100123, "Backups")
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_owner_join_binds_backup_group(tmp_path):
+    from handlers.admin_restore import backup_chat_member_update
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    answers: list[str] = []
+
+    class Event:
+        chat = SimpleNamespace(id=-100123, type="supergroup", title="Backups")
+        from_user = SimpleNamespace(id=config.owner_id)
+        old_chat_member = SimpleNamespace(status="left", is_member=False)
+        new_chat_member = SimpleNamespace(status="member", is_member=True)
+
+        async def answer(self, text):
+            answers.append(text)
+
+    try:
+        await backup_chat_member_update(Event(), config, Repo(db), object(), None)
+        assert await telegram_backup_chat(db) == (-100123, "Backups")
+        assert answers and "автоматические бэкапы" in answers[0]
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_non_owner_join_does_not_bind_backup_group(tmp_path):
+    from handlers.admin_restore import backup_chat_member_update
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+
+    class Event:
+        chat = SimpleNamespace(id=-100123, type="supergroup", title="Backups")
+        from_user = SimpleNamespace(id=config.owner_id + 1)
+        old_chat_member = SimpleNamespace(status="left", is_member=False)
+        new_chat_member = SimpleNamespace(status="member", is_member=True)
+
+        async def answer(self, text):
+            raise AssertionError("should not announce")
+
+    try:
+        await backup_chat_member_update(Event(), config, Repo(db), object(), None)
+        assert await telegram_backup_chat(db) == (None, None)
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_leave_unbinds_backup_group(tmp_path, monkeypatch):
+    from handlers.admin_restore import backup_chat_member_update
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    await set_telegram_backup_chat(db, -100123, "Backups")
+    notices: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        notices.append(text)
+
+    monkeypatch.setattr("handlers.admin_restore.notify_owner", fake_notify)
+
+    class Event:
+        chat = SimpleNamespace(id=-100123, type="supergroup", title="Backups")
+        from_user = SimpleNamespace(id=99)
+        old_chat_member = SimpleNamespace(status="member", is_member=True)
+        new_chat_member = SimpleNamespace(status="left", is_member=False)
+
+        async def answer(self, text):
+            raise AssertionError("cannot write to a left chat")
+
+    try:
+        await backup_chat_member_update(Event(), config, Repo(db), object(), None)
+        assert await telegram_backup_chat(db) == (None, None)
+        assert notices and "отключена" in notices[0]
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_backup_here_binds_group(tmp_path):
+    from handlers.admin_restore import backup_here
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    answers: list[str] = []
+
+    class Message:
+        from_user = SimpleNamespace(id=config.owner_id)
+        chat = SimpleNamespace(id=-100123, type="supergroup", title="Backups")
+
+        async def answer(self, text):
+            answers.append(text)
+
+    try:
+        await backup_here(Message(), config, Repo(db), object(), None)
+        assert await telegram_backup_chat(db) == (-100123, "Backups")
+        assert answers
     finally:
         await db.close()
 
