@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-REQUIRED_DB_VERSION = 5
+REQUIRED_DB_VERSION = 6
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -68,14 +68,11 @@ class Config:
     default_timezone: str
     default_daily_price: float
     default_sleep_time: str
-    reminder_hours_before_sleep: int
-    reminder_fallback_time: str
     db_path: Path
     backup_path: Path
     backup_interval_hours: int
     backup_keep: int
     billing_check_minutes: int
-    reminder_check_minutes: int
     log_level: str
     telegram_proxy_url: str | None
     required_db_version: int = REQUIRED_DB_VERSION
@@ -107,14 +104,11 @@ def load_config() -> Config:
         default_timezone=os.getenv("DEFAULT_TIMEZONE", "Europe/Moscow").strip(),
         default_daily_price=_float("DEFAULT_DAILY_PRICE", 10.0),
         default_sleep_time=os.getenv("DEFAULT_SLEEP_TIME", "23:00").strip(),
-        reminder_hours_before_sleep=_int("REMINDER_HOURS_BEFORE_SLEEP", 3),
-        reminder_fallback_time=os.getenv("REMINDER_FALLBACK_TIME", "20:45").strip(),
         db_path=db_path,
         backup_path=backup_path,
         backup_interval_hours=_int("BACKUP_INTERVAL_HOURS", 6),
         backup_keep=_int("BACKUP_KEEP", 14),
         billing_check_minutes=_int("BILLING_CHECK_MINUTES", 15),
-        reminder_check_minutes=_int("REMINDER_CHECK_MINUTES", 1),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
         telegram_proxy_url=_optional("TELEGRAM_PROXY_URL"),
         vpn_monitor_enabled=_bool("VPN_MONITOR_ENABLED", True),

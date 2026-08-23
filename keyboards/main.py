@@ -354,10 +354,8 @@ def stats_metrics_kb(selected: set[str]) -> InlineKeyboardMarkup:
 
 
 def settings_kb(user: User) -> InlineKeyboardMarkup:
-    rem = "Вкл" if user.reminders_enabled else "Выкл"
     b = InlineKeyboardBuilder()
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
-    b.row(_btn(f"🔔 Напоминания: {rem}", "set:rem"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
     b.row(_btn("🗑 Удалить аккаунт", "set:del"))

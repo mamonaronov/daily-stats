@@ -13,7 +13,6 @@ from database.queries import Repo
 from handlers.common import TZ_PROMPT, show_main, start_payload
 from keyboards.main import back_kb, timezone_kb
 from services.billing import process_user
-from services.reminders import refresh_user_reminder
 from states.diary import RegisterSG
 from utils.telegram import safe_edit
 from utils.time import is_valid_timezone
@@ -49,7 +48,6 @@ async def _activate(
     await process_user(repo, user)
     user = await repo.get_user(telegram_id)
     assert user is not None
-    await refresh_user_reminder(repo, user, config)
     return user
 
 

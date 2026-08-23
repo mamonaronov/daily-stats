@@ -25,7 +25,6 @@ from keyboards.main import (
     when_title,
 )
 from services import entries
-from services.reminders import refresh_user_reminder
 from states.diary import SleepSG, TimePickSG
 from utils.callbacks import NAV_BACK
 from utils.telegram import safe_edit
@@ -80,11 +79,9 @@ async def _finish(
         item_id, error = await entries.add_fooling(repo, user, when)
     elif purpose == "slp_bed":
         item_id, error = await entries.add_sleep_bed(repo, user, when)
-        await refresh_user_reminder(repo, user, config)
     elif purpose == "slp_wake":
         quality = data.get("quality")
         item_id, error = await entries.add_sleep_wake(repo, user, when, quality)
-        await refresh_user_reminder(repo, user, config)
     elif purpose == "snus_buy":
         item_id, error = await entries.add_snus_bought(repo, user, when)
     elif purpose == "snus_end":

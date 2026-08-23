@@ -28,7 +28,6 @@ from middlewares import (
 )
 from services.alerts import format_alert, format_backup_problems, notify_owner, notify_owner_lifecycle
 from services.jobs import setup_scheduler
-from services.reminders import restore_all_reminders
 from services.billing import run_billing_tick
 from services.telegram_restore import RestoreError, apply_pending_telegram_restore, format_restore_done
 from utils.deploy_drain import watch_deploy_drain
@@ -296,8 +295,6 @@ async def run() -> None:
 
     try:
         await run_billing_tick(repo)
-        restored = await restore_all_reminders(repo, config)
-        logger.info("Reminders restored: %s", restored)
         setup_scheduler(scheduler, bot, repo, db, config)
         scheduler.start()
     except Exception as exc:

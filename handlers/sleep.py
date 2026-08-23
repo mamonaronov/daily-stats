@@ -14,7 +14,6 @@ from database.queries import Repo
 from handlers.common import require_writable, show_main, start_time_pick
 from keyboards.main import score_kb, sleep_kind_kb, when_kb
 from services import entries
-from services.reminders import refresh_user_reminder
 from states.diary import SleepSG
 from utils.callbacks import ENTRY_SLEEP
 from utils.telegram import safe_edit
@@ -34,7 +33,6 @@ async def _save_wake(
     quality: int | None,
 ) -> None:
     _, error = await entries.add_sleep_wake(repo, user, when, quality)
-    await refresh_user_reminder(repo, user, config)
     if error:
         await cb.answer(error, show_alert=True)
         return
@@ -58,7 +56,6 @@ async def sleep_bed_now(
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await refresh_user_reminder(repo, user, config)
     await cb.answer("Спокойной ночи")
     await show_main(cb, user, config, is_owner, state)
 
@@ -166,7 +163,6 @@ async def sleep_time_bed(
         if error:
             await cb.answer(error, show_alert=True)
             return
-        await refresh_user_reminder(repo, user, config)
         await cb.answer("Спокойной ночи")
         await show_main(cb, user, config, is_owner, state)
         return

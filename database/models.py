@@ -24,7 +24,6 @@ class User:
     bot_blocked_at: str | None
     created_at: str
     updated_at: str
-    reminders_enabled: int = 1
     default_sleep_time: str = "23:00"
     stats_prefs_json: str | None = None
 
@@ -192,18 +191,6 @@ class CustomValue:
     metric_name: str | None = None
     data_type: str | None = None
     unit: str | None = None
-
-
-@dataclass(slots=True)
-class Reminder:
-    id: int
-    telegram_id: int
-    reminder_type: str
-    next_run_at: str
-    enabled: int
-    last_sent_at: str | None
-    last_sent_local_date: str | None
-    updated_at: str
 
 
 @dataclass(slots=True)

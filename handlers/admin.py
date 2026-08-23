@@ -559,8 +559,6 @@ async def admin_cfg(cb: CallbackQuery, config: Config, repo: Repo) -> None:
         f"Бэкап в Telegram: {tg_backup}\n"
         f"{extra[1]}\n"
         f"{extra[0]}\n"
-        f"Напоминание: за {config.reminder_hours_before_sleep} ч до сна\n"
-        f"Fallback: {config.reminder_fallback_time}\n"
         f"Контакт: {config.owner_contact}\n"
         f"Версия БД: {config.required_db_version}\n"
         f"VPN-монитор: {'вкл' if config.vpn_monitor_enabled else 'выкл'}"

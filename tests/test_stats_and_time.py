@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from services.reminders import average_bedtime_minutes, reminder_clock_minutes
 from services.statistics import cigarette_stats, pearson
-from utils.time import circular_mean_minutes, combine_local, day_bounds_utc, minutes_to_hhmm, to_iso
+from utils.time import circular_mean_minutes, combine_local, day_bounds_utc
 
 
 def test_circular_mean_around_midnight():
@@ -26,22 +25,6 @@ def test_combine_local_stored_utc():
     dt = combine_local("Europe/Moscow", date(2026, 8, 17), 14, 35)
     assert dt.tzinfo is not None
     assert dt.hour == 11  # 14:35 MSK = 11:35 UTC
-
-
-def test_reminder_three_hours_before_average():
-    bedtimes = [
-        to_iso(datetime(2026, 8, 14, 20, 30, tzinfo=timezone.utc)),  # 23:30 MSK
-        to_iso(datetime(2026, 8, 15, 21, 0, tzinfo=timezone.utc)),  # 00:00 MSK
-        to_iso(datetime(2026, 8, 16, 20, 45, tzinfo=timezone.utc)),  # 23:45 MSK
-    ]
-    avg = average_bedtime_minutes(bedtimes, "Europe/Moscow")
-    clock = reminder_clock_minutes(avg, 3, "20:45")
-    # average ~23:45, minus 3h = 20:45
-    assert minutes_to_hhmm(clock) == "20:45"
-
-
-def test_reminder_fallback_without_sleep():
-    assert reminder_clock_minutes(None, 3, "20:45") == 20 * 60 + 45
 
 
 def test_pearson_perfect():

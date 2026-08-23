@@ -1,4 +1,4 @@
-"""User settings, timezone, reminders, account deletion."""
+"""User settings, timezone, account deletion."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from database.models import User
 from database.queries import Repo
 from handlers.common import require_active, show_main
 from keyboards.main import back_kb, cancel_kb, confirm_delete_kb, settings_kb, timezone_kb
-from services.reminders import refresh_user_reminder
 from states.diary import SettingsSG
 from utils.callbacks import NAV_SETTINGS
 from utils.telegram import safe_edit
@@ -63,7 +62,6 @@ async def set_tz_pick(
     await repo.set_timezone(user.telegram_id, token)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await refresh_user_reminder(repo, user, config)
     await show_main(cb, user, config, is_owner, state)
 
 
@@ -86,7 +84,6 @@ async def set_tz_custom(
     await repo.set_timezone(user.telegram_id, token)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await refresh_user_reminder(repo, user, config)
     await show_main(message, user, config, is_owner, state)
 
 
@@ -96,20 +93,6 @@ async def set_tz_list(cb: CallbackQuery, db_user: User | None) -> None:
         return
     await cb.answer()
     await safe_edit(cb.message, "Выберите часовой пояс:", timezone_kb(NAV_SETTINGS))
-
-
-@router.callback_query(F.data == "set:rem")
-async def toggle_reminders(cb: CallbackQuery, repo: Repo, config: Config, db_user: User | None) -> None:
-    user = await require_active(cb, db_user)
-    if user is None:
-        return
-    enabled = 0 if user.reminders_enabled else 1
-    await repo.update_settings(user.telegram_id, reminders_enabled=enabled)
-    user = await repo.get_user(user.telegram_id)
-    assert user
-    await refresh_user_reminder(repo, user, config)
-    await cb.answer("Сохранено")
-    await safe_edit(cb.message, "⚙️ Настройки", settings_kb(user))
 
 
 @router.callback_query(F.data == "set:sleep")
@@ -126,7 +109,6 @@ async def save_sleep(
     message: Message,
     state: FSMContext,
     repo: Repo,
-    config: Config,
     db_user: User | None,
 ) -> None:
     user = await require_active(message, db_user)
@@ -141,7 +123,6 @@ async def save_sleep(
     await repo.update_settings(user.telegram_id, default_sleep_time=value)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await refresh_user_reminder(repo, user, config)
     await state.clear()
     await message.answer("Сохранено", reply_markup=settings_kb(user))
 

@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 5
+    assert version == config.required_db_version == 6
 
 
 @pytest.mark.asyncio
@@ -238,8 +238,6 @@ async def test_purge_content_keeps_only_bot_runtime_rows(repo):
     await repo.add_cigarette(owner.telegram_id, to_iso(now_utc()))
     await repo.add_note(other.telegram_id, "wipe me", to_iso(now_utc()))
     await repo.insert_vpn_sample(to_iso(now_utc()), True, 42, "node", "sub", None)
-    await repo.upsert_reminder(owner.telegram_id, to_iso(now_utc()), enabled=1)
-    await repo.upsert_reminder(other.telegram_id, to_iso(now_utc()), enabled=1)
     await repo.db._set_system("marker", "keep-me")
 
     deleted = await repo.purge_content(owner.telegram_id)
@@ -248,7 +246,6 @@ async def test_purge_content_keeps_only_bot_runtime_rows(repo):
     assert deleted["notes"] >= 1
     assert deleted["balance_operations"] >= 1
     assert deleted["vpn_latency_samples"] >= 1
-    assert deleted["reminders"] == 1
 
     kept = await repo.get_user(owner.telegram_id)
     assert kept is not None
@@ -256,8 +253,6 @@ async def test_purge_content_keeps_only_bot_runtime_rows(repo):
     assert kept.default_sleep_time == "22:30"
     assert await repo.get_user(other.telegram_id) is None
     assert await repo.count_user_entries(owner.telegram_id) == 0
-    assert await repo.get_reminder(owner.telegram_id) is not None
-    assert await repo.get_reminder(other.telegram_id) is None
     marker = await repo.fetchone("SELECT value FROM system_info WHERE key = ?", ("marker",))
     assert marker is not None and marker["value"] == "keep-me"
     remaining = dict(await repo.list_tables_with_counts())

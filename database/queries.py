@@ -24,7 +24,6 @@ from database.models import (
     Fooling,
     MoodRecord,
     Note,
-    Reminder,
     SleepRecord,
     SnusPack,
     User,
@@ -68,7 +67,7 @@ IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SQL_COMMENT_RE = re.compile(r"(--[^\n]*|/\*.*?\*/)", re.DOTALL)
 
 KEEP_TABLES = frozenset({"system_info"})
-OWNER_SCOPED_TABLES = frozenset({"users", "user_settings", "reminders"})
+OWNER_SCOPED_TABLES = frozenset({"users", "user_settings"})
 PURGE_CONFIRM_PHRASE = "ОЧИСТИТЬ БАЗУ"
 # Keep in sync with services.vpn_charts._VPN_ISSUE_MARKERS (counted as no_ping).
 _VPN_ISSUE_SQL = (
@@ -117,7 +116,6 @@ SELECT u.telegram_id, u.username, u.first_name, u.last_name, u.registered_at,
        u.timezone, u.status, u.last_activity_at, u.balance, u.daily_price,
        u.paid_until_date, u.last_charge_date, u.deleted_at, u.bot_blocked_at,
        u.created_at, u.updated_at,
-       COALESCE(s.reminders_enabled, 1) AS reminders_enabled,
        COALESCE(s.default_sleep_time, '23:00') AS default_sleep_time,
        s.stats_prefs_json
 FROM users u
@@ -194,8 +192,8 @@ class Repo:
             )
             await self.conn.execute(
                 """
-                INSERT INTO user_settings (telegram_id, reminders_enabled, default_sleep_time)
-                VALUES (?, 1, ?)
+                INSERT INTO user_settings (telegram_id, default_sleep_time)
+                VALUES (?, ?)
                 """,
                 (telegram_id, default_sleep_time),
             )
@@ -291,10 +289,6 @@ class Repo:
                 """,
                 (user.telegram_id, user.username, user.first_name, ts, reason),
             )
-            await self.conn.execute(
-                "UPDATE reminders SET enabled = 0, updated_at = ? WHERE telegram_id = ?",
-                (ts, user.telegram_id),
-            )
             await self.conn.commit()
         except Exception:
             await self.conn.rollback()
@@ -311,26 +305,11 @@ class Repo:
             """,
             (ts, ts, telegram_id),
         )
-        await self.conn.execute(
-            "UPDATE reminders SET enabled = 0, updated_at = ? WHERE telegram_id = ?",
-            (ts, telegram_id),
-        )
         await self.conn.commit()
 
     async def list_active_billable(self) -> list[User]:
         rows = await self.fetchall(
             USER_SELECT + " WHERE u.deleted_at IS NULL AND u.status IN ('active', 'bot_blocked')"
-        )
-        return [_user(r) for r in rows]
-
-    async def list_reminder_users(self) -> list[User]:
-        rows = await self.fetchall(
-            USER_SELECT
-            + """
-            WHERE u.deleted_at IS NULL
-              AND u.status = 'active'
-              AND COALESCE(s.reminders_enabled, 1) = 1
-            """
         )
         return [_user(r) for r in rows]
 
@@ -401,7 +380,6 @@ class Repo:
     async def update_settings(
         self,
         telegram_id: int,
-        reminders_enabled: int | None = None,
         default_sleep_time: str | None = None,
         stats_prefs_json: str | None = None,
     ) -> None:
@@ -411,12 +389,11 @@ class Repo:
         if current is None:
             await self.conn.execute(
                 """
-                INSERT INTO user_settings (telegram_id, reminders_enabled, default_sleep_time, stats_prefs_json)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO user_settings (telegram_id, default_sleep_time, stats_prefs_json)
+                VALUES (?, ?, ?)
                 """,
                 (
                     telegram_id,
-                    1 if reminders_enabled is None else reminders_enabled,
                     default_sleep_time or "23:00",
                     stats_prefs_json,
                 ),
@@ -425,12 +402,11 @@ class Repo:
             await self.conn.execute(
                 """
                 UPDATE user_settings
-                SET reminders_enabled = COALESCE(?, reminders_enabled),
-                    default_sleep_time = COALESCE(?, default_sleep_time),
+                SET default_sleep_time = COALESCE(?, default_sleep_time),
                     stats_prefs_json = COALESCE(?, stats_prefs_json)
                 WHERE telegram_id = ?
                 """,
-                (reminders_enabled, default_sleep_time, stats_prefs_json, telegram_id),
+                (default_sleep_time, stats_prefs_json, telegram_id),
             )
         await self.conn.commit()
 
@@ -730,18 +706,6 @@ class Repo:
             ORDER BY COALESCE(bedtime, wake_time) ASC
             """,
             (telegram_id, start, end, start, end),
-        )
-        return [SleepRecord(**dict(r)) for r in rows]
-
-    async def last_completed_sleep(self, telegram_id: int, limit: int = 3) -> list[SleepRecord]:
-        rows = await self.fetchall(
-            """
-            SELECT * FROM sleep_records
-            WHERE telegram_id = ? AND bedtime IS NOT NULL AND wake_time IS NOT NULL
-            ORDER BY bedtime DESC
-            LIMIT ?
-            """,
-            (telegram_id, limit),
         )
         return [SleepRecord(**dict(r)) for r in rows]
 
@@ -1089,49 +1053,6 @@ class Repo:
         sql += " ORDER BY v.occurred_at ASC"
         rows = await self.fetchall(sql, params)
         return [CustomValue(**dict(r)) for r in rows]
-
-    # reminders
-    async def upsert_reminder(self, telegram_id: int, next_run_at: str, enabled: int = 1) -> None:
-        ts = to_iso(now_utc())
-        await self.conn.execute(
-            """
-            INSERT INTO reminders (telegram_id, reminder_type, next_run_at, enabled, updated_at)
-            VALUES (?, 'day_review', ?, ?, ?)
-            ON CONFLICT(telegram_id) DO UPDATE SET
-                next_run_at = excluded.next_run_at,
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at
-            """,
-            (telegram_id, next_run_at, enabled, ts),
-        )
-        await self.conn.commit()
-
-    async def get_reminder(self, telegram_id: int) -> Reminder | None:
-        row = await self.fetchone("SELECT * FROM reminders WHERE telegram_id = ?", (telegram_id,))
-        return _opt(Reminder, row)
-
-    async def due_reminders(self, now_iso: str) -> list[Reminder]:
-        rows = await self.fetchall(
-            """
-            SELECT * FROM reminders
-            WHERE enabled = 1 AND next_run_at <= ?
-            ORDER BY next_run_at ASC
-            """,
-            (now_iso,),
-        )
-        return [Reminder(**dict(r)) for r in rows]
-
-    async def mark_reminder_sent(self, telegram_id: int, sent_at: str, local_date: str, next_run_at: str) -> None:
-        ts = to_iso(now_utc())
-        await self.conn.execute(
-            """
-            UPDATE reminders
-            SET last_sent_at = ?, last_sent_local_date = ?, next_run_at = ?, updated_at = ?
-            WHERE telegram_id = ?
-            """,
-            (sent_at, local_date, next_run_at, ts, telegram_id),
-        )
-        await self.conn.commit()
 
     # callbacks / counts
     async def claim_callback(self, callback_id: str, telegram_id: int) -> bool:
