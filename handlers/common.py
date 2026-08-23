@@ -26,7 +26,7 @@ def menu_text(user: User, config: Config) -> str:
     return (
         f"📓 <b>Дневник</b>\n\n"
         f"Привет, {user.display_name}!\n"
-        f"💰 Баланс: {money(user.balance)} · {money(user.daily_price)}/день · {balance_runway(user.balance, user.daily_price)}\n"
+        f"💰 Баланс: {money(user.balance)} · {money(user.daily_price)}/день · {balance_runway(user)}\n"
         f"Новые записи: {write_ok}\n\n"
         f"Выберите действие:"
     )

@@ -26,7 +26,7 @@ from utils.callbacks import (
     NAV_CANCEL,
     NAV_MAIN,
 )
-from utils.formatting import balance_runway, money
+from utils.formatting import balance_coverage_block, money
 from utils.telegram import safe_edit
 
 router = Router(name="menu")
@@ -64,8 +64,7 @@ async def show_balance(cb: CallbackQuery, db_user: User | None, repo: Repo) -> N
         f"💰 <b>Баланс</b>\n\n"
         f"Сейчас: {money(user.balance)}\n"
         f"Стоимость: {money(user.daily_price)} / день\n"
-        f"{balance_runway(user.balance, user.daily_price).capitalize()}\n"
-        f"Оплачено до: {user.paid_until_date or '—'}\n\n"
+        f"{balance_coverage_block(user)}\n\n"
         f"Пополнение выполняется владельцем сервиса вручную после оплаты вне бота."
     )
     from keyboards.main import with_nav

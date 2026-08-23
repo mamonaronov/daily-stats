@@ -56,7 +56,7 @@ from services.vpn_monitor import (
 )
 from states.diary import AdminSG
 from utils.callbacks import NAV_ADMIN
-from utils.formatting import balance_runway, money, seconds_human
+from utils.formatting import balance_coverage_block, money, seconds_human
 from utils.telegram import png_file, safe_edit, safe_send, text_file
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
 from utils.uptime import host_uptime_seconds, uptime_report_lines
@@ -91,8 +91,7 @@ def _card(user: User, entries_count: int, last_entry: str | None) -> str:
         f"Пояс: {user.timezone}\n"
         f"Баланс: {money(user.balance)}\n"
         f"Стоимость: {money(user.daily_price)} / день\n"
-        f"{balance_runway(user.balance, user.daily_price).capitalize()}\n"
-        f"Оплачено до: {user.paid_until_date or '—'}\n"
+        f"{balance_coverage_block(user)}\n"
         f"Статус аккаунта: {status}\n"
         f"Записей: {entries_count}\n"
         f"Последняя запись: {last_data}"

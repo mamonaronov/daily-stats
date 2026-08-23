@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 SCORE_LABELS = {
     1: "ужасно",
@@ -147,23 +147,87 @@ def _days_ru(n: int) -> str:
     return "дней"
 
 
-def paid_days(balance: float, daily_price: float) -> str:
+def _parse_paid_until(value: str | date | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def extra_paid_days(balance: float, daily_price: float) -> int | None:
+    """Full extra days the leftover balance can cover. None = unlimited."""
     if daily_price <= 0:
-        return "безлимит"
+        return None
     if balance <= 0:
-        return "0"
-    days = int(balance // daily_price)
-    return str(days)
+        return 0
+    return int(balance // daily_price)
 
 
-def balance_runway(balance: float, daily_price: float) -> str:
-    days = paid_days(balance, daily_price)
-    if days == "безлимит":
+def paid_days(balance: float, daily_price: float) -> str:
+    extra = extra_paid_days(balance, daily_price)
+    if extra is None:
         return "безлимит"
-    count = int(days)
-    if count <= 0:
+    return str(extra)
+
+
+def coverage(
+    balance: float,
+    daily_price: float,
+    today: date,
+    paid_until_date: str | date | None = None,
+) -> tuple[int | None, date | None]:
+    """Inclusive remaining access days and last covered date.
+
+    Days is None when the daily price is free. Date is None when there is
+    no remaining coverage (including today).
+    """
+    extra = extra_paid_days(balance, daily_price)
+    if extra is None:
+        return None, None
+    already_paid = _parse_paid_until(paid_until_date)
+    if already_paid is not None and already_paid >= today:
+        until = already_paid + timedelta(days=extra)
+        return (until - today).days + 1, until
+    if extra <= 0:
+        return 0, None
+    until = today + timedelta(days=extra - 1)
+    return extra, until
+
+
+def _coverage_of(user, today: date | None = None) -> tuple[int | None, date | None]:
+    from utils.time import user_today
+
+    day = today or user_today(user.timezone)
+    return coverage(user.balance, user.daily_price, day, user.paid_until_date)
+
+
+def balance_runway(user, *, today: date | None = None) -> str:
+    from utils.time import format_date_long
+
+    days, until = _coverage_of(user, today)
+    if days is None:
+        return "безлимит"
+    if days <= 0 or until is None:
         return "уже не хватает"
-    return f"хватит ещё ~{count} {_days_ru(count)}"
+    return f"осталось {days} {_days_ru(days)}, хватит до {format_date_long(until)}"
+
+
+def balance_coverage_block(user, *, today: date | None = None) -> str:
+    from utils.time import format_date_long
+
+    days, until = _coverage_of(user, today)
+    if days is None:
+        return "Безлимит"
+    if days <= 0 or until is None:
+        return "Уже не хватает"
+    return (
+        f"Осталось: {days} {_days_ru(days)}\n"
+        f"Хватит до: {format_date_long(until)}"
+    )
 
 
 def timedelta_human(delta: timedelta) -> str:
