@@ -101,6 +101,18 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
             value = "да" if rec.value_bool else "нет"
         items.append(TimelineItem("custom", rec.id, dt, f"📌 {rec.metric_name}", value or "", {}))
 
+    for rec in await repo.list_markers(tid, start_iso, end_iso):
+        dt = parse_iso(rec.occurred_at)
+        role = ""
+        if rec.period_role == "start":
+            role = "начало"
+        elif rec.period_role == "end":
+            role = "конец"
+        detail = rec.comment or ""
+        if role:
+            detail = f"{role}" + (f" — {detail}" if detail else "")
+        items.append(TimelineItem("marker", rec.id, dt, f"🔖 {rec.name}", detail, {}))
+
     items.sort(key=lambda x: x.occurred_at)
     return items
 

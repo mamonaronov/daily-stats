@@ -21,6 +21,8 @@ from database.models import (
     Cigarette,
     CustomMetric,
     CustomValue,
+    EventMarker,
+    EventPeriod,
     Fooling,
     SleepRecord,
     SnusPack,
@@ -1011,6 +1013,156 @@ class Repo:
         rows = await self.fetchall(sql, params)
         return [CustomValue(**dict(r)) for r in rows]
 
+    # event markers / periods
+    _MARKER_SELECT = """
+SELECT m.*,
+       p.id AS period_id,
+       CASE
+         WHEN p.start_marker_id = m.id THEN 'start'
+         WHEN p.end_marker_id = m.id THEN 'end'
+       END AS period_role
+FROM event_markers m
+LEFT JOIN event_periods p
+  ON p.telegram_id = m.telegram_id
+ AND (p.start_marker_id = m.id OR p.end_marker_id = m.id)
+"""
+
+    _PERIOD_SELECT = """
+SELECT p.id, p.telegram_id, p.start_marker_id, p.end_marker_id, p.created_at, p.updated_at,
+       s.name AS start_name, s.occurred_at AS start_at, s.comment AS start_comment,
+       e.name AS end_name, e.occurred_at AS end_at, e.comment AS end_comment
+FROM event_periods p
+JOIN event_markers s ON s.id = p.start_marker_id AND s.telegram_id = p.telegram_id
+LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegram_id
+"""
+
+    async def add_marker(
+        self,
+        telegram_id: int,
+        occurred_at: str,
+        name: str,
+        comment: str | None,
+    ) -> int:
+        ts = to_iso(now_utc())
+        return await self._insert(
+            """
+            INSERT INTO event_markers (telegram_id, occurred_at, name, comment, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (telegram_id, occurred_at, name, comment, ts, ts),
+        )
+
+    async def get_marker(self, item_id: int, telegram_id: int) -> EventMarker | None:
+        row = await self.fetchone(
+            self._MARKER_SELECT + " WHERE m.id = ? AND m.telegram_id = ?",
+            (item_id, telegram_id),
+        )
+        return _opt(EventMarker, row)
+
+    async def update_marker(self, item_id: int, telegram_id: int, **fields: Any) -> None:
+        allowed = {"occurred_at", "name", "comment", "updated_at"}
+        payload = dict(fields)
+        payload.setdefault("updated_at", to_iso(now_utc()))
+        await self._update_fields("event_markers", allowed, item_id, telegram_id, payload)
+
+    async def delete_marker(self, item_id: int, telegram_id: int) -> bool:
+        return await self._delete("event_markers", item_id, telegram_id)
+
+    async def list_markers(self, telegram_id: int, start: str, end: str) -> list[EventMarker]:
+        rows = await self.fetchall(
+            self._MARKER_SELECT
+            + " WHERE m.telegram_id = ? AND m.occurred_at >= ? AND m.occurred_at < ?"
+            + " ORDER BY m.occurred_at ASC",
+            (telegram_id, start, end),
+        )
+        return [EventMarker(**dict(r)) for r in rows]
+
+    async def list_recent_markers(self, telegram_id: int, limit: int = 20) -> list[EventMarker]:
+        rows = await self.fetchall(
+            self._MARKER_SELECT
+            + " WHERE m.telegram_id = ? ORDER BY m.occurred_at DESC LIMIT ?",
+            (telegram_id, limit),
+        )
+        return [EventMarker(**dict(r)) for r in rows]
+
+    async def list_unlinked_markers(self, telegram_id: int, limit: int = 30) -> list[EventMarker]:
+        rows = await self.fetchall(
+            self._MARKER_SELECT
+            + " WHERE m.telegram_id = ? AND p.id IS NULL ORDER BY m.occurred_at DESC LIMIT ?",
+            (telegram_id, limit),
+        )
+        return [EventMarker(**dict(r)) for r in rows]
+
+    async def add_period(
+        self,
+        telegram_id: int,
+        start_marker_id: int,
+        end_marker_id: int | None,
+    ) -> int:
+        ts = to_iso(now_utc())
+        return await self._insert(
+            """
+            INSERT INTO event_periods (
+                telegram_id, start_marker_id, end_marker_id, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (telegram_id, start_marker_id, end_marker_id, ts, ts),
+        )
+
+    async def get_period(self, item_id: int, telegram_id: int) -> EventPeriod | None:
+        row = await self.fetchone(
+            self._PERIOD_SELECT + " WHERE p.id = ? AND p.telegram_id = ?",
+            (item_id, telegram_id),
+        )
+        return _opt(EventPeriod, row)
+
+    async def get_period_for_marker(self, marker_id: int, telegram_id: int) -> EventPeriod | None:
+        row = await self.fetchone(
+            self._PERIOD_SELECT
+            + " WHERE p.telegram_id = ? AND (p.start_marker_id = ? OR p.end_marker_id = ?)",
+            (telegram_id, marker_id, marker_id),
+        )
+        return _opt(EventPeriod, row)
+
+    async def set_period_end(self, period_id: int, telegram_id: int, end_marker_id: int) -> None:
+        await self.conn.execute(
+            """
+            UPDATE event_periods
+            SET end_marker_id = ?, updated_at = ?
+            WHERE id = ? AND telegram_id = ?
+            """,
+            (end_marker_id, to_iso(now_utc()), period_id, telegram_id),
+        )
+        await self.conn.commit()
+
+    async def unlink_period(self, period_id: int, telegram_id: int) -> bool:
+        return await self._delete("event_periods", period_id, telegram_id)
+
+    async def list_open_periods(self, telegram_id: int) -> list[EventPeriod]:
+        rows = await self.fetchall(
+            self._PERIOD_SELECT
+            + " WHERE p.telegram_id = ? AND p.end_marker_id IS NULL"
+            + " ORDER BY s.occurred_at DESC",
+            (telegram_id,),
+        )
+        return [EventPeriod(**dict(r)) for r in rows]
+
+    async def list_periods_overlapping(
+        self, telegram_id: int, start: str, end: str
+    ) -> list[EventPeriod]:
+        rows = await self.fetchall(
+            self._PERIOD_SELECT
+            + """
+            WHERE p.telegram_id = ?
+              AND s.occurred_at < ?
+              AND (e.occurred_at IS NULL OR e.occurred_at >= ?)
+            ORDER BY s.occurred_at ASC
+            """,
+            (telegram_id, end, start),
+        )
+        return [EventPeriod(**dict(r)) for r in rows]
+
     # callbacks / counts
     async def claim_callback(self, callback_id: str, telegram_id: int) -> bool:
         try:
@@ -1040,6 +1192,7 @@ class Repo:
             "alcohol_records",
             "activity_records",
             "custom_metric_values",
+            "event_markers",
         ]
         total = 0
         for table in tables:
@@ -1059,11 +1212,12 @@ class Repo:
             "SELECT occurred_at AS ts FROM alcohol_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM activity_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM custom_metric_values WHERE telegram_id = ?",
+            "SELECT occurred_at AS ts FROM event_markers WHERE telegram_id = ?",
         ]
         sql = " UNION ALL ".join(parts)
         row = await self.fetchone(
             f"SELECT MAX(ts) AS ts FROM ({sql})",
-            tuple([telegram_id] * 7),
+            tuple([telegram_id] * 8),
         )
         return row["ts"] if row and row["ts"] else None
 
@@ -1076,6 +1230,7 @@ class Repo:
             ("alcohol_records", "occurred_at"),
             ("activity_records", "occurred_at"),
             ("custom_metric_values", "occurred_at"),
+            ("event_markers", "occurred_at"),
             ("sleep_records", "COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime)"),
         ]
         for table, col in specs:

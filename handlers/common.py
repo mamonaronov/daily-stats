@@ -142,6 +142,7 @@ async def start_time_pick(
                 "alc": "when:alct",
                 "act": "when:actt",
                 "cm": "when:cmt",
+                "mk": "when:mkt",
             }.get(purpose, "when:cig")
     user_tz = extra.get("tz")
     today = user_today(user_tz) if user_tz else date.today()

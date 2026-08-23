@@ -45,6 +45,7 @@ KIND_MAP = {
     "alcohol": "alc",
     "activity": "act",
     "custom": "cm",
+    "marker": "mk",
 }
 
 
@@ -161,6 +162,16 @@ async def hist_got_end(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
     await hist_got_date(cb, state, repo, db_user)
 
 
+async def _entry_markup(repo: Repo, user: User, kind: str, item_id: int, *, undo: bool = False):
+    if kind == "mk":
+        from keyboards.main import marker_card_kb
+
+        rec = await repo.get_marker(item_id, user.telegram_id)
+        period_id = rec.period_id if rec else None
+        return marker_card_kb(item_id, can_write(user), period_id=period_id, undo=undo)
+    return entry_actions(kind, item_id, can_write(user), undo=undo)
+
+
 async def show_saved_entry(
     event: CallbackQuery | Message,
     repo: Repo,
@@ -179,7 +190,7 @@ async def show_saved_entry(
         markup = None
     else:
         text = await entry_text(repo, user, kind, item_id, heading=heading)
-        markup = entry_actions(kind, item_id, can_write(user), undo=True)
+        markup = await _entry_markup(repo, user, kind, item_id, undo=True)
     if isinstance(event, CallbackQuery):
         await event.answer(toast)
         await safe_edit(event.message, text, markup)
@@ -199,12 +210,12 @@ async def hist_open(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None
         _, kind, raw_id = parts
         item_id = int(raw_id)
         text = await entry_text(repo, user, kind, item_id, heading="✅ Записано")
-        markup = entry_actions(kind, item_id, can_write(user), undo=True)
+        markup = await _entry_markup(repo, user, kind, item_id, undo=True)
     else:
         _, _, kind, raw_id = parts
         item_id = int(raw_id)
         text = await entry_text(repo, user, kind, item_id)
-        markup = entry_actions(kind, item_id, can_write(user))
+        markup = await _entry_markup(repo, user, kind, item_id)
     await cb.answer()
     await safe_edit(cb.message, text, markup)
 
@@ -227,6 +238,7 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         "alc": repo.get_alcohol,
         "act": repo.get_activity,
         "cm": repo.get_metric_value,
+        "mk": repo.get_marker,
     }
     loader = loaders.get(kind)
     if loader is None:
@@ -308,6 +320,10 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         body = f"📌 {name}\nВремя: {stamp}"
         if value:
             body += f"\nЗначение: {value}"
+    elif kind == "mk":
+        from handlers.markers import marker_card_text
+
+        return await marker_card_text(repo, user, item_id, heading=heading)
     else:
         body = f"Запись #{item_id}\nТип: {kind}\nВремя: {stamp}"
     return f"{heading}\n\n{body}" if heading else body
@@ -355,6 +371,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
         "cm": repo.delete_metric_value,
+        "mk": repo.delete_marker,
     }
     fn = mapping.get(kind)
     if fn:

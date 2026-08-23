@@ -22,13 +22,14 @@ from utils.callbacks import (
     NAV_HISTORY,
     NAV_MAIN,
     NAV_METRICS,
+    NAV_MARKERS,
     NAV_SETTINGS,
     NAV_STATS,
     ADMIN_DEPLOY_NO,
     ADMIN_DEPLOY_OK,
 )
-from utils.formatting import SCORE_EMOJI, SCORE_LABELS
-from utils.time import COMMON_TIMEZONES, MONTHS_RU, WEEKDAYS_RU, format_date
+from utils.formatting import SCORE_EMOJI, SCORE_LABELS, truncate
+from utils.time import COMMON_TIMEZONES, MONTHS_RU, WEEKDAYS_RU, format_date, format_dt, parse_iso
 
 
 def _btn(text: str, data: str) -> InlineKeyboardButton:
@@ -85,6 +86,7 @@ def main_menu(user: User, is_owner: bool, sleep: SleepRecord | None = None) -> I
     b.row(*sleep_row(sleep))
     b.row(_btn("☕ Кофеин", ENTRY_CAF), _btn("🍺 Алкоголь", ENTRY_ALC))
     b.row(_btn("🏃 Активность", ENTRY_ACT), _btn("📌 Кастом", NAV_METRICS))
+    b.row(_btn("🔖 Метки", NAV_MARKERS))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     if is_owner:
@@ -109,6 +111,7 @@ _WHEN_TITLES = {
     "actt": "Когда была активность?",
     "slw": "Когда проснулись? Можно указать время задним числом.",
     "cmt": "Когда зафиксировать?",
+    "mkt": "Когда поставить метку?",
 }
 
 _WHEN_BACK = {
@@ -118,6 +121,7 @@ _WHEN_BACK = {
     "alct": ENTRY_ALC,
     "actt": ENTRY_ACT,
     "slw": "slp:wake",
+    "mkt": NAV_MARKERS,
 }
 
 
@@ -713,4 +717,96 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
 def admin_deploy_confirm_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🔄 Обновить", ADMIN_DEPLOY_OK), _btn("⏭ Позже", ADMIN_DEPLOY_NO))
+    return b.as_markup()
+
+
+def _marker_btn_label(marker, tz: str) -> str:
+    prefix = ""
+    if getattr(marker, "period_role", None) == "start":
+        prefix = "▶️ "
+    elif getattr(marker, "period_role", None) == "end":
+        prefix = "⏹ "
+    stamp = format_dt(parse_iso(marker.occurred_at), tz)
+    return truncate(f"{prefix}{stamp} {marker.name}", 40)
+
+
+def markers_root_kb(markers, open_periods, writable: bool, tz: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if writable:
+        b.row(_btn("➕ Метка", "mk:new"), _btn("▶️ Начало периода", "mk:start"))
+        b.row(_btn("⏹ Конец периода", "mk:end"), _btn("🔗 Объединить", "mk:join"))
+    for period in open_periods:
+        start_at = format_dt(parse_iso(period.start_at), tz) if period.start_at else ""
+        label = truncate(f"▶️ {period.start_name or 'Период'} · {start_at}", 40)
+        b.row(_btn(label, f"mk:p:{period.id}"))
+    for marker in markers:
+        b.row(_btn(_marker_btn_label(marker, tz), f"mk:o:{marker.id}"))
+    return with_nav(b)
+
+
+def marker_name_kb(same_as: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if same_as:
+        b.row(_btn(f"Как у начала: {same_as[:24]}", "mk:samename"))
+    b.row(*nav_row(NAV_MARKERS))
+    return b.as_markup()
+
+
+def marker_pick_kb(items, prefix: str, tz: str, *, selected_id: int | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item in items:
+        mark = "• " if selected_id is not None and item.id == selected_id else ""
+        b.row(_btn(truncate(f"{mark}{_marker_btn_label(item, tz)}", 40), f"{prefix}:{item.id}"))
+    return with_nav(b, NAV_MARKERS)
+
+
+def period_pick_kb(periods) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for period in periods:
+        b.row(_btn((period.start_name or "Период")[:40], f"mk:pe:{period.id}"))
+    return with_nav(b, NAV_MARKERS)
+
+
+def marker_card_kb(
+    marker_id: int,
+    writable: bool,
+    *,
+    period_id: int | None = None,
+    undo: bool = False,
+) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if writable:
+        delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
+        delete_cb = f"un:mk:{marker_id}" if undo else f"rm:mk:{marker_id}"
+        b.row(_btn("✏️ Время", f"ed:mk:{marker_id}"), _btn(delete_label, delete_cb))
+        b.row(_btn("📝 Название", f"mk:nm:{marker_id}"), _btn("💬 Комментарий", f"mk:cm:{marker_id}"))
+        if period_id is not None:
+            b.row(_btn("🔓 Убрать период", f"mk:u:{period_id}"))
+    b.row(_btn("🔖 К меткам", NAV_MARKERS), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def period_card_kb(
+    period_id: int,
+    writable: bool,
+    *,
+    open_period: bool,
+    start_marker_id: int,
+    end_marker_id: int | None = None,
+) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if writable and open_period:
+        b.row(_btn("⏹ Поставить конец", f"mk:pe:{period_id}"))
+    b.row(_btn("Начало", f"mk:o:{start_marker_id}"))
+    if end_marker_id is not None:
+        b.row(_btn("Конец", f"mk:o:{end_marker_id}"))
+    if writable:
+        b.row(_btn("🔓 Убрать период", f"mk:u:{period_id}"))
+    b.row(_btn("🔖 К меткам", NAV_MARKERS), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def confirm_unlink_kb(period_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Убрать период", f"mk:uok:{period_id}"), _btn("Отмена", f"mk:p:{period_id}"))
     return b.as_markup()

@@ -12,6 +12,9 @@ from keyboards.main import (
     drink_amount_kb,
     hours_kb,
     main_menu,
+    marker_card_kb,
+    marker_name_kb,
+    markers_root_kb,
     metric_duration_kb,
     metric_number_kb,
     metric_templates_kb,
@@ -36,6 +39,7 @@ from utils.callbacks import (
     NAV_HISTORY,
     NAV_MAIN,
     NAV_METRICS,
+    NAV_MARKERS,
     NAV_SETTINGS,
 )
 
@@ -173,6 +177,7 @@ def test_activity_duration_presets():
 def test_main_menu_custom_metrics_button():
     pairs = _pairs(main_menu(SimpleNamespace(), False))
     assert ("📌 Кастом", "n:cm") in pairs
+    assert ("🔖 Метки", NAV_MARKERS) in pairs
     assert all(text != "📌 Показатели" for text, _ in pairs)
     assert all("Настроение" not in text for text, _ in pairs)
     assert all("Самочувствие" not in text for text, _ in pairs)
@@ -231,3 +236,32 @@ def test_saved_entry_actions_use_undo():
     onset = dict(_pairs(sleep_onset_kb("wu", 3)))
     assert onset["🗑 Отменить"] == "un:wu:3"
     assert onset["Позже"] == "slp:later:wu:3"
+
+
+def test_markers_root_and_card():
+    marker = SimpleNamespace(
+        id=4,
+        name="Экзамен",
+        occurred_at="2026-05-12T07:00:00+00:00",
+        period_role="start",
+    )
+    period = SimpleNamespace(id=9, start_name="Экзамен", start_at="2026-05-12T07:00:00+00:00")
+    pairs = _pairs(markers_root_kb([marker], [period], True, "UTC"))
+    assert ("➕ Метка", "mk:new") in pairs
+    assert ("▶️ Начало периода", "mk:start") in pairs
+    assert ("⏹ Конец периода", "mk:end") in pairs
+    assert ("🔗 Объединить", "mk:join") in pairs
+    assert ("mk:o:4" in {cb for _, cb in pairs})
+    assert ("mk:p:9" in {cb for _, cb in pairs})
+    card = dict(_pairs(marker_card_kb(4, True, period_id=9)))
+    assert card["✏️ Время"] == "ed:mk:4"
+    assert card["🔓 Убрать период"] == "mk:u:9"
+    assert card["📝 Название"] == "mk:nm:4"
+    same = dict(_pairs(marker_name_kb("Экзамен")))
+    assert same["Как у начала: Экзамен"] == "mk:samename"
+
+
+def test_when_kb_marker_goes_back_to_markers():
+    pairs = _pairs(when_kb("mkt"))
+    assert ("⬅️ Назад", NAV_MARKERS) in pairs
+    assert ("Сейчас", "mkt:now") in pairs

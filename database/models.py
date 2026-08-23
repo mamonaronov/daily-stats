@@ -194,6 +194,39 @@ class VpnLatencySample:
 
 
 @dataclass(slots=True)
+class EventMarker:
+    id: int
+    telegram_id: int
+    occurred_at: str
+    name: str
+    comment: str | None
+    created_at: str
+    updated_at: str
+    period_id: int | None = None
+    period_role: str | None = None
+
+
+@dataclass(slots=True)
+class EventPeriod:
+    id: int
+    telegram_id: int
+    start_marker_id: int
+    end_marker_id: int | None
+    created_at: str
+    updated_at: str
+    start_name: str | None = None
+    start_at: str | None = None
+    start_comment: str | None = None
+    end_name: str | None = None
+    end_at: str | None = None
+    end_comment: str | None = None
+
+    @property
+    def is_open(self) -> bool:
+        return self.end_marker_id is None
+
+
+@dataclass(slots=True)
 class TimelineItem:
     kind: str
     id: int

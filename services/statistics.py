@@ -75,6 +75,8 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "alcohol": await repo.list_alcohol(tid, a, b),
         "activity": await repo.list_activity(tid, a, b),
         "custom": await repo.list_metric_values(tid, a, b),
+        "markers": await repo.list_markers(tid, a, b),
+        "periods": await repo.list_periods_overlapping(tid, a, b),
     }
 
 
@@ -426,6 +428,41 @@ PAIRS = [
 ]
 
 
+def marker_stats(user: User, markers, periods) -> str:
+    if not markers and not periods:
+        return ""
+    from services.markers import period_title
+    from utils.formatting import duration_human
+
+    lines = ["🔖 <b>Метки</b>"]
+    for marker in markers:
+        stamp = format_date(to_user(parse_iso(marker.occurred_at), user.timezone).date())
+        time_s = to_user(parse_iso(marker.occurred_at), user.timezone).strftime("%H:%M")
+        role = ""
+        if marker.period_role == "start":
+            role = " · начало"
+        elif marker.period_role == "end":
+            role = " · конец"
+        extra = f" — {marker.comment}" if marker.comment else ""
+        lines.append(f"{stamp} {time_s} {marker.name}{role}{extra}")
+    for period in periods:
+        if not period.start_at:
+            continue
+        start_day = format_date(to_user(parse_iso(period.start_at), user.timezone).date())
+        title = period_title(period)
+        if period.is_open:
+            lines.append(f"▶️ {title}: с {start_day}, ещё открыт")
+            continue
+        if not period.end_at:
+            continue
+        end_day = format_date(to_user(parse_iso(period.end_at), user.timezone).date())
+        minutes = int((parse_iso(period.end_at) - parse_iso(period.start_at)).total_seconds() // 60)
+        span = duration_human(minutes) if minutes >= 0 else ""
+        tail = f" ({span})" if span else ""
+        lines.append(f"▶️ {title}: {start_day} — {end_day}{tail}")
+    return "\n".join(lines)
+
+
 async def render_stats(repo: Repo, user: User, start: date, end: date, selected: list[str]) -> str:
     data = await load_period(repo, user, start, end)
     parts = [f"📊 <b>Статистика</b>\n{format_date(start)} — {format_date(end)}"]
@@ -447,6 +484,9 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         )
     if "activity" in selected:
         parts.append(activity_stats(user, data["activity"], start, end))
+    marker_block = marker_stats(user, data["markers"], data["periods"])
+    if marker_block:
+        parts.append(marker_block)
     selected_set = set(selected)
     comparisons = []
     for left, right in PAIRS:

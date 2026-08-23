@@ -16,6 +16,7 @@ from handlers import (
     custom_metrics,
     fooling,
     history,
+    markers,
     menu,
     settings,
     sleep,
@@ -43,6 +44,7 @@ def setup_routers() -> Router:
     root.include_router(alcohol.router)
     root.include_router(activity.router)
     root.include_router(history.router)
+    root.include_router(markers.router)
     root.include_router(statistics.router)
     root.include_router(settings.router)
     root.include_router(custom_metrics.router)

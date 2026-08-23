@@ -8,6 +8,7 @@ NAV_HISTORY = "n:h"
 NAV_STATS = "n:st"
 NAV_ADMIN = "n:a"
 NAV_METRICS = "n:cm"
+NAV_MARKERS = "n:mk"
 NAV_BALANCE = "n:bal"
 
 ADMIN_DEPLOY_OK = "ad:upd:ok"

@@ -309,6 +309,7 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
         "cm": repo.delete_metric_value,
+        "mk": repo.delete_marker,
     }
     fn = mapping.get(kind)
     if fn is None:

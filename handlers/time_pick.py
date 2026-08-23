@@ -40,7 +40,7 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "cmt", "slp")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "cmt", "slp", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
@@ -49,8 +49,9 @@ WHEN_TO_PURPOSE = {
     "actt": "act",
     "slw": "slp_wake",
     "cmt": "cm",
+    "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|cmt|slp)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|cmt|slp|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -101,6 +102,19 @@ async def _finish(
             value_text=data.get("value_text"),
             value_bool=data.get("value_bool"),
         )
+    elif purpose == "mk":
+        from services.markers import add_marker
+
+        close_id = data.get("close_period_id")
+        item_id, error = await add_marker(
+            repo,
+            user,
+            data.get("marker_name") or "",
+            when,
+            data.get("marker_comment"),
+            as_period_start=data.get("marker_mode") == "period_start",
+            close_period_id=int(close_id) if close_id is not None else None,
+        )
     elif purpose and purpose.startswith("edit:"):
         error = await _apply_edit(repo, user, purpose, when)
     else:
@@ -141,6 +155,7 @@ async def _finish(
             "alc": "alc",
             "act": "act",
             "cm": "cm",
+            "mk": "mk",
         }.get(purpose)
     if kind and item_id:
         await show_saved_entry(event, repo, user, kind, item_id, state, toast=notice, heading=heading)
@@ -236,6 +251,7 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
         "caf": lambda i, t, v: repo.update_caffeine(i, t, occurred_at=v),
         "alc": lambda i, t, v: repo.update_alcohol(i, t, occurred_at=v),
         "act": lambda i, t, v: repo.update_activity(i, t, occurred_at=v),
+        "mk": lambda i, t, v: repo.update_marker(i, t, occurred_at=v),
     }
     fn = mapping.get(kind)
     if fn is None:
@@ -472,13 +488,15 @@ async def _restore_before_time_pick(
         return
     if exit_to.startswith("hist:"):
         _, kind, raw_id = exit_to.split(":", 2)
-        from handlers.history import _entry_text
-        from keyboards.main import entry_actions
-        from services.users import can_write
+        from handlers.history import _entry_markup, _entry_text
 
         text = await _entry_text(repo, user, kind, int(raw_id))
         await cb.answer()
-        await safe_edit(cb.message, text, entry_actions(kind, int(raw_id), can_write(user)))
+        await safe_edit(
+            cb.message,
+            text,
+            await _entry_markup(repo, user, kind, int(raw_id)),
+        )
         return
     if exit_to.startswith("cm:"):
         from keyboards.main import metric_card_kb

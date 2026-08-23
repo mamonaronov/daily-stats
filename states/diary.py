@@ -42,6 +42,15 @@ class CustomMetricSG(StatesGroup):
     value = State()
 
 
+class MarkerSG(StatesGroup):
+    name = State()
+    comment = State()
+    edit_name = State()
+    edit_comment = State()
+    join = State()
+    pick_end = State()
+
+
 class HistorySG(StatesGroup):
     custom_date = State()
     range_end = State()
