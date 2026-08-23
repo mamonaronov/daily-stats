@@ -20,7 +20,7 @@ METRIC_TYPES: dict[str, MetricType] = {
     "boolean": MetricType("boolean", "Да / нет"),
     "choice": MetricType("choice", "Выбор из вариантов", needs_choices=True),
     "time": MetricType("time", "Время"),
-    "duration": MetricType("duration", "Длительность (мин)", numeric=True),
+    "duration": MetricType("duration", "Длительность", numeric=True),
 }
 
 

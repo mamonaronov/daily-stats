@@ -10,14 +10,21 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_writable, show_main, start_time_pick
-from keyboards.main import back_kb, skip_comment_kb, when_kb
+from keyboards.main import activity_duration_kb, skip_comment_kb, when_kb
 from services import entries
 from states.diary import ActivitySG
 from utils.callbacks import ENTRY_ACT
 from utils.telegram import safe_edit
-from utils.time import user_now
+from utils.time import parse_minutes_ago, user_now
 
 router = Router(name="activity")
+
+
+def _activity_duration(raw: str) -> int:
+    duration = parse_minutes_ago(raw)
+    if duration <= 0 or duration > 24 * 60:
+        raise ValueError("duration")
+    return duration
 
 
 @router.callback_query(F.data.startswith("act:t:"))
@@ -28,7 +35,22 @@ async def act_type(cb: CallbackQuery, state: FSMContext, db_user: User | None) -
     await state.set_state(ActivitySG.duration)
     await state.update_data(activity_type=cb.data.split(":")[2])
     await cb.answer()
-    await safe_edit(cb.message, "Длительность в минутах:", back_kb(ENTRY_ACT))
+    await safe_edit(
+        cb.message,
+        "Длительность: нажмите или напишите, например 35, 1 час, 1ч 20м.",
+        activity_duration_kb(ENTRY_ACT),
+    )
+
+
+@router.callback_query(F.data.startswith("act:d:"), ActivitySG.duration)
+async def act_duration_pick(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await state.update_data(duration=int(cb.data.split(":")[2]))
+    await state.set_state(ActivitySG.comment)
+    await cb.answer()
+    await safe_edit(cb.message, "Комментарий? Можно пропустить.", skip_comment_kb(ENTRY_ACT))
 
 
 @router.message(ActivitySG.duration)
@@ -37,11 +59,12 @@ async def act_duration(message: Message, state: FSMContext, db_user: User | None
     if user is None:
         return
     try:
-        duration = int((message.text or "").strip())
-        if duration <= 0 or duration > 24 * 60:
-            raise ValueError
+        duration = _activity_duration(message.text or "")
     except ValueError:
-        await message.answer("Введите число минут, например 35", reply_markup=back_kb(ENTRY_ACT))
+        await message.answer(
+            "Введите длительность, например 35, 90 мин, 1 час или 1ч 20м.",
+            reply_markup=activity_duration_kb(ENTRY_ACT),
+        )
         return
     await state.update_data(duration=duration)
     await state.set_state(ActivitySG.comment)

@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from config import Config
 from database.models import User
 from database.queries import Repo
-from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu, timezone_kb
+from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu, timezone_kb, when_kb
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import safe_edit
@@ -95,6 +95,16 @@ async def require_writable(event: CallbackQuery | Message, user: User | None) ->
             await event.answer(blocked)
         return None
     return user
+
+
+async def ask_when_after_amount(event: CallbackQuery | Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    prefix = "caft" if data.get("amount_kind") == "caf" else "alct"
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        await safe_edit(event.message, "Когда это было?", when_kb(prefix))
+        return
+    await event.answer("Когда это было?", reply_markup=when_kb(prefix))
 
 
 async def start_time_pick(

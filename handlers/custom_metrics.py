@@ -27,8 +27,8 @@ from services.metric_types import METRIC_TYPES, get_type
 from services.users import can_write
 from states.diary import CustomMetricSG
 from utils.callbacks import NAV_METRICS
-from utils.telegram import safe_edit
-from utils.time import parse_hhmm, user_now
+from utils.quantity import is_volume_unit, parse_drink_amount, quantity_in_unit
+from utils.time import parse_hhmm, parse_minutes_ago, user_now
 
 router = Router(name="custom_metrics")
 
@@ -196,7 +196,12 @@ async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
     if metric is None or not metric.enabled:
         await cb.answer("Показатель недоступен", show_alert=True)
         return
-    await state.update_data(metric_id=metric_id, data_type=metric.data_type, choices_json=metric.choices_json)
+    await state.update_data(
+        metric_id=metric_id,
+        data_type=metric.data_type,
+        choices_json=metric.choices_json,
+        unit=metric.unit,
+    )
     spec = get_type(metric.data_type)
     if spec.key == "boolean":
         await cb.answer()
@@ -208,8 +213,16 @@ async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
         await safe_edit(cb.message, f"{metric.name}: выберите значение", choices_kb(choices, f"cm:o:{metric_id}"))
         return
     await state.set_state(CustomMetricSG.value)
+    prompt = f"Введите значение для «{metric.name}»"
+    if spec.key == "duration":
+        prompt = f"Длительность для «{metric.name}»: например 35, 1 час или 1ч 20м."
+    elif spec.key == "number" and is_volume_unit(metric.unit):
+        prompt = (
+            f"Значение для «{metric.name}» ({metric.unit}). "
+            "Можно 500, 500 мл, 0.5л."
+        )
     await cb.answer()
-    await safe_edit(cb.message, f"Введите значение для «{metric.name}»", cancel_kb(f"cm:o:{metric_id}"))
+    await safe_edit(cb.message, prompt, cancel_kb(f"cm:o:{metric_id}"))
 
 
 @router.callback_query(F.data.startswith("cm:v:"))
@@ -252,8 +265,14 @@ async def metric_value(message: Message, state: FSMContext, db_user: User | None
     raw = (message.text or "").strip()
     payload = dict(data)
     try:
-        if spec.key in {"number", "duration"}:
-            payload["value_number"] = float(raw.replace(",", "."))
+        if spec.key == "duration":
+            payload["value_number"] = float(parse_minutes_ago(raw))
+        elif spec.key == "number":
+            unit = data.get("unit") or ""
+            if is_volume_unit(unit):
+                payload["value_number"] = quantity_in_unit(parse_drink_amount(raw), unit)
+            else:
+                payload["value_number"] = float(raw.replace(",", "."))
         elif spec.key == "time":
             parse_hhmm(raw)
             payload["value_text"] = raw

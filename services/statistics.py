@@ -16,6 +16,7 @@ from utils.formatting import (
     duration_human,
     score_text,
 )
+from utils.quantity import format_volume_ml, milliliters_of
 from utils.time import (
     circular_mean_minutes,
     daterange,
@@ -264,6 +265,61 @@ def score_stats(title: str, user: User, items, attr: str = "score") -> str:
     return "\n".join(lines)
 
 
+def _item_milliliters(item) -> float | None:
+    return milliliters_of(getattr(item, "amount", None), getattr(item, "unit", None))
+
+
+def daily_volume_ml(user: User, items, start: date, end: date) -> dict[date, float]:
+    series = {day: 0.0 for day in daterange(start, end)}
+    for item in items:
+        local = to_user(parse_iso(item.occurred_at), user.timezone).date()
+        milliliters = _item_milliliters(item)
+        if local in series and milliliters:
+            series[local] += milliliters
+    return series
+
+
+def drink_stats(
+    title: str,
+    user: User,
+    items,
+    type_attr: str,
+    labels: dict[str, str],
+    start: date,
+    end: date,
+) -> str:
+    base = event_count_stats(title, user, items, type_attr, labels, start, end)
+    if not items:
+        return base
+    total_ml = sum(_item_milliliters(item) or 0.0 for item in items)
+    if not total_ml:
+        return base
+    by_day = daily_volume_ml(user, items, start, end)
+    days = max(1, (end - start).days + 1)
+    type_ml: dict[str, float] = defaultdict(float)
+    type_count = Counter()
+    for item in items:
+        kind = getattr(item, type_attr)
+        type_count[kind] += 1
+        milliliters = _item_milliliters(item)
+        if milliliters:
+            type_ml[kind] += milliliters
+    extra = [
+        f"Объём: {format_volume_ml(total_ml)}",
+        f"Средний объём в день: {format_volume_ml(total_ml / days)}",
+        f"Максимум за день: {format_volume_ml(max(by_day.values()))}",
+    ]
+    if type_ml:
+        extra.append(
+            "По объёму: "
+            + ", ".join(
+                f"{labels.get(k, k)} — {format_volume_ml(v)} ({type_count[k]})"
+                for k, v in sorted(type_ml.items(), key=lambda kv: kv[1], reverse=True)
+            )
+        )
+    return base + "\n" + "\n".join(extra)
+
+
 def event_count_stats(title: str, user: User, items, type_attr: str | None, labels: dict[str, str] | None, start: date, end: date) -> str:
     if not items:
         return f"{title}: нет данных за период."
@@ -326,8 +382,8 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "snus": lambda items: _snus_series(user, items, start, end),
         "mood": lambda items: daily_series(user, items, start, end, lambda xs: mean([i.score for i in xs]) if xs else 0.0),
         "wellbeing": lambda items: daily_series(user, items, start, end, lambda xs: mean([i.score for i in xs]) if xs else 0.0),
-        "caffeine": lambda items: daily_series(user, items, start, end, lambda xs: float(len(xs))),
-        "alcohol": lambda items: daily_series(user, items, start, end, lambda xs: float(len(xs))),
+        "caffeine": lambda items: daily_volume_ml(user, items, start, end),
+        "alcohol": lambda items: daily_volume_ml(user, items, start, end),
         "sleep": lambda items: _sleep_series(user, items, start, end),
         "activity": lambda items: daily_series(user, items, start, end, lambda xs: float(sum(i.duration_minutes or 0 for i in xs))),
     }
@@ -410,11 +466,11 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         parts.append(score_stats("❤️ <b>Самочувствие</b>", user, data["wellbeing"]))
     if "caffeine" in selected:
         parts.append(
-            event_count_stats("☕ <b>Кофеин</b>", user, data["caffeine"], "drink_type", CAFFEINE_TYPES, start, end)
+            drink_stats("☕ <b>Кофеин</b>", user, data["caffeine"], "drink_type", CAFFEINE_TYPES, start, end)
         )
     if "alcohol" in selected:
         parts.append(
-            event_count_stats("🍺 <b>Алкоголь</b>", user, data["alcohol"], "drink_type", ALCOHOL_TYPES, start, end)
+            drink_stats("🍺 <b>Алкоголь</b>", user, data["alcohol"], "drink_type", ALCOHOL_TYPES, start, end)
         )
     if "activity" in selected:
         parts.append(activity_stats(user, data["activity"], start, end))

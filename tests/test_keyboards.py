@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from keyboards.main import (
+    activity_duration_kb,
     ago_pick_kb,
     back_kb,
     calendar_kb,
     cancel_kb,
+    drink_amount_kb,
     hours_kb,
     minutes_kb,
     now_or_time,
@@ -17,6 +19,8 @@ from keyboards.main import (
 from handlers.time_pick import time_pick_back_action
 from states.diary import TimePickSG
 from utils.callbacks import (
+    ENTRY_ACT,
+    ENTRY_ALC,
     ENTRY_CAF,
     NAV_BACK,
     NAV_HISTORY,
@@ -134,3 +138,16 @@ def test_time_pick_back_action_stack():
     assert time_pick_back_action(TimePickSG.ago_pick.state, date_shortcuts=False) == "when"
     assert time_pick_back_action(TimePickSG.when_text.state, date_shortcuts=False) == "when"
     assert time_pick_back_action(TimePickSG.ago_minutes.state, date_shortcuts=False) == "ago_pick"
+
+
+def test_alcohol_amount_presets_use_ml_callbacks():
+    pairs = _pairs(drink_amount_kb("alc", "beer", ENTRY_ALC))
+    assert ("0,5 л", "alc:q:500") in pairs
+    assert ("330 мл", "alc:q:330") in pairs
+    assert ("1 порция", "alc:q:pcs:1") in pairs
+
+
+def test_activity_duration_presets():
+    pairs = _pairs(activity_duration_kb(ENTRY_ACT))
+    assert ("30 мин", "act:d:30") in pairs
+    assert ("1,5 ч", "act:d:90") in pairs

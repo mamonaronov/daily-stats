@@ -14,7 +14,7 @@ from utils.formatting import (
     score_text,
     truncate,
 )
-from utils.time import format_time, parse_iso, range_bounds_utc, to_iso, to_user
+from utils.quantity import format_quantity
 
 
 async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list[TimelineItem]:
@@ -73,13 +73,13 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
     for rec in await repo.list_caffeine(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
         label = CAFFEINE_TYPES.get(rec.drink_type, rec.drink_type)
-        extra = f"{rec.amount:g} {rec.unit}" if rec.amount is not None else ""
+        extra = format_quantity(rec.amount, rec.unit)
         items.append(TimelineItem("caffeine", rec.id, dt, f"☕ {label.capitalize()}", extra, {}))
 
     for rec in await repo.list_alcohol(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
         label = ALCOHOL_TYPES.get(rec.drink_type, rec.drink_type)
-        extra = f"{rec.amount:g} {rec.unit}" if rec.amount is not None else ""
+        extra = format_quantity(rec.amount, rec.unit)
         items.append(TimelineItem("alcohol", rec.id, dt, f"🍺 {label.capitalize()}", extra, {}))
 
     for rec in await repo.list_activity(tid, start_iso, end_iso):

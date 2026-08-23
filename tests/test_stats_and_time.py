@@ -302,3 +302,37 @@ def test_snus_stats_text():
     assert "В среднем хватает: 2 д 12 ч" in text
     assert "Минимум: 2 д" in text
     assert "Максимум: 3 д" in text
+
+
+def test_alcohol_stats_include_volume():
+    from database.models import AlcoholRecord, User
+    from services.statistics import drink_stats
+    from utils.formatting import ALCOHOL_TYPES
+
+    user = User(
+        telegram_id=5,
+        username=None,
+        first_name="A",
+        last_name=None,
+        registered_at="2026-08-01T00:00:00+00:00",
+        timezone="UTC",
+        status="active",
+        last_activity_at=None,
+        balance=10,
+        daily_price=1,
+        paid_until_date=None,
+        last_charge_date=None,
+        deleted_at=None,
+        bot_blocked_at=None,
+        created_at="2026-08-01T00:00:00+00:00",
+        updated_at="2026-08-01T00:00:00+00:00",
+    )
+    items = [
+        AlcoholRecord(1, 5, "beer", 500, "мл", None, "2026-08-17T18:00:00+00:00", "2026-08-17T18:00:00+00:00"),
+        AlcoholRecord(2, 5, "wine", 150, "мл", None, "2026-08-17T20:00:00+00:00", "2026-08-17T20:00:00+00:00"),
+    ]
+    text = drink_stats("🍺 Алкоголь", user, items, "drink_type", ALCOHOL_TYPES, date(2026, 8, 17), date(2026, 8, 17))
+    assert "Всего: 2" in text
+    assert "Объём: 0,65 л" in text
+    assert "пиво — 0,5 л" in text
+    assert "вино — 150 мл" in text

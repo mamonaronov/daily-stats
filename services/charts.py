@@ -14,7 +14,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from database.models import User
 from database.queries import Repo
-from services.statistics import daily_event_counts, load_period
+from services.statistics import daily_event_counts, daily_volume_ml, load_period
+from utils.quantity import milliliters_of
 from utils.time import daterange, format_date, parse_iso, to_user
 
 plt.rcParams["font.family"] = "DejaVu Sans"
@@ -155,19 +156,9 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             )
         )
     if "caffeine" in selected:
-        counts = {d: 0 for d in days}
-        for item in data["caffeine"]:
-            day = to_user(parse_iso(item.occurred_at), user.timezone).date()
-            if day in counts:
-                counts[day] += 1
-        charts.append(("Кофеин", _line("Кофеин по дням", labels, [counts[d] for d in days], "раз")))
+        charts.append(_drink_chart("Кофеин", "Кофеин по дням", user, data["caffeine"], days, labels))
     if "alcohol" in selected:
-        counts = {d: 0 for d in days}
-        for item in data["alcohol"]:
-            day = to_user(parse_iso(item.occurred_at), user.timezone).date()
-            if day in counts:
-                counts[day] += 1
-        charts.append(("Алкоголь", _line("Алкоголь по дням", labels, [counts[d] for d in days], "раз")))
+        charts.append(_drink_chart("Алкоголь", "Алкоголь по дням", user, data["alcohol"], days, labels))
 
     numeric_custom = [v for v in data["custom"] if v.value_number is not None]
     grouped: dict[str, list] = defaultdict(list)
@@ -184,6 +175,15 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             series[day] = mean(buckets[day]) if buckets[day] else 0.0
         charts.append((name, _line(name, labels, [series[d] for d in days], "значение")))
     return charts
+
+
+def _drink_chart(name: str, title: str, user: User, items, days, labels) -> tuple[str, bytes]:
+    volumes = daily_volume_ml(user, items, days[0], days[-1]) if days else {}
+    has_volume = any(milliliters_of(item.amount, item.unit) for item in items)
+    if has_volume:
+        return (name, _line(title, labels, [volumes.get(d, 0.0) / 1000 for d in days], "л"))
+    counts = daily_event_counts(user, items, days[0], days[-1]) if days else {}
+    return (name, _line(title, labels, [counts.get(d, 0) for d in days], "раз"))
 
 
 def _score_chart(title: str, user: User, items, days, labels) -> bytes:

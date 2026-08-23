@@ -205,6 +205,48 @@ def alcohol_types() -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
+ALCOHOL_AMOUNT_PRESETS = {
+    "beer": ((330, "330 мл"), (500, "0,5 л"), (1000, "1 л"), (1500, "1,5 л")),
+    "wine": ((100, "100 мл"), (150, "150 мл"), (200, "200 мл"), (750, "0,75 л")),
+    "spirits": ((40, "40 мл"), (50, "50 мл"), (100, "100 мл"), (500, "0,5 л")),
+    "cocktail": ((150, "150 мл"), (250, "250 мл"), (350, "350 мл"), (500, "0,5 л")),
+    "other": ((50, "50 мл"), (200, "200 мл"), (330, "330 мл"), (500, "0,5 л")),
+}
+
+CAFFEINE_AMOUNT_PRESETS = {
+    "coffee": ((200, "200 мл"), (250, "250 мл"), (350, "350 мл"), (400, "400 мл")),
+    "energy": ((250, "250 мл"), (330, "330 мл"), (450, "450 мл"), (500, "0,5 л")),
+    "tea": ((200, "200 мл"), (250, "250 мл"), (400, "400 мл"), (500, "0,5 л")),
+    "other": ((200, "200 мл"), (250, "250 мл"), (330, "330 мл"), (500, "0,5 л")),
+}
+
+
+def drink_amount_kb(kind: str, drink_type: str, back: str) -> InlineKeyboardMarkup:
+    presets = ALCOHOL_AMOUNT_PRESETS if kind == "alc" else CAFFEINE_AMOUNT_PRESETS
+    prefix = "alc:q" if kind == "alc" else "caf:q"
+    b = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for milliliters, label in presets.get(drink_type, presets["other"]):
+        row.append(_btn(label, f"{prefix}:{milliliters}"))
+        if len(row) == 2:
+            b.row(*row)
+            row = []
+    if row:
+        b.row(*row)
+    if kind == "alc":
+        b.row(_btn("1 порция", f"{prefix}:pcs:1"))
+    elif drink_type in {"coffee", "tea"}:
+        b.row(_btn("1 чашка", f"{prefix}:pcs:1"))
+    return with_nav(b, back)
+
+
+def activity_duration_kb(back: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("15 мин", "act:d:15"), _btn("30 мин", "act:d:30"), _btn("45 мин", "act:d:45"))
+    b.row(_btn("1 ч", "act:d:60"), _btn("1,5 ч", "act:d:90"), _btn("2 ч", "act:d:120"))
+    return with_nav(b, back)
+
+
 def activity_types() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🚶 Ходьба", "act:t:walk"), _btn("🏃 Бег", "act:t:run"))
