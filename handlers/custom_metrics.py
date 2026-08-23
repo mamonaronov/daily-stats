@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from database.models import CustomMetric, User
 from database.queries import Repo
 from handlers.common import require_active, require_writable, start_time_pick
+from handlers.history import show_saved_entry
 from keyboards.main import (
     back_kb,
     bool_kb,
@@ -483,7 +484,7 @@ async def metric_now(
     if user is None:
         return
     data = await state.get_data()
-    _, error = await add_custom_value(
+    item_id, error = await add_custom_value(
         repo,
         user,
         int(data["metric_id"]),
@@ -495,8 +496,7 @@ async def metric_now(
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await cb.answer("Сохранено")
-    await show_custom_metrics(cb, repo, user, state)
+    await show_saved_entry(cb, repo, user, "cm", item_id, state)
 
 
 @router.callback_query(F.data == "cmt:time")

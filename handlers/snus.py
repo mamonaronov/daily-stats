@@ -9,7 +9,8 @@ from aiogram.types import CallbackQuery
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable, show_main, start_time_pick
+from handlers.common import require_writable, start_time_pick
+from handlers.history import show_saved_entry
 from keyboards.main import snus_menu
 from services import entries
 from services.entries import _elapsed_minutes
@@ -47,12 +48,11 @@ async def snus_buy_now(
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    _, error = await entries.add_snus_bought(repo, user, user_now(user.timezone))
+    item_id, error = await entries.add_snus_bought(repo, user, user_now(user.timezone))
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await cb.answer("Шайба открыта")
-    await show_main(cb, user, config, is_owner, state, repo)
+    await show_saved_entry(cb, repo, user, "snb", item_id, state, toast="Шайба открыта")
 
 
 @router.callback_query(F.data == "sns:end")
@@ -73,8 +73,16 @@ async def snus_end_now(
         return
     pack = await repo.get_snus_pack(item_id, user.telegram_id) if item_id else None
     lasted = duration_human(pack.duration_minutes) if pack else "—"
-    await cb.answer(f"Хватило на {lasted}")
-    await show_main(cb, user, config, is_owner, state, repo)
+    await show_saved_entry(
+        cb,
+        repo,
+        user,
+        "snf",
+        item_id,
+        state,
+        toast=f"Хватило на {lasted}",
+        heading=f"✅ Хватило на {lasted}",
+    )
 
 
 @router.callback_query(F.data == "sns:tbuy")

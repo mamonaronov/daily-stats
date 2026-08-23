@@ -9,7 +9,8 @@ from aiogram.types import CallbackQuery
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import ask_when_after_amount, require_writable, show_main, start_time_pick
+from handlers.common import ask_when_after_amount, require_writable, start_time_pick
+from handlers.history import show_saved_entry
 from keyboards.main import drink_amount_kb
 from services import entries
 from states.diary import AmountSG
@@ -64,14 +65,13 @@ async def alc_now(
     if user is None:
         return
     data = await state.get_data()
-    _, error = await entries.add_alcohol(
+    item_id, error = await entries.add_alcohol(
         repo, user, data["drink_type"], data.get("amount"), data.get("unit"), user_now(user.timezone)
     )
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await cb.answer("Сохранено")
-    await show_main(cb, user, config, is_owner, state, repo)
+    await show_saved_entry(cb, repo, user, "alc", item_id, state)
 
 
 @router.callback_query(F.data == "alct:time")

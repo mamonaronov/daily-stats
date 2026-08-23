@@ -161,20 +161,55 @@ async def hist_got_end(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
     await hist_got_date(cb, state, repo, db_user)
 
 
+async def show_saved_entry(
+    event: CallbackQuery | Message,
+    repo: Repo,
+    user: User,
+    kind: str,
+    item_id: int | None,
+    state: FSMContext | None = None,
+    *,
+    toast: str = "Записано",
+    heading: str = "✅ Записано",
+) -> None:
+    if state:
+        await state.clear()
+    if not item_id:
+        text = heading
+        markup = None
+    else:
+        text = await entry_text(repo, user, kind, item_id, heading=heading)
+        markup = entry_actions(kind, item_id, can_write(user), undo=True)
+    if isinstance(event, CallbackQuery):
+        await event.answer(toast)
+        await safe_edit(event.message, text, markup)
+        return
+    await event.answer(text, reply_markup=markup)
+
+
 @router.callback_query(F.data.startswith("h:o:"))
+@router.callback_query(F.data.startswith("sv:"))
 async def hist_open(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
-    _, _, kind, raw_id = cb.data.split(":")
-    item_id = int(raw_id)
-    text = await _entry_text(repo, user, kind, item_id)
-    writable = can_write(user)
+    parts = cb.data.split(":")
+    kind, item_id = parts[1] if cb.data.startswith("sv:") else parts[2], int(parts[-1])
+    if cb.data.startswith("sv:"):
+        _, kind, raw_id = parts
+        item_id = int(raw_id)
+        text = await entry_text(repo, user, kind, item_id, heading="✅ Записано")
+        markup = entry_actions(kind, item_id, can_write(user), undo=True)
+    else:
+        _, _, kind, raw_id = parts
+        item_id = int(raw_id)
+        text = await entry_text(repo, user, kind, item_id)
+        markup = entry_actions(kind, item_id, can_write(user))
     await cb.answer()
-    await safe_edit(cb.message, text, entry_actions(kind, item_id, writable))
+    await safe_edit(cb.message, text, markup)
 
 
-async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
+async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading: str | None = None) -> str:
     loaders = {
         "cig": repo.get_cigarette,
         "fool": repo.get_fooling,
@@ -187,6 +222,7 @@ async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
         "sw": repo.get_sleep,
         "su": repo.get_sleep,
         "slp": repo.get_sleep,
+        "wu": repo.get_sleep,
         "caf": repo.get_caffeine,
         "alc": repo.get_alcohol,
         "act": repo.get_activity,
@@ -203,30 +239,81 @@ async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
 
         bought = format_dt(parse_iso(rec.bought_at), user.timezone) if rec.bought_at else "—"
         finished = format_dt(parse_iso(rec.finished_at), user.timezone) if rec.finished_at else "ещё открыта"
-        return (
+        body = (
             f"🟢 Шайба #{item_id}\n"
             f"Купил: {bought}\n"
             f"Закончилась: {finished}\n"
             f"Хватило: {duration_human(rec.duration_minutes)}"
         )
-    if kind in {"sb", "sp", "sa", "so", "sw", "su", "slp"}:
-        from utils.formatting import duration_human
+        return f"{heading}\n\n{body}" if heading else body
+    if kind in {"sb", "sp", "sa", "so", "sw", "su", "slp", "wu"}:
+        from utils.formatting import duration_human, score_text
 
         def _stamp(value: str | None) -> str:
             return format_dt(parse_iso(value), user.timezone) if value else "—"
 
-        return (
-            f"😴 Сон #{item_id}\n"
-            f"С телефоном: {_stamp(rec.phone_in_bed_at)}\n"
-            f"Без телефона: {_stamp(rec.phone_away_at)}\n"
-            f"Заснул: {_stamp(rec.sleep_onset_at)}\n"
-            f"Проснулся: {_stamp(rec.wake_time)}\n"
-            f"Встал: {_stamp(rec.out_of_bed_at)}\n"
-            f"Длительность: {duration_human(rec.duration_minutes)}"
-        )
+        lines = [
+            f"😴 Сон #{item_id}",
+            f"С телефоном: {_stamp(rec.phone_in_bed_at)}",
+            f"Без телефона: {_stamp(rec.phone_away_at)}",
+            f"Заснул: {_stamp(rec.sleep_onset_at)}",
+            f"Проснулся: {_stamp(rec.wake_time)}",
+            f"Встал: {_stamp(rec.out_of_bed_at)}",
+            f"Длительность: {duration_human(rec.duration_minutes)}",
+        ]
+        if rec.quality:
+            lines.append(f"Качество: {score_text(rec.quality)}")
+        body = "\n".join(lines)
+        return f"{heading}\n\n{body}" if heading else body
     when = getattr(rec, "occurred_at", None) or getattr(rec, "bedtime", None) or getattr(rec, "wake_time", None)
     stamp = format_dt(parse_iso(when), user.timezone) if when else "—"
-    return f"Запись #{item_id}\nТип: {kind}\nВремя: {stamp}"
+    if kind == "cig":
+        body = f"🚬 Сигарета\nВремя: {stamp}"
+    elif kind == "fool":
+        body = f"🤌 Валять дурака\nВремя: {stamp}"
+    elif kind == "caf":
+        from utils.formatting import CAFFEINE_TYPES
+        from utils.quantity import format_quantity
+
+        label = CAFFEINE_TYPES.get(rec.drink_type, rec.drink_type)
+        extra = format_quantity(rec.amount, rec.unit)
+        body = f"☕ {label.capitalize()}\nВремя: {stamp}"
+        if extra:
+            body += f"\nОбъём: {extra}"
+    elif kind == "alc":
+        from utils.formatting import ALCOHOL_TYPES
+        from utils.quantity import format_quantity
+
+        label = ALCOHOL_TYPES.get(rec.drink_type, rec.drink_type)
+        extra = format_quantity(rec.amount, rec.unit)
+        body = f"🍺 {label.capitalize()}\nВремя: {stamp}"
+        if extra:
+            body += f"\nОбъём: {extra}"
+    elif kind == "act":
+        from utils.formatting import ACTIVITY_TYPES, duration_human
+
+        label = ACTIVITY_TYPES.get(rec.activity_type, rec.activity_type)
+        body = f"🏃 {label.capitalize()}\nВремя: {stamp}\nДлительность: {duration_human(rec.duration_minutes)}"
+        if rec.comment:
+            body += f"\nКомментарий: {rec.comment}"
+    elif kind == "cm":
+        value = rec.value_text
+        if rec.value_number is not None:
+            value = f"{rec.value_number:g}"
+            if rec.unit:
+                value += f" {rec.unit}"
+        elif rec.value_bool is not None:
+            value = "да" if rec.value_bool else "нет"
+        name = rec.metric_name or "Метрика"
+        body = f"📌 {name}\nВремя: {stamp}"
+        if value:
+            body += f"\nЗначение: {value}"
+    else:
+        body = f"Запись #{item_id}\nТип: {kind}\nВремя: {stamp}"
+    return f"{heading}\n\n{body}" if heading else body
+
+
+_entry_text = entry_text
 
 
 @router.callback_query(F.data.startswith("ed:"))
@@ -239,18 +326,6 @@ async def edit_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None)
     _, kind, raw_id = cb.data.split(":")
     purpose = f"edit:{kind}:{raw_id}"
     await start_time_pick(cb, state, purpose, {"tz": user.timezone})
-
-
-@router.callback_query(F.data.startswith("rm:"))
-async def remove_ask(cb: CallbackQuery, db_user: User | None) -> None:
-    from handlers.common import require_writable
-
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    _, kind, raw_id = cb.data.split(":")
-    await cb.answer()
-    await safe_edit(cb.message, "Удалить запись?", confirm_remove_kb(kind, int(raw_id)))
 
 
 @router.callback_query(F.data.startswith("rmok:"))
@@ -275,6 +350,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "sw": repo.delete_sleep,
         "su": repo.delete_sleep,
         "slp": repo.delete_sleep,
+        "wu": repo.delete_sleep,
         "caf": repo.delete_caffeine,
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
@@ -285,3 +361,48 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         await fn(item_id, tid)
     await cb.answer("Удалено")
     await show_main(cb, user, config, is_owner, state, repo)
+
+
+@router.callback_query(F.data.startswith("rm:"))
+async def remove_ask(cb: CallbackQuery, db_user: User | None) -> None:
+    from handlers.common import require_writable
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    _, kind, raw_id = cb.data.split(":")
+    await cb.answer()
+    await safe_edit(cb.message, "Удалить запись?", confirm_remove_kb(kind, int(raw_id)))
+
+
+@router.callback_query(F.data.startswith("unok:"))
+async def undo_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config: Config, is_owner: bool, state: FSMContext) -> None:
+    from handlers.common import require_writable, show_main
+    from services.entries import undo_entry
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    _, kind, raw_id = cb.data.split(":")
+    error = await undo_entry(repo, user, kind, int(raw_id))
+    if error:
+        await cb.answer(error, show_alert=True)
+        return
+    await cb.answer("Отменено")
+    await show_main(cb, user, config, is_owner, state, repo)
+
+
+@router.callback_query(F.data.startswith("un:"))
+async def undo_ask(cb: CallbackQuery, db_user: User | None) -> None:
+    from handlers.common import require_writable
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    _, kind, raw_id = cb.data.split(":")
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        "Отменить эту запись? Если нажали случайно — так и нужно.",
+        confirm_remove_kb(kind, int(raw_id), undo=True),
+    )

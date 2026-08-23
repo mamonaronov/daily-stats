@@ -217,3 +217,17 @@ def test_metric_units_and_value_presets():
     assert duration["30 мин"] == "cm:d:30"
     times = dict(_pairs(metric_time_kb("cm:o:1")))
     assert times["07:00"] == "cm:tm:0700"
+
+
+def test_saved_entry_actions_use_undo():
+    from keyboards.main import confirm_remove_kb, entry_actions, sleep_onset_kb
+
+    pairs = _pairs(entry_actions("cig", 7, True, undo=True))
+    assert ("🗑 Отменить", "un:cig:7") in pairs
+    assert ("✏️ Изменить", "ed:cig:7") in pairs
+    confirm = dict(_pairs(confirm_remove_kb("cig", 7, undo=True)))
+    assert confirm["Отменить"] == "unok:cig:7"
+    assert confirm["Оставить"] == "sv:cig:7"
+    onset = dict(_pairs(sleep_onset_kb("wu", 3)))
+    assert onset["🗑 Отменить"] == "un:wu:3"
+    assert onset["Позже"] == "slp:later:wu:3"

@@ -9,7 +9,8 @@ from aiogram.types import CallbackQuery
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable, show_main, start_time_pick
+from handlers.common import require_writable, start_time_pick
+from handlers.history import show_saved_entry
 from services import entries
 from utils.time import user_now
 
@@ -28,12 +29,11 @@ async def fool_now(
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    _, error = await entries.add_fooling(repo, user, user_now(user.timezone))
+    item_id, error = await entries.add_fooling(repo, user, user_now(user.timezone))
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await cb.answer("Записано")
-    await show_main(cb, user, config, is_owner, state, repo)
+    await show_saved_entry(cb, repo, user, "fool", item_id, state)
 
 
 @router.callback_query(F.data == "fool:time")

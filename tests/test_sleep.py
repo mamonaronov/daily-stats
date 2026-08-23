@@ -86,3 +86,56 @@ async def test_migrated_bedtime_is_no_phone_phase(repo):
     )
     rec = await repo.get_sleep(item_id, user.telegram_id)
     assert rec.phase() == "no_phone"
+
+
+@pytest.mark.asyncio
+async def test_undo_cigarette_deletes_record(repo):
+    from services.entries import add_cigarette, undo_entry
+
+    user = await repo.create_user(41, "u", "U", None, "UTC", 0, "23:00")
+    when = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
+    item_id, error = await add_cigarette(repo, user, when)
+    assert error is None
+    assert await repo.get_cigarette(item_id, user.telegram_id) is not None
+    assert await undo_entry(repo, user, "cig", item_id) is None
+    assert await repo.get_cigarette(item_id, user.telegram_id) is None
+
+
+@pytest.mark.asyncio
+async def test_undo_sleep_away_keeps_the_night(repo):
+    from services.entries import add_sleep_phone_away, add_sleep_phone_in, undo_entry
+
+    user = await repo.create_user(42, "u", "U", None, "UTC", 0, "23:00")
+    phone = datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc)
+    away = datetime(2026, 8, 16, 20, 40, tzinfo=timezone.utc)
+    item_id, error = await add_sleep_phone_in(repo, user, phone)
+    assert error is None
+    _, error = await add_sleep_phone_away(repo, user, away)
+    assert error is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.phone_away_at is not None
+    assert await undo_entry(repo, user, "sa", item_id) is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec is not None
+    assert rec.phone_away_at is None
+    assert rec.phone_in_bed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_undo_snus_finish_reopens_pack(repo):
+    from services.entries import add_snus_bought, add_snus_finished, undo_entry
+
+    user = await repo.create_user(43, "u", "U", None, "UTC", 0, "23:00")
+    bought = datetime(2026, 8, 10, 12, 0, tzinfo=timezone.utc)
+    finished = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
+    item_id, error = await add_snus_bought(repo, user, bought)
+    assert error is None
+    _, error = await add_snus_finished(repo, user, finished)
+    assert error is None
+    rec = await repo.get_snus_pack(item_id, user.telegram_id)
+    assert rec.finished_at is not None
+    assert await undo_entry(repo, user, "snf", item_id) is None
+    rec = await repo.get_snus_pack(item_id, user.telegram_id)
+    assert rec is not None
+    assert rec.finished_at is None
+    assert rec.duration_minutes is None

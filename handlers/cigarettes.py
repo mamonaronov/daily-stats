@@ -9,9 +9,10 @@ from aiogram.types import CallbackQuery
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable, show_main, start_time_pick
+from handlers.common import require_writable, start_time_pick
+from handlers.history import show_saved_entry
 from services import entries
-from utils.time import format_dt, user_now
+from utils.time import user_now
 
 router = Router(name="cigarettes")
 
@@ -32,10 +33,7 @@ async def cig_now(
     if error:
         await cb.answer(error, show_alert=True)
         return
-    when = user_now(user.timezone)
-    await cb.answer("Записано")
-    await show_main(cb, user, config, is_owner, state, repo)
-    # show_main overwrites; send confirmation via answer toast is enough
+    await show_saved_entry(cb, repo, user, "cig", item_id, state)
 
 
 @router.callback_query(F.data == "cig:time")

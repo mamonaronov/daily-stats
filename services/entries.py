@@ -233,3 +233,86 @@ async def add_custom_value(repo: Repo, user: User, metric_id: int, when: datetim
         return None, blocked
     item_id = await repo.add_metric_value(user.telegram_id, metric_id, to_iso(when), **values)
     return item_id, None
+
+
+def _has_sleep_night(rec) -> bool:
+    return bool(rec.phone_in_bed_at or rec.phone_away_at or rec.bedtime)
+
+
+async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | None:
+    """Undo a just-saved action. None means success."""
+    blocked = await require_write(user)
+    if blocked:
+        return blocked
+    tid = user.telegram_id
+    if kind == "snf":
+        rec = await repo.get_snus_pack(item_id, tid)
+        if rec is None:
+            return "Запись не найдена."
+        await repo.update_snus_pack(item_id, tid, finished_at=None, duration_minutes=None)
+        return None
+    if kind in {"sa", "sw", "su", "so", "wu", "slp"}:
+        rec = await repo.get_sleep(item_id, tid)
+        if rec is None:
+            return "Запись не найдена."
+        if kind == "sa":
+            if rec.phone_in_bed_at:
+                await repo.update_sleep(
+                    item_id,
+                    tid,
+                    phone_away_at=None,
+                    bedtime=rec.phone_in_bed_at,
+                )
+                return None
+            await repo.delete_sleep(item_id, tid)
+            return None
+        if kind == "sw":
+            if _has_sleep_night(rec):
+                await repo.update_sleep(
+                    item_id,
+                    tid,
+                    wake_time=None,
+                    duration_minutes=None,
+                    quality=None,
+                )
+                return None
+            await repo.delete_sleep(item_id, tid)
+            return None
+        if kind == "wu":
+            if _has_sleep_night(rec):
+                await repo.update_sleep(
+                    item_id,
+                    tid,
+                    wake_time=None,
+                    out_of_bed_at=None,
+                    duration_minutes=None,
+                    quality=None,
+                )
+                return None
+            await repo.delete_sleep(item_id, tid)
+            return None
+        if kind == "su":
+            await repo.update_sleep(item_id, tid, out_of_bed_at=None)
+            return None
+        if kind == "so":
+            await repo.update_sleep(item_id, tid, sleep_onset_at=None, duration_minutes=None)
+            return None
+        await repo.delete_sleep(item_id, tid)
+        return None
+    mapping = {
+        "cig": repo.delete_cigarette,
+        "fool": repo.delete_fooling,
+        "snb": repo.delete_snus_pack,
+        "sb": repo.delete_sleep,
+        "sp": repo.delete_sleep,
+        "caf": repo.delete_caffeine,
+        "alc": repo.delete_alcohol,
+        "act": repo.delete_activity,
+        "cm": repo.delete_metric_value,
+    }
+    fn = mapping.get(kind)
+    if fn is None:
+        return "Этот тип записи нельзя отменить."
+    if not await fn(item_id, tid):
+        return "Запись не найдена."
+    return None

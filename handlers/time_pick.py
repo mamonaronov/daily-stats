@@ -106,6 +106,7 @@ async def _finish(
     else:
         error = "Неизвестный сценарий ввода времени."
 
+    from handlers.history import show_saved_entry
     from utils.formatting import duration_human
     from utils.time import format_dt
 
@@ -117,19 +118,37 @@ async def _finish(
             await event.answer(error)
         return
     notice = f"Сохранено: {format_dt(when, user.timezone)}"
+    heading = "✅ Записано"
     if purpose == "snus_end" and item_id:
         pack = await repo.get_snus_pack(item_id, user.telegram_id)
         if pack:
             notice = f"Хватило на {duration_human(pack.duration_minutes)}"
+            heading = f"✅ {notice}"
+    kind = None
+    if purpose and purpose.startswith("edit:"):
+        _, kind, raw_id = purpose.split(":", 2)
+        item_id = int(raw_id)
+        heading = "✅ Время обновлено"
+        notice = "Сохранено"
+    else:
+        kind = {
+            "cig": "cig",
+            "fool": "fool",
+            "slp_onset": "so",
+            "snus_buy": "snb",
+            "snus_end": "snf",
+            "caf": "caf",
+            "alc": "alc",
+            "act": "act",
+            "cm": "cm",
+        }.get(purpose)
+    if kind and item_id:
+        await show_saved_entry(event, repo, user, kind, item_id, state, toast=notice, heading=heading)
+        return
     if isinstance(event, CallbackQuery):
         await event.answer(notice)
     else:
         await event.answer(notice)
-    if purpose == "cm":
-        from handlers.custom_metrics import show_custom_metrics
-
-        await show_custom_metrics(event, repo, user, state)
-        return
     await show_main(event, user, config, is_owner, state, repo)
 
 
@@ -160,6 +179,18 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
     elif kind in {"sw", "slp_wake"}:
         rec = await repo.get_sleep(item_id, user.telegram_id)
         field = "wake_time"
+    elif kind == "wu":
+        rec = await repo.get_sleep(item_id, user.telegram_id)
+        if rec is None:
+            return "Запись не найдена."
+        updates = {"wake_time": iso, "out_of_bed_at": iso}
+        if rec.sleep_onset_at:
+            duration = _elapsed_minutes(rec.sleep_onset_at, iso)
+            if duration is None:
+                return "Время засыпания позже пробуждения."
+            updates["duration_minutes"] = duration
+        await repo.update_sleep(item_id, user.telegram_id, **updates)
+        return None
     if field is not None:
         if rec is None:
             return "Запись не найдена."

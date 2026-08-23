@@ -9,7 +9,8 @@ from aiogram.types import CallbackQuery, Message
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable, show_main, start_time_pick
+from handlers.common import require_writable, start_time_pick
+from handlers.history import show_saved_entry
 from keyboards.main import activity_duration_kb, skip_comment_kb, when_kb
 from services import entries
 from states.diary import ActivitySG
@@ -101,7 +102,7 @@ async def act_now(
     if user is None:
         return
     data = await state.get_data()
-    _, error = await entries.add_activity(
+    item_id, error = await entries.add_activity(
         repo,
         user,
         data["activity_type"],
@@ -112,8 +113,7 @@ async def act_now(
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await cb.answer("Сохранено")
-    await show_main(cb, user, config, is_owner, state, repo)
+    await show_saved_entry(cb, repo, user, "act", item_id, state)
 
 
 @router.callback_query(F.data == "actt:time")

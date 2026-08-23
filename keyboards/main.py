@@ -169,9 +169,12 @@ def ago_pick_kb(prefix: str, back: str | None = NAV_BACK) -> InlineKeyboardMarku
     return with_nav(b, back)
 
 
-def sleep_onset_kb() -> InlineKeyboardMarkup:
+def sleep_onset_kb(undo_kind: str | None = None, undo_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Указать время", "slp:onset"), _btn("Позже", "slp:later"))
+    later = f"slp:later:{undo_kind}:{undo_id}" if undo_kind and undo_id is not None else "slp:later"
+    b.row(_btn("Указать время", "slp:onset"), _btn("Позже", later))
+    if undo_kind and undo_id is not None:
+        b.row(_btn("🗑 Отменить", f"un:{undo_kind}:{undo_id}"))
     return with_nav(b)
 
 
@@ -367,17 +370,28 @@ def confirm_delete_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def entry_actions(kind: str, item_id: int, writable: bool) -> InlineKeyboardMarkup:
+def entry_actions(
+    kind: str,
+    item_id: int,
+    writable: bool,
+    *,
+    undo: bool = False,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
-        b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn("🗑 Удалить", f"rm:{kind}:{item_id}"))
+        delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
+        delete_cb = f"un:{kind}:{item_id}" if undo else f"rm:{kind}:{item_id}"
+        b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
     b.row(_btn("📅 История", NAV_HISTORY), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
-def confirm_remove_kb(kind: str, item_id: int) -> InlineKeyboardMarkup:
+def confirm_remove_kb(kind: str, item_id: int, *, undo: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Удалить", f"rmok:{kind}:{item_id}"), _btn("Отмена", f"h:o:{kind}:{item_id}"))
+    if undo:
+        b.row(_btn("Отменить", f"unok:{kind}:{item_id}"), _btn("Оставить", f"sv:{kind}:{item_id}"))
+    else:
+        b.row(_btn("Удалить", f"rmok:{kind}:{item_id}"), _btn("Отмена", f"h:o:{kind}:{item_id}"))
     return b.as_markup()
 
 
