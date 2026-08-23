@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_active, show_main
+from handlers.common import require_active, require_writable, show_main
 from keyboards.main import now_or_time
 from utils.callbacks import (
     ENTRY_ACT,
@@ -33,20 +33,34 @@ router = Router(name="menu")
 
 
 @router.callback_query(F.data == NAV_MAIN)
-async def go_main(cb: CallbackQuery, state: FSMContext, db_user: User | None, config: Config, is_owner: bool) -> None:
+async def go_main(
+    cb: CallbackQuery,
+    state: FSMContext,
+    db_user: User | None,
+    config: Config,
+    is_owner: bool,
+    repo: Repo,
+) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == NAV_CANCEL)
-async def cancel(cb: CallbackQuery, state: FSMContext, db_user: User | None, config: Config, is_owner: bool) -> None:
+async def cancel(
+    cb: CallbackQuery,
+    state: FSMContext,
+    db_user: User | None,
+    config: Config,
+    is_owner: bool,
+    repo: Repo,
+) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         await state.clear()
         return
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == "noop")
@@ -109,15 +123,18 @@ async def snus_entry(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
 
 
 @router.callback_query(F.data == ENTRY_SLEEP)
-async def sleep_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    from handlers.common import require_writable
-    from keyboards.main import sleep_menu
-
-    if await require_writable(cb, db_user) is None:
+async def sleep_entry(
+    cb: CallbackQuery,
+    state: FSMContext,
+    db_user: User | None,
+    config: Config,
+    is_owner: bool,
+    repo: Repo,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
         return
-    await state.clear()
-    await cb.answer()
-    await safe_edit(cb.message, "😴 Сон", sleep_menu())
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == ENTRY_MOOD)

@@ -52,7 +52,7 @@ async def snus_buy_now(
         await cb.answer(error, show_alert=True)
         return
     await cb.answer("Шайба открыта")
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == "sns:end")
@@ -74,7 +74,7 @@ async def snus_end_now(
     pack = await repo.get_snus_pack(item_id, user.telegram_id) if item_id else None
     lasted = duration_human(pack.duration_minutes) if pack else "—"
     await cb.answer(f"Хватило на {lasted}")
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == "sns:tbuy")

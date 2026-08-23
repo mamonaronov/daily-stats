@@ -637,30 +637,65 @@ class Repo:
     async def add_sleep(
         self,
         telegram_id: int,
-        bedtime: str | None,
-        wake_time: str | None,
-        duration_minutes: int | None,
-        quality: int | None,
+        bedtime: str | None = None,
+        wake_time: str | None = None,
+        duration_minutes: int | None = None,
+        quality: int | None = None,
+        *,
+        phone_in_bed_at: str | None = None,
+        phone_away_at: str | None = None,
+        sleep_onset_at: str | None = None,
+        out_of_bed_at: str | None = None,
     ) -> int:
         ts = to_iso(now_utc())
         return await self._insert(
             """
             INSERT INTO sleep_records (
-                telegram_id, bedtime, wake_time, duration_minutes, quality, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                telegram_id, bedtime, wake_time, duration_minutes, quality,
+                phone_in_bed_at, phone_away_at, sleep_onset_at, out_of_bed_at,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (telegram_id, bedtime, wake_time, duration_minutes, quality, ts, ts),
+            (
+                telegram_id,
+                bedtime,
+                wake_time,
+                duration_minutes,
+                quality,
+                phone_in_bed_at,
+                phone_away_at,
+                sleep_onset_at,
+                out_of_bed_at,
+                ts,
+                ts,
+            ),
         )
 
     async def get_sleep(self, item_id: int, telegram_id: int) -> SleepRecord | None:
         return await self._get("sleep_records", SleepRecord, item_id, telegram_id)
 
+    async def latest_sleep(self, telegram_id: int) -> SleepRecord | None:
+        row = await self.fetchone(
+            """
+            SELECT * FROM sleep_records
+            WHERE telegram_id = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (telegram_id,),
+        )
+        return _opt(SleepRecord, row)
+
     async def latest_open_sleep(self, telegram_id: int) -> SleepRecord | None:
         row = await self.fetchone(
             """
             SELECT * FROM sleep_records
-            WHERE telegram_id = ? AND bedtime IS NOT NULL AND wake_time IS NULL
-            ORDER BY bedtime DESC LIMIT 1
+            WHERE telegram_id = ? AND wake_time IS NULL
+              AND (
+                    phone_in_bed_at IS NOT NULL
+                 OR phone_away_at IS NOT NULL
+                 OR bedtime IS NOT NULL
+              )
+            ORDER BY id DESC LIMIT 1
             """,
             (telegram_id,),
         )
@@ -672,7 +707,16 @@ class Repo:
         telegram_id: int,
         **fields: Any,
     ) -> None:
-        allowed = {"bedtime", "wake_time", "duration_minutes", "quality"}
+        allowed = {
+            "bedtime",
+            "wake_time",
+            "duration_minutes",
+            "quality",
+            "phone_in_bed_at",
+            "phone_away_at",
+            "sleep_onset_at",
+            "out_of_bed_at",
+        }
         sets = []
         params: list[Any] = []
         for key, value in fields.items():
@@ -702,10 +746,16 @@ class Repo:
               AND (
                     (bedtime IS NOT NULL AND bedtime >= ? AND bedtime < ?)
                  OR (wake_time IS NOT NULL AND wake_time >= ? AND wake_time < ?)
+                 OR (phone_in_bed_at IS NOT NULL AND phone_in_bed_at >= ? AND phone_in_bed_at < ?)
+                 OR (phone_away_at IS NOT NULL AND phone_away_at >= ? AND phone_away_at < ?)
+                 OR (sleep_onset_at IS NOT NULL AND sleep_onset_at >= ? AND sleep_onset_at < ?)
+                 OR (out_of_bed_at IS NOT NULL AND out_of_bed_at >= ? AND out_of_bed_at < ?)
               )
-            ORDER BY COALESCE(bedtime, wake_time) ASC
+            ORDER BY COALESCE(
+                sleep_onset_at, bedtime, phone_in_bed_at, phone_away_at, wake_time, out_of_bed_at
+            ) ASC
             """,
-            (telegram_id, start, end, start, end),
+            (telegram_id, start, end, start, end, start, end, start, end, start, end, start, end),
         )
         return [SleepRecord(**dict(r)) for r in rows]
 
@@ -1100,7 +1150,7 @@ class Repo:
         parts = [
             "SELECT occurred_at AS ts FROM cigarettes WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM fooling WHERE telegram_id = ?",
-            "SELECT COALESCE(wake_time, bedtime) AS ts FROM sleep_records WHERE telegram_id = ?",
+            "SELECT COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime) AS ts FROM sleep_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM mood_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM wellbeing_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM caffeine_records WHERE telegram_id = ?",
@@ -1128,7 +1178,7 @@ class Repo:
             ("activity_records", "occurred_at"),
             ("notes", "occurred_at"),
             ("custom_metric_values", "occurred_at"),
-            ("sleep_records", "COALESCE(wake_time, bedtime)"),
+            ("sleep_records", "COALESCE(out_of_bed_at, wake_time, sleep_onset_at, phone_away_at, phone_in_bed_at, bedtime)"),
         ]
         for table, col in specs:
             row = await self.fetchone(

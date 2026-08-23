@@ -212,8 +212,17 @@ def sleep_stats(user: User, items, start: date, end: date) -> str:
     if not completed:
         return "😴 Сон: нет завершённых записей за период."
     durs = [i.duration_minutes for i in completed if i.duration_minutes is not None]
-    beds = [minutes_of_day(parse_iso(i.bedtime), user.timezone) for i in completed if i.bedtime]
-    wakes = [minutes_of_day(parse_iso(i.wake_time), user.timezone) for i in completed if i.wake_time]
+
+    def _tod(value: str | None) -> int | None:
+        if not value:
+            return None
+        return minutes_of_day(parse_iso(value), user.timezone)
+
+    phones_in = [m for i in items if (m := _tod(i.phone_in_bed_at)) is not None]
+    phones_away = [m for i in items if (m := _tod(i.phone_away_at or i.bedtime)) is not None]
+    onsets = [m for i in items if (m := _tod(i.sleep_onset_at)) is not None]
+    wakes = [m for i in items if (m := _tod(i.wake_time)) is not None]
+    ups = [m for i in items if (m := _tod(i.out_of_bed_at)) is not None]
     qualities = [i.quality for i in completed if i.quality]
     lines = [
         "😴 <b>Сон</b>",
@@ -222,12 +231,21 @@ def sleep_stats(user: User, items, start: date, end: date) -> str:
         f"Минимум: {duration_human(min(durs))}",
         f"Максимум: {duration_human(max(durs))}",
     ]
-    avg_bed = circular_mean_minutes(beds)
+    avg_phone_in = circular_mean_minutes(phones_in)
+    avg_away = circular_mean_minutes(phones_away)
+    avg_onset = circular_mean_minutes(onsets)
     avg_wake = circular_mean_minutes(wakes)
-    if avg_bed is not None:
-        lines.append(f"Среднее отход ко сну: {minutes_to_hhmm(avg_bed)}")
+    avg_up = circular_mean_minutes(ups)
+    if avg_phone_in is not None:
+        lines.append(f"Среднее лёг с телефоном: {minutes_to_hhmm(avg_phone_in)}")
+    if avg_away is not None:
+        lines.append(f"Среднее без телефона: {minutes_to_hhmm(avg_away)}")
+    if avg_onset is not None:
+        lines.append(f"Среднее засыпание: {minutes_to_hhmm(avg_onset)}")
     if avg_wake is not None:
         lines.append(f"Среднее пробуждение: {minutes_to_hhmm(avg_wake)}")
+    if avg_up is not None:
+        lines.append(f"Среднее подъём: {minutes_to_hhmm(avg_up)}")
     if qualities:
         lines.append(f"Среднее качество: {score_text(int(round(mean(qualities))))}")
         dist = Counter(qualities)

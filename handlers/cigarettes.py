@@ -34,7 +34,7 @@ async def cig_now(
         return
     when = user_now(user.timezone)
     await cb.answer("Записано")
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
     # show_main overwrites; send confirmation via answer toast is enough
 
 

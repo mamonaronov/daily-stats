@@ -22,7 +22,7 @@ from keyboards.main import (
     now_or_time,
     score_kb,
     skip_comment_kb,
-    sleep_menu,
+    sleep_row,
     timezone_kb,
     when_kb,
 )
@@ -70,10 +70,17 @@ def test_ago_pick_has_custom_number():
     assert ("⌨️ Ввести число", "cig:agon") in pairs
 
 
-def test_sleep_menu_has_relative_options():
-    pairs = _pairs(sleep_menu())
-    assert ("5 мин назад", "slp:ago:5") in pairs
-    assert ("⌨️ Ввести текстом", "slp:txt") in pairs
+def test_sleep_row_changes_with_phase():
+    idle = [btn.callback_data for btn in sleep_row(None)]
+    assert idle == ["slp:wake", "slp:phone", "slp:nophone"]
+    with_phone = SimpleNamespace(
+        phase=lambda: "with_phone",
+    )
+    assert [btn.callback_data for btn in sleep_row(with_phone)] == [
+        "slp:wake",
+        "slp:wakeup",
+        "slp:away",
+    ]
 
 
 def test_calendar_has_yesterday_and_daybefore():

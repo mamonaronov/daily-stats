@@ -88,6 +88,23 @@ class SleepRecord:
     quality: int | None
     created_at: str
     updated_at: str
+    phone_in_bed_at: str | None = None
+    phone_away_at: str | None = None
+    sleep_onset_at: str | None = None
+    out_of_bed_at: str | None = None
+
+    def phase(self) -> str:
+        if self.wake_time is None:
+            if self.phone_in_bed_at and not self.phone_away_at:
+                return "with_phone"
+            if self.phone_away_at or self.bedtime:
+                return "no_phone"
+            return "idle"
+        if self.out_of_bed_at is None:
+            return "awake"
+        if self.sleep_onset_at is None:
+            return "need_onset"
+        return "idle"
 
 
 @dataclass(slots=True)

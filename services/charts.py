@@ -99,8 +99,9 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
                 day = to_user(parse_iso(item.wake_time), user.timezone).date()
                 if day in dur:
                     dur[day] = item.duration_minutes / 60
-                    if item.bedtime:
-                        local_bed = to_user(parse_iso(item.bedtime), user.timezone)
+                    marker = item.sleep_onset_at or item.phone_away_at or item.bedtime
+                    if marker:
+                        local_bed = to_user(parse_iso(marker), user.timezone)
                         beds[day] = local_bed.hour + local_bed.minute / 60
                     local_wake = to_user(parse_iso(item.wake_time), user.timezone)
                     wakes[day] = local_wake.hour + local_wake.minute / 60
@@ -112,8 +113,8 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
         )
         charts.append(
             (
-                "Отход ко сну",
-                _line("Время отхода ко сну", labels, [beds[d] or 0 for d in days], "час суток"),
+                "Засыпание",
+                _line("Время засыпания", labels, [beds[d] or 0 for d in days], "час суток"),
             )
         )
         charts.append(

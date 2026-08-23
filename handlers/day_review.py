@@ -110,10 +110,10 @@ async def _save_review(event, state, repo, config, db_user, is_owner, comment) -
             await event.answer(error, show_alert=True)
             return
         await event.answer("День оценён")
-        await show_main(event, user, config, is_owner, state)
+        await show_main(event, user, config, is_owner, state, repo)
     else:
         if error:
             await event.answer(error)
             return
         await event.answer("День оценён")
-        await show_main(event, user, config, is_owner, state)
+        await show_main(event, user, config, is_owner, state, repo)

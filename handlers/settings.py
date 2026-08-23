@@ -62,7 +62,7 @@ async def set_tz_pick(
     await repo.set_timezone(user.telegram_id, token)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.message(SettingsSG.timezone_custom)
@@ -84,7 +84,7 @@ async def set_tz_custom(
     await repo.set_timezone(user.telegram_id, token)
     user = await repo.get_user(user.telegram_id)
     assert user
-    await show_main(message, user, config, is_owner, state)
+    await show_main(message, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == "tz:list", SettingsSG.timezone_custom)

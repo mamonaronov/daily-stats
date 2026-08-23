@@ -15,6 +15,7 @@ from utils.formatting import (
     truncate,
 )
 from utils.quantity import format_quantity
+from utils.time import format_time, parse_iso, range_bounds_utc, to_iso
 
 
 async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list[TimelineItem]:
@@ -49,15 +50,28 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
             )
 
     for rec in await repo.list_sleep(tid, start_iso, end_iso):
-        if rec.bedtime:
+        if rec.phone_in_bed_at:
+            dt = parse_iso(rec.phone_in_bed_at)
+            items.append(TimelineItem("sleep_phone", rec.id, dt, "📱 Лёг с телефоном", "", {"kind": "phone"}))
+        if rec.phone_away_at:
+            dt = parse_iso(rec.phone_away_at)
+            title = "📵 Убрал телефон" if rec.phone_in_bed_at else "🌙 Лёг без телефона"
+            items.append(TimelineItem("sleep_away", rec.id, dt, title, "", {"kind": "away"}))
+        elif rec.bedtime and not rec.phone_in_bed_at:
             dt = parse_iso(rec.bedtime)
             items.append(TimelineItem("sleep_bed", rec.id, dt, "🌙 Лёг спать", "", {"kind": "bed"}))
+        if rec.sleep_onset_at:
+            dt = parse_iso(rec.sleep_onset_at)
+            items.append(TimelineItem("sleep_onset", rec.id, dt, "💤 Заснул", "", {"kind": "onset"}))
         if rec.wake_time:
             dt = parse_iso(rec.wake_time)
             detail = duration_human(rec.duration_minutes)
             if rec.quality:
                 detail += f", {score_text(rec.quality)}"
             items.append(TimelineItem("sleep_wake", rec.id, dt, "☀️ Проснулся", detail, {"kind": "wake"}))
+        if rec.out_of_bed_at:
+            dt = parse_iso(rec.out_of_bed_at)
+            items.append(TimelineItem("sleep_up", rec.id, dt, "🛏 Встал", "", {"kind": "up"}))
 
     for rec in await repo.list_mood(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)

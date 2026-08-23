@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from config import Config
-from database.models import User
+from database.models import SleepRecord, User
 from database.queries import Repo
 from keyboards.main import back_kb, calendar_kb, hours_kb, main_menu, timezone_kb, when_kb
 from services.users import access_message, can_write, write_block_message
@@ -36,12 +36,13 @@ def start_payload(
     user: User | None,
     config: Config,
     is_owner: bool,
+    sleep: SleepRecord | None = None,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """Text and keyboard of /start — same payload used for lifecycle pings."""
     if user and user.is_banned:
         return BANNED_TEXT, None
     if user and user.is_active:
-        return menu_text(user, config), main_menu(user, is_owner)
+        return menu_text(user, config), main_menu(user, is_owner, sleep)
     prompt = TZ_RESTORE_PROMPT if user and user.is_deleted else TZ_PROMPT
     return prompt, timezone_kb()
 
@@ -52,10 +53,12 @@ async def show_main(
     config: Config,
     is_owner: bool,
     state: FSMContext | None = None,
+    repo: Repo | None = None,
 ) -> None:
     if state:
         await state.clear()
-    text, markup = start_payload(user, config, is_owner)
+    sleep = await repo.latest_sleep(user.telegram_id) if repo is not None else None
+    text, markup = start_payload(user, config, is_owner, sleep)
     if isinstance(target, CallbackQuery):
         await target.answer()
         await safe_edit(target.message, text, markup)
@@ -130,6 +133,7 @@ async def start_time_pick(
             extra["time_exit"] = {
                 "cig": "when:cig",
                 "fool": "when:fool",
+                "slp_onset": "slp_onset",
                 "slp_bed": "sleep",
                 "slp_wake": "when:slw",
                 "snus_buy": "snus",

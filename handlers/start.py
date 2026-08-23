@@ -55,7 +55,7 @@ async def _activate(
 async def cmd_start(message: Message, state: FSMContext, repo: Repo, config: Config, db_user: User | None, is_owner: bool) -> None:
     await state.clear()
     if db_user and db_user.is_active:
-        await show_main(message, db_user, config, is_owner, state)
+        await show_main(message, db_user, config, is_owner, state, repo)
         return
     text, markup = start_payload(db_user, config, is_owner)
     if not (db_user and db_user.is_banned):
@@ -77,7 +77,7 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
     user = cb.from_user
     db_user = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
     await cb.answer()
-    await show_main(cb, db_user, config, is_owner, state)
+    await show_main(cb, db_user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == "tz:list", RegisterSG.timezone_custom)
@@ -98,4 +98,4 @@ async def custom_tz(message: Message, state: FSMContext, repo: Repo, config: Con
         return
     user = message.from_user
     db_user = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
-    await show_main(message, db_user, config, is_owner, state)
+    await show_main(message, db_user, config, is_owner, state, repo)

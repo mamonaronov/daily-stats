@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 6
+    assert version == config.required_db_version == 7
 
 
 @pytest.mark.asyncio
@@ -180,12 +180,13 @@ async def test_can_write_paid_until(repo):
 async def test_sleep_wake_can_be_logged_later(repo):
     from datetime import datetime, timezone
 
-    from services.entries import add_sleep_bed, add_sleep_wake
+    from services.entries import add_sleep_onset, add_sleep_phone_away, add_sleep_wake
 
     user = await repo.create_user(16, "s", "S", None, "UTC", 0, "23:00")
-    bed = datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc)  # 23:00 MSK-ish; UTC 20:00
-    wake = datetime(2026, 8, 17, 4, 0, tzinfo=timezone.utc)  # logged hours after waking
-    _, error = await add_sleep_bed(repo, user, bed)
+    bed = datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc)
+    onset = datetime(2026, 8, 16, 20, 30, tzinfo=timezone.utc)
+    wake = datetime(2026, 8, 17, 4, 0, tzinfo=timezone.utc)
+    _, error = await add_sleep_phone_away(repo, user, bed)
     assert error is None
     item_id, error = await add_sleep_wake(repo, user, wake, quality=4)
     assert error is None and item_id is not None
@@ -193,7 +194,16 @@ async def test_sleep_wake_can_be_logged_later(repo):
     assert rec is not None
     assert rec.wake_time is not None
     assert rec.quality == 4
-    assert rec.duration_minutes == 8 * 60
+    assert rec.duration_minutes is None
+    from services.entries import add_sleep_up
+
+    up = datetime(2026, 8, 17, 4, 10, tzinfo=timezone.utc)
+    _, error = await add_sleep_up(repo, user, up)
+    assert error is None
+    _, error = await add_sleep_onset(repo, user, onset)
+    assert error is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.duration_minutes == 7 * 60 + 30
 
 
 @pytest.mark.asyncio

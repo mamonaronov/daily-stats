@@ -95,7 +95,8 @@ async def send_owner_start_screen(bot: Bot, repo: Repo, config: Config) -> None:
 
     try:
         user = await repo.get_user(config.owner_id)
-        text, markup = start_payload(user, config, is_owner=True)
+        sleep = await repo.latest_sleep(user.telegram_id) if user else None
+        text, markup = start_payload(user, config, is_owner=True, sleep=sleep)
         await notify_owner(bot, config, text, reply_markup=markup)
     except Exception:
         logger.exception("Failed to send /start screen to owner")

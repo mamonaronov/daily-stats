@@ -36,7 +36,11 @@ KIND_MAP = {
     "snus_buy": "snb",
     "snus_end": "snf",
     "sleep_bed": "sb",
+    "sleep_phone": "sp",
+    "sleep_away": "sa",
+    "sleep_onset": "so",
     "sleep_wake": "sw",
+    "sleep_up": "su",
     "mood": "mood",
     "wellbeing": "wb",
     "caffeine": "caf",
@@ -180,7 +184,11 @@ async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
         "snb": repo.get_snus_pack,
         "snf": repo.get_snus_pack,
         "sb": repo.get_sleep,
+        "sp": repo.get_sleep,
+        "sa": repo.get_sleep,
+        "so": repo.get_sleep,
         "sw": repo.get_sleep,
+        "su": repo.get_sleep,
         "slp": repo.get_sleep,
         "mood": repo.get_mood,
         "wb": repo.get_wellbeing,
@@ -206,6 +214,21 @@ async def _entry_text(repo: Repo, user: User, kind: str, item_id: int) -> str:
             f"Купил: {bought}\n"
             f"Закончилась: {finished}\n"
             f"Хватило: {duration_human(rec.duration_minutes)}"
+        )
+    if kind in {"sb", "sp", "sa", "so", "sw", "su", "slp"}:
+        from utils.formatting import duration_human
+
+        def _stamp(value: str | None) -> str:
+            return format_dt(parse_iso(value), user.timezone) if value else "—"
+
+        return (
+            f"😴 Сон #{item_id}\n"
+            f"С телефоном: {_stamp(rec.phone_in_bed_at)}\n"
+            f"Без телефона: {_stamp(rec.phone_away_at)}\n"
+            f"Заснул: {_stamp(rec.sleep_onset_at)}\n"
+            f"Проснулся: {_stamp(rec.wake_time)}\n"
+            f"Встал: {_stamp(rec.out_of_bed_at)}\n"
+            f"Длительность: {duration_human(rec.duration_minutes)}"
         )
     when = getattr(rec, "occurred_at", None) or getattr(rec, "bedtime", None) or getattr(rec, "wake_time", None)
     stamp = format_dt(parse_iso(when), user.timezone) if when else "—"
@@ -252,7 +275,11 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "snb": repo.delete_snus_pack,
         "snf": repo.delete_snus_pack,
         "sb": repo.delete_sleep,
+        "sp": repo.delete_sleep,
+        "sa": repo.delete_sleep,
+        "so": repo.delete_sleep,
         "sw": repo.delete_sleep,
+        "su": repo.delete_sleep,
         "slp": repo.delete_sleep,
         "mood": repo.delete_mood,
         "wb": repo.delete_wellbeing,
@@ -266,4 +293,4 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
     if fn:
         await fn(item_id, tid)
     await cb.answer("Удалено")
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)

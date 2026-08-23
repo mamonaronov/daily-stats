@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from database.models import User
+from database.models import SleepRecord, User
 from services.metric_types import METRIC_TEMPLATES, METRIC_TYPES, UNIT_PRESETS
 from utils.callbacks import (
     ENTRY_ACT,
@@ -17,7 +17,6 @@ from utils.callbacks import (
     ENTRY_FOOL,
     ENTRY_MOOD,
     ENTRY_NOTE,
-    ENTRY_SLEEP,
     ENTRY_SNUS,
     ENTRY_WB,
     NAV_ADMIN,
@@ -62,17 +61,38 @@ def back_kb(back: str | None = None, *, menu: bool = True) -> InlineKeyboardMark
     return b.as_markup()
 
 
-def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
+def sleep_row(sleep: SleepRecord | None) -> list[InlineKeyboardButton]:
+    phase = sleep.phase() if sleep else "idle"
+    wake = _btn("Проснулся", "slp:wake")
+    phone = _btn("С телефоном", "slp:phone")
+    nophone = _btn("Без телефона", "slp:nophone")
+    if phase == "with_phone":
+        return [wake, _btn("И встал", "slp:wakeup"), _btn("Убрал тел.", "slp:away")]
+    if phase == "no_phone":
+        return [wake, _btn("И встал", "slp:wakeup")]
+    if phase == "awake":
+        return [_btn("Встал", "slp:up"), phone, nophone]
+    if phase == "need_onset":
+        return [
+            _btn("Заснул?", "slp:onset"),
+            wake,
+            _btn("С тел.", "slp:phone"),
+            _btn("Без тел.", "slp:nophone"),
+        ]
+    return [wake, phone, nophone]
+
+
+def main_menu(user: User, is_owner: bool, sleep: SleepRecord | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("🚬 Сигарета", ENTRY_CIG), _btn("🟢 Снюс", ENTRY_SNUS))
     b.row(_btn("🤌 Валять дурака", ENTRY_FOOL))
-    b.row(_btn("😴 Сон", ENTRY_SLEEP), _btn("🙂 Настроение", ENTRY_MOOD))
-    b.row(_btn("❤️ Самочувствие", ENTRY_WB), _btn("☕ Кофеин", ENTRY_CAF))
-    b.row(_btn("🍺 Алкоголь", ENTRY_ALC), _btn("🏃 Активность", ENTRY_ACT))
-    b.row(_btn("📝 Заметка", ENTRY_NOTE), _btn("🌙 Оценить день", NAV_DAY))
-    b.row(_btn("📌 Кастом", NAV_METRICS), _btn("📊 Статистика", NAV_STATS))
-    b.row(_btn("📅 История", NAV_HISTORY), _btn("⚙️ Настройки", NAV_SETTINGS))
-    b.row(_btn("💰 Баланс", NAV_BALANCE))
+    b.row(*sleep_row(sleep))
+    b.row(_btn("🙂 Настроение", ENTRY_MOOD), _btn("❤️ Самочувствие", ENTRY_WB))
+    b.row(_btn("☕ Кофеин", ENTRY_CAF), _btn("🍺 Алкоголь", ENTRY_ALC))
+    b.row(_btn("🏃 Активность", ENTRY_ACT), _btn("📝 Заметка", ENTRY_NOTE))
+    b.row(_btn("🌙 Оценить день", NAV_DAY), _btn("📌 Кастом", NAV_METRICS))
+    b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
+    b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     if is_owner:
         b.row(_btn("🛠 Админ-панель", NAV_ADMIN))
     return b.as_markup()
@@ -161,17 +181,9 @@ def ago_pick_kb(prefix: str, back: str | None = NAV_BACK) -> InlineKeyboardMarku
     return with_nav(b, back)
 
 
-def sleep_kind_kb() -> InlineKeyboardMarkup:
+def sleep_onset_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("🌙 Отход ко сну", "slp:tbed"), _btn("☀️ Пробуждение", "slp:twake"))
-    return with_nav(b, ENTRY_SLEEP)
-
-
-def sleep_menu() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(_btn("🌙 Лёг спать", "slp:bed"), _btn("☀️ Проснулся", "slp:wake"))
-    b.row(_btn("Сейчас", "slp:now"), _btn("🕐 Указать время", "slp:time"))
-    _relative_when_rows(b, "slp")
+    b.row(_btn("Указать время", "slp:onset"), _btn("Позже", "slp:later"))
     return with_nav(b)
 
 

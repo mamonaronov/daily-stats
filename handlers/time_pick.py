@@ -19,14 +19,13 @@ from keyboards.main import (
     hours_kb,
     minutes_kb,
     score_kb,
-    sleep_kind_kb,
-    sleep_menu,
+    sleep_onset_kb,
     when_kb,
     when_title,
 )
 from services import entries
 from states.diary import SleepSG, TimePickSG
-from utils.callbacks import NAV_BACK
+from utils.callbacks import NAV_BACK, NAV_MAIN
 from utils.telegram import safe_edit
 from utils.time import (
     combine_local,
@@ -77,11 +76,8 @@ async def _finish(
         item_id, error = await entries.add_cigarette(repo, user, when)
     elif purpose == "fool":
         item_id, error = await entries.add_fooling(repo, user, when)
-    elif purpose == "slp_bed":
-        item_id, error = await entries.add_sleep_bed(repo, user, when)
-    elif purpose == "slp_wake":
-        quality = data.get("quality")
-        item_id, error = await entries.add_sleep_wake(repo, user, when, quality)
+    elif purpose == "slp_onset":
+        item_id, error = await entries.add_sleep_onset(repo, user, when)
     elif purpose == "snus_buy":
         item_id, error = await entries.add_snus_bought(repo, user, when)
     elif purpose == "snus_end":
@@ -143,7 +139,7 @@ async def _finish(
 
         await show_custom_metrics(event, repo, user, state)
         return
-    await show_main(event, user, config, is_owner, state)
+    await show_main(event, user, config, is_owner, state, repo)
 
 
 async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> str | None:
@@ -152,23 +148,47 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
         return blocked
     _, kind, raw_id = purpose.split(":", 2)
     item_id = int(raw_id)
-    from services.entries import _duration, _elapsed_minutes
+    from services.entries import _elapsed_minutes
     from utils.time import to_iso
 
     iso = to_iso(when)
-    if kind in {"sb", "slp_bed"}:
+    rec = None
+    field = None
+    if kind in {"sb", "slp_bed", "sa"}:
         rec = await repo.get_sleep(item_id, user.telegram_id)
+        field = "phone_away_at"
+    elif kind == "sp":
+        rec = await repo.get_sleep(item_id, user.telegram_id)
+        field = "phone_in_bed_at"
+    elif kind == "so":
+        rec = await repo.get_sleep(item_id, user.telegram_id)
+        field = "sleep_onset_at"
+    elif kind == "su":
+        rec = await repo.get_sleep(item_id, user.telegram_id)
+        field = "out_of_bed_at"
+    elif kind in {"sw", "slp_wake"}:
+        rec = await repo.get_sleep(item_id, user.telegram_id)
+        field = "wake_time"
+    if field is not None:
         if rec is None:
             return "Запись не найдена."
-        duration = _duration(iso, rec.wake_time)
-        await repo.update_sleep(item_id, user.telegram_id, bedtime=iso, duration_minutes=duration)
-        return None
-    if kind in {"sw", "slp_wake"}:
-        rec = await repo.get_sleep(item_id, user.telegram_id)
-        if rec is None:
-            return "Запись не найдена."
-        duration = _duration(rec.bedtime, iso)
-        await repo.update_sleep(item_id, user.telegram_id, wake_time=iso, duration_minutes=duration)
+        from services.entries import _elapsed_minutes
+
+        updates: dict = {field: iso}
+        phone_in = iso if field == "phone_in_bed_at" else rec.phone_in_bed_at
+        phone_away = iso if field == "phone_away_at" else rec.phone_away_at
+        if field in {"phone_in_bed_at", "phone_away_at"}:
+            updates["bedtime"] = phone_in or phone_away
+        onset = iso if field == "sleep_onset_at" else rec.sleep_onset_at
+        wake = iso if field == "wake_time" else rec.wake_time
+        if onset and wake:
+            duration = _elapsed_minutes(onset, wake)
+            if duration is None:
+                return "Время засыпания позже пробуждения."
+            updates["duration_minutes"] = duration
+        elif field in {"sleep_onset_at", "wake_time"}:
+            updates["duration_minutes"] = None
+        await repo.update_sleep(item_id, user.telegram_id, **updates)
         return None
     if kind in {"snb", "snus_buy"}:
         rec = await repo.get_snus_pack(item_id, user.telegram_id)
@@ -228,7 +248,7 @@ async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) ->
     await cb.answer()
     if prefix == "slp":
         await state.set_state(None)
-        await safe_edit(cb.message, "😴 Сон", sleep_menu())
+        await safe_edit(cb.message, "😴 Сон", sleep_onset_kb())
         return
     if prefix == "slw":
         await state.set_state(SleepSG.when)
@@ -243,9 +263,9 @@ async def _sleep_after_when(event: CallbackQuery | Message, state: FSMContext, w
     text = "Что отметить?"
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await safe_edit(event.message, text, sleep_kind_kb())
+        await safe_edit(event.message, text, sleep_onset_kb())
     else:
-        await event.answer(text, reply_markup=sleep_kind_kb())
+        await event.answer(text, reply_markup=sleep_onset_kb())
 
 
 async def _save_relative(
@@ -417,9 +437,9 @@ async def _restore_before_time_pick(
         await cb.answer()
         await safe_edit(cb.message, when_title(prefix), when_kb(prefix, metric_id=metric_id))
         return
-    if exit_to == "sleep":
+    if exit_to in {"sleep", "slp_onset"}:
         await cb.answer()
-        await safe_edit(cb.message, "😴 Сон", sleep_menu())
+        await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb())
         return
     if exit_to == "snus":
         from handlers.snus import show_snus_menu
@@ -429,7 +449,7 @@ async def _restore_before_time_pick(
     if exit_to == "slq":
         await state.set_state(SleepSG.quality)
         await cb.answer()
-        await safe_edit(cb.message, "Как спалось?", score_kb("slq", back=ENTRY_SLEEP))
+        await safe_edit(cb.message, "Как спалось?", score_kb("slq", back=NAV_MAIN))
         return
     if exit_to.startswith("hist:"):
         _, kind, raw_id = exit_to.split(":", 2)

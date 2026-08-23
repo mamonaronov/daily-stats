@@ -47,7 +47,7 @@ async def mood_now(
         await cb.answer(error, show_alert=True)
         return
     await cb.answer("Сохранено")
-    await show_main(cb, user, config, is_owner, state)
+    await show_main(cb, user, config, is_owner, state, repo)
 
 
 @router.callback_query(F.data == "mdt:time")
