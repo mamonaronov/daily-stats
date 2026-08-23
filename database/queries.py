@@ -543,29 +543,97 @@ class Repo:
             )
         return [BalanceOp(**dict(r)) for r in rows]
 
-    async def finance_totals(self, start_iso: str | None = None, end_iso: str | None = None) -> dict[str, float]:
+    def _finance_time_sql(self, start_iso: str | None, end_iso: str | None, column: str = "created_at") -> tuple[str, list[Any]]:
         where = "1=1"
         params: list[Any] = []
         if start_iso:
-            where += " AND created_at >= ?"
+            where += f" AND {column} >= ?"
             params.append(start_iso)
         if end_iso:
-            where += " AND created_at < ?"
+            where += f" AND {column} < ?"
             params.append(end_iso)
+        return where, params
+
+    async def finance_totals(self, start_iso: str | None = None, end_iso: str | None = None) -> dict[str, float]:
+        where, params = self._finance_time_sql(start_iso, end_iso)
+        debit_abs = (
+            "CASE WHEN amount < 0 THEN -amount WHEN amount > 0 THEN amount ELSE 0 END"
+        )
+        usage = f"operation_type = 'debit' AND COALESCE(performed_by, 0) = 0 AND amount != 0"
+        admin_debit = f"operation_type = 'debit' AND COALESCE(performed_by, 0) != 0 AND amount != 0"
         row = await self.fetchone(
             f"""
             SELECT
-              COALESCE(SUM(CASE WHEN operation_type IN ('credit', 'refund') AND amount > 0 THEN amount ELSE 0 END), 0) AS credits,
-              COALESCE(SUM(CASE WHEN operation_type = 'debit' AND amount < 0 THEN -amount
-                                WHEN operation_type = 'debit' AND amount > 0 THEN amount ELSE 0 END), 0) AS debits
+              COALESCE(SUM(CASE WHEN operation_type = 'credit' AND amount > 0 THEN amount ELSE 0 END), 0) AS income,
+              COALESCE(SUM(CASE WHEN operation_type = 'gift' AND amount > 0 THEN amount ELSE 0 END), 0) AS gifts,
+              COALESCE(SUM(CASE WHEN operation_type IN ('credit', 'gift') AND amount > 0 THEN amount ELSE 0 END), 0) AS deposits,
+              COALESCE(SUM(CASE WHEN {usage} THEN {debit_abs} ELSE 0 END), 0) AS usage_charged,
+              COALESCE(SUM(CASE WHEN {usage} THEN 1 ELSE 0 END), 0) AS usage_count,
+              COALESCE(SUM(CASE WHEN {admin_debit} THEN {debit_abs} ELSE 0 END), 0) AS admin_debits,
+              COALESCE(SUM(CASE WHEN operation_type = 'debit' THEN {debit_abs} ELSE 0 END), 0) AS debits
             FROM balance_operations
             WHERE {where}
             """,
             params,
         )
-        credits = float(row["credits"]) if row else 0.0
+        income = float(row["income"]) if row else 0.0
+        gifts = float(row["gifts"]) if row else 0.0
+        deposits = float(row["deposits"]) if row else 0.0
+        usage_charged = float(row["usage_charged"]) if row else 0.0
+        usage_count = int(row["usage_count"]) if row else 0
+        admin_debits = float(row["admin_debits"]) if row else 0.0
         debits = float(row["debits"]) if row else 0.0
-        return {"credits": credits, "debits": debits, "income": credits}
+        return {
+            "credits": deposits,
+            "debits": debits,
+            "income": income,
+            "gifts": gifts,
+            "deposits": deposits,
+            "usage_charged": usage_charged,
+            "usage_count": usage_count,
+            "admin_debits": admin_debits,
+        }
+
+    async def finance_usage_by_user(
+        self, start_iso: str | None = None, end_iso: str | None = None
+    ) -> list[dict]:
+        where, params = self._finance_time_sql(start_iso, end_iso, "bo.created_at")
+        debit_abs = (
+            "CASE WHEN bo.amount < 0 THEN -bo.amount WHEN bo.amount > 0 THEN bo.amount ELSE 0 END"
+        )
+        rows = await self.fetchall(
+            f"""
+            SELECT
+              bo.telegram_id AS telegram_id,
+              u.first_name AS first_name,
+              u.username AS username,
+              COUNT(*) AS charge_count,
+              COALESCE(SUM({debit_abs}), 0) AS charged
+            FROM balance_operations bo
+            LEFT JOIN users u ON u.telegram_id = bo.telegram_id
+            WHERE {where}
+              AND bo.operation_type = 'debit'
+              AND COALESCE(bo.performed_by, 0) = 0
+              AND bo.amount != 0
+            GROUP BY bo.telegram_id
+            ORDER BY charged DESC, charge_count DESC
+            """,
+            params,
+        )
+        result: list[dict] = []
+        for row in rows:
+            telegram_id = int(row["telegram_id"])
+            first_name = row["first_name"]
+            username = row["username"]
+            result.append(
+                {
+                    "telegram_id": telegram_id,
+                    "display_name": first_name or username or str(telegram_id),
+                    "charge_count": int(row["charge_count"]),
+                    "charged": float(row["charged"]),
+                }
+            )
+        return result
 
     # --- diary helpers ---
 

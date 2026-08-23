@@ -18,6 +18,7 @@ from handlers.common import show_main
 from keyboards.main import (
     _btn,
     admin_broadcast_kb,
+    admin_credit_kind_kb,
     admin_period_kb,
     admin_root_kb,
     admin_user_kb,
@@ -28,6 +29,7 @@ from keyboards.main import (
     with_nav,
 )
 from services import balance as balance_svc
+from services.balance import format_finance_stats, operation_label
 from services.broadcast import (
     AUDIENCE_LABELS,
     album_buffer,
@@ -299,12 +301,41 @@ async def _ask_amount(cb: CallbackQuery, state: FSMContext, config: Config, acti
     await state.set_state(AdminSG.amount)
     await state.update_data(admin_action=action, target_id=telegram_id)
     await cb.answer()
-    await safe_edit(cb.message, "Введите сумму (число):", cancel_kb(f"ad:u:{telegram_id}"))
+    prompts = {
+        "credit": "Введите сумму дохода (число):",
+        "gift": "Введите сумму подарка (число):",
+        "debit": "Введите сумму списания (число):",
+        "set": "Введите новый баланс (число):",
+    }
+    await safe_edit(
+        cb.message,
+        prompts.get(action, "Введите сумму (число):"),
+        cancel_kb(f"ad:u:{telegram_id}"),
+    )
 
 
 @router.callback_query(F.data.startswith("ad:cr:"))
 async def admin_credit(cb: CallbackQuery, state: FSMContext, config: Config) -> None:
+    if not await _owner(cb, config):
+        return
+    telegram_id = int(cb.data.split(":")[2])
+    await state.clear()
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        "Это оплата (доход) или подарок на баланс?",
+        admin_credit_kind_kb(telegram_id),
+    )
+
+
+@router.callback_query(F.data.startswith("ad:cri:"))
+async def admin_credit_income(cb: CallbackQuery, state: FSMContext, config: Config) -> None:
     await _ask_amount(cb, state, config, "credit", int(cb.data.split(":")[2]))
+
+
+@router.callback_query(F.data.startswith("ad:crg:"))
+async def admin_credit_gift(cb: CallbackQuery, state: FSMContext, config: Config) -> None:
+    await _ask_amount(cb, state, config, "gift", int(cb.data.split(":")[2]))
 
 
 @router.callback_query(F.data.startswith("ad:db:"))
@@ -359,6 +390,8 @@ async def _apply_admin_op(
     try:
         if action == "credit":
             await balance_svc.credit(repo, target, amount, comment=comment, performed_by=config.owner_id)
+        elif action == "gift":
+            await balance_svc.gift(repo, target, amount, comment=comment, performed_by=config.owner_id)
         elif action == "debit":
             await balance_svc.debit(repo, target, amount, comment=comment, performed_by=config.owner_id)
         elif action == "set":
@@ -440,7 +473,7 @@ async def admin_ops(cb: CallbackQuery, config: Config, repo: Repo) -> None:
         for op in ops:
             who = "система" if not op.performed_by else str(op.performed_by)
             lines.append(
-                f"{op.created_at[5:16]} · {op.operation_type} · {money(op.amount)}\n"
+                f"{op.created_at[5:16]} · {operation_label(op.operation_type)} · {money(op.amount)}\n"
                 f"{money(op.balance_before)} → {money(op.balance_after)} · {op.comment or '—'} · {who}"
             )
         text = "\n\n".join(lines)
@@ -516,6 +549,8 @@ async def admin_stats(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     today = now.date()
     if token == "today":
         start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    elif token == "all":
+        start = datetime(2000, 1, 1, tzinfo=timezone.utc)
     else:
         days = int(token)
         start = now - timedelta(days=days)
@@ -528,6 +563,7 @@ async def admin_stats(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     entries_7 = await repo.count_entries_between(to_iso(now - timedelta(days=7)), to_iso(now))
     entries_30 = await repo.count_entries_between(to_iso(now - timedelta(days=30)), to_iso(now))
     money_tot = await repo.finance_totals(to_iso(start), to_iso(end))
+    usage_rows = await repo.finance_usage_by_user(to_iso(start), to_iso(end))
     text = (
         "📊 <b>Статистика сервиса</b>\n\n"
         f"Пользователей: {counts.get('total', 0)}\n"
@@ -536,10 +572,8 @@ async def admin_stats(cb: CallbackQuery, config: Config, repo: Repo) -> None:
         f"Удалённых: {counts.get('deleted', 0)}\n"
         f"Записей сегодня: {entries_today}\n"
         f"За 7 дней: {entries_7}\n"
-        f"За 30 дней: {entries_30}\n"
-        f"Пополнения за период: {money(money_tot['credits'])}\n"
-        f"Списания за период: {money(money_tot['debits'])}\n"
-        f"Доход (пополнения): {money(money_tot['income'])}"
+        f"За 30 дней: {entries_30}\n\n"
+        f"{format_finance_stats(money_tot, usage_rows)}"
     )
     await cb.answer()
     await safe_edit(cb.message, text, admin_period_kb())

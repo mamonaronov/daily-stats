@@ -304,3 +304,21 @@ def test_spam_alert_kb_opens_user_card():
     pairs = _pairs(spam_alert_kb(42))
     assert ("👤 Карточка", "ad:u:42") in pairs
     assert ("🚫 Заблокировать", "ad:bn:42") in pairs
+
+
+def test_admin_credit_kind_kb_income_or_gift():
+    from keyboards.main import admin_credit_kind_kb
+
+    pairs = _pairs(admin_credit_kind_kb(7))
+    assert ("💵 Доход", "ad:cri:7") in pairs
+    assert ("🎁 Подарок", "ad:crg:7") in pairs
+    assert ("✖️ Отмена", "ad:u:7") in pairs
+    assert all(data and len(data.encode()) <= 64 for _, data in pairs)
+
+
+def test_admin_period_kb_has_all_time():
+    from keyboards.main import admin_period_kb
+
+    pairs = _pairs(admin_period_kb())
+    assert ("Сегодня", "ads:today") in pairs
+    assert ("Всё время", "ads:all") in pairs

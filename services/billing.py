@@ -8,11 +8,10 @@ from datetime import date, timedelta
 from database.models import User
 from database.queries import Repo
 from services import balance as balance_svc
+from services.balance import SYSTEM_ACTOR
 from utils.time import now_utc, user_today
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_ACTOR = 0
 
 
 def charge_key(telegram_id: int, day: date) -> str:

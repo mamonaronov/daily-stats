@@ -615,6 +615,16 @@ def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def admin_credit_kind_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        _btn("💵 Доход", f"ad:cri:{telegram_id}"),
+        _btn("🎁 Подарок", f"ad:crg:{telegram_id}"),
+    )
+    b.row(_btn("✖️ Отмена", f"ad:u:{telegram_id}"))
+    return b.as_markup()
+
+
 def users_page_kb(offset: int, has_next: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     row = []
@@ -631,6 +641,7 @@ def users_page_kb(offset: int, has_next: bool) -> InlineKeyboardMarkup:
 def admin_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "ads:today"), _btn("7 дней", "ads:7"), _btn("30 дней", "ads:30"))
+    b.row(_btn("Всё время", "ads:all"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 
