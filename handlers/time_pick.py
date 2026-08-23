@@ -139,10 +139,14 @@ async def _finish(
             notice = f"Хватило на {duration_human(pack.duration_minutes)}"
     if isinstance(event, CallbackQuery):
         await event.answer(notice)
-        await show_main(event, user, config, is_owner, state)
     else:
         await event.answer(notice)
-        await show_main(event, user, config, is_owner, state)
+    if purpose == "cm":
+        from handlers.custom_metrics import show_custom_metrics
+
+        await show_custom_metrics(event, repo, user, state)
+        return
+    await show_main(event, user, config, is_owner, state)
 
 
 async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> str | None:
@@ -442,22 +446,15 @@ async def _restore_before_time_pick(
         return
     if exit_to.startswith("cm:"):
         from keyboards.main import metric_card_kb
-        from services.metric_types import METRIC_TYPES
+        from services.metric_types import metric_card_text
 
         metric = await repo.get_metric(int(exit_to.split(":")[1]), user.telegram_id)
         if metric is None:
             await cb.answer()
-            await safe_edit(cb.message, "📌 Ваши показатели", None)
+            await safe_edit(cb.message, "📌 Кастомные метрики", None)
             return
-        spec = METRIC_TYPES[metric.data_type]
-        text = (
-            f"📌 <b>{metric.name}</b>\n"
-            f"Тип: {spec.label}\n"
-            f"Ед.: {metric.unit or '—'}\n"
-            f"Статус: {'вкл' if metric.enabled else 'выкл'}"
-        )
         await cb.answer()
-        await safe_edit(cb.message, text, metric_card_kb(metric.id, bool(metric.enabled), True))
+        await safe_edit(cb.message, metric_card_text(metric), metric_card_kb(metric.id, bool(metric.enabled), True))
         return
     await cb.answer()
     await safe_edit(cb.message, when_title("cig"), when_kb("cig"))

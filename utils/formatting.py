@@ -47,8 +47,8 @@ METRIC_TYPE_LABELS = {
     "number": "число",
     "text": "текст",
     "boolean": "да/нет",
-    "choice": "выбор из вариантов",
-    "time": "время",
+    "choice": "выбор",
+    "time": "время суток",
     "duration": "длительность",
 }
 
@@ -63,7 +63,7 @@ ENTRY_TITLES = {
     "alcohol": "🍺 Алкоголь",
     "activity": "🏃 Активность",
     "note": "📝 Заметка",
-    "custom": "📌 Показатель",
+    "custom": "📌 Кастом",
 }
 
 BALANCE_ENDED = (

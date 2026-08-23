@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import User
-from services.metric_types import METRIC_TYPES
+from services.metric_types import METRIC_TEMPLATES, METRIC_TYPES, UNIT_PRESETS
 from utils.callbacks import (
     ENTRY_ACT,
     ENTRY_ALC,
@@ -70,7 +70,7 @@ def main_menu(user: User, is_owner: bool) -> InlineKeyboardMarkup:
     b.row(_btn("❤️ Самочувствие", ENTRY_WB), _btn("☕ Кофеин", ENTRY_CAF))
     b.row(_btn("🍺 Алкоголь", ENTRY_ALC), _btn("🏃 Активность", ENTRY_ACT))
     b.row(_btn("📝 Заметка", ENTRY_NOTE), _btn("🌙 Оценить день", NAV_DAY))
-    b.row(_btn("📌 Показатели", NAV_METRICS), _btn("📊 Статистика", NAV_STATS))
+    b.row(_btn("📌 Кастом", NAV_METRICS), _btn("📊 Статистика", NAV_STATS))
     b.row(_btn("📅 История", NAV_HISTORY), _btn("⚙️ Настройки", NAV_SETTINGS))
     b.row(_btn("💰 Баланс", NAV_BALANCE))
     if is_owner:
@@ -396,33 +396,121 @@ def custom_metrics_kb(metrics, writable: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for metric in metrics:
         flag = "" if metric.enabled else " (выкл)"
-        b.row(_btn(f"{metric.name}{flag}", f"cm:o:{metric.id}"))
+        name_btn = _btn(f"{metric.name}{flag}", f"cm:o:{metric.id}")
+        if writable and metric.enabled:
+            b.row(name_btn, _btn("➕", f"cm:add:{metric.id}"))
+        else:
+            b.row(name_btn)
     if writable:
-        b.row(_btn("➕ Создать показатель", "cm:new"))
+        b.row(_btn("➕ Создать метрику", "cm:new"))
     return with_nav(b)
+
+
+def metric_templates_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item in METRIC_TEMPLATES:
+        b.row(_btn(item.button, f"cm:tpl:{item.key}"))
+    b.row(_btn("✏️ Своя метрика", "cm:own"))
+    b.row(_btn("✖️ Отмена", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
 
 
 def metric_types_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for key, spec in METRIC_TYPES.items():
-        b.row(_btn(spec.label, f"cm:t:{key}"))
+        b.row(_btn(spec.button_label, f"cm:t:{key}"))
     b.row(_btn("✖️ Отмена", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def metric_units_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for key, label in UNIT_PRESETS:
+        row.append(_btn(label, f"cm:u:{key}"))
+        if len(row) == 3:
+            b.row(*row)
+            row = []
+    if row:
+        b.row(*row)
+    b.row(_btn("Без единицы", "cm:u:none"), _btn("Другая единица", "cm:u:own"))
+    b.row(_btn("⬅️ Назад", "cm:types"), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+METRIC_NUMBER_PRESETS: dict[str, tuple[tuple[float, str], ...]] = {
+    "мл": ((100, "100 мл"), (250, "250 мл"), (330, "330 мл"), (500, "500 мл"), (1000, "1 л")),
+    "л": ((0.25, "0,25 л"), (0.33, "0,33 л"), (0.5, "0,5 л"), (1, "1 л"), (1.5, "1,5 л")),
+    "шт": ((1, "1"), (2, "2"), (3, "3"), (5, "5"), (10, "10")),
+    "кг": ((0.5, "0,5"), (1, "1"), (2, "2"), (5, "5"), (10, "10")),
+    "шаги": ((1000, "1 000"), (3000, "3 000"), (5000, "5 000"), (8000, "8 000"), (10000, "10 000")),
+    "стр": ((5, "5"), (10, "10"), (20, "20"), (50, "50")),
+    "км": ((1, "1 км"), (3, "3 км"), (5, "5 км"), (10, "10 км")),
+    "%": ((25, "25%"), (50, "50%"), (75, "75%"), (100, "100%")),
+    "₽": ((50, "50 ₽"), (100, "100 ₽"), (200, "200 ₽"), (500, "500 ₽")),
+    "мин": ((5, "5 мин"), (10, "10 мин"), (15, "15 мин"), (30, "30 мин"), (60, "1 ч")),
+}
+
+_DEFAULT_NUMBER_PRESETS = ((1, "1"), (2, "2"), (3, "3"), (5, "5"), (10, "10"), (20, "20"))
+
+_METRIC_TIMES = ("06:00", "07:00", "08:00", "09:00", "12:00", "18:00", "21:00", "22:00", "23:00")
+
+
+def _metric_cancel_row(back: str) -> list[InlineKeyboardButton]:
+    return [_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN)]
+
+
+def metric_number_kb(unit: str | None, back: str) -> InlineKeyboardMarkup:
+    presets = METRIC_NUMBER_PRESETS.get((unit or "").strip().lower(), _DEFAULT_NUMBER_PRESETS)
+    b = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for amount, label in presets:
+        token = str(int(amount)) if abs(amount - round(amount)) < 1e-9 else f"{amount:g}"
+        row.append(_btn(label, f"cm:q:{token}"))
+        if len(row) == 2:
+            b.row(*row)
+            row = []
+    if row:
+        b.row(*row)
+    b.row(*_metric_cancel_row(back))
+    return b.as_markup()
+
+
+def metric_duration_kb(back: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("15 мин", "cm:d:15"), _btn("30 мин", "cm:d:30"), _btn("45 мин", "cm:d:45"))
+    b.row(_btn("1 ч", "cm:d:60"), _btn("1,5 ч", "cm:d:90"), _btn("2 ч", "cm:d:120"))
+    b.row(*_metric_cancel_row(back))
+    return b.as_markup()
+
+
+def metric_time_kb(back: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for stamp in _METRIC_TIMES:
+        row.append(_btn(stamp, f"cm:tm:{stamp.replace(':', '')}"))
+        if len(row) == 3:
+            b.row(*row)
+            row = []
+    if row:
+        b.row(*row)
+    b.row(*_metric_cancel_row(back))
     return b.as_markup()
 
 
 def metric_card_kb(metric_id: int, enabled: bool, writable: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
-        b.row(_btn("➕ Добавить значение", f"cm:add:{metric_id}"))
+        b.row(_btn("➕ Записать значение", f"cm:add:{metric_id}"))
         label = "Выключить" if enabled else "Включить"
         b.row(_btn(label, f"cm:tog:{metric_id}"))
-    b.row(_btn("⬅️ К показателям", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
+    b.row(_btn("⬅️ К метрикам", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
 def bool_kb(back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Да", "cm:v:1"), _btn("Нет", "cm:v:0"))
+    b.row(_btn("✅ Да", "cm:v:1"), _btn("✖️ Нет", "cm:v:0"))
     if back:
         b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
     else:

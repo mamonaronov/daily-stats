@@ -163,7 +163,7 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
     numeric_custom = [v for v in data["custom"] if v.value_number is not None]
     grouped: dict[str, list] = defaultdict(list)
     for item in numeric_custom:
-        grouped[item.metric_name or "показатель"].append(item)
+        grouped[item.metric_name or "метрика"].append(item)
     for name, items in grouped.items():
         series = {d: 0.0 for d in days}
         buckets: dict[date, list[float]] = defaultdict(list)

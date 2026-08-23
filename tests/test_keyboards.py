@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from keyboards.main import (
     activity_duration_kb,
     ago_pick_kb,
     back_kb,
     calendar_kb,
     cancel_kb,
+    custom_metrics_kb,
     drink_amount_kb,
     hours_kb,
+    main_menu,
+    metric_duration_kb,
+    metric_number_kb,
+    metric_templates_kb,
+    metric_time_kb,
+    metric_types_kb,
+    metric_units_kb,
     minutes_kb,
     now_or_time,
     score_kb,
@@ -151,3 +161,48 @@ def test_activity_duration_presets():
     pairs = _pairs(activity_duration_kb(ENTRY_ACT))
     assert ("30 мин", "act:d:30") in pairs
     assert ("1,5 ч", "act:d:90") in pairs
+
+
+def test_main_menu_custom_metrics_button():
+    pairs = _pairs(main_menu(SimpleNamespace(), False))
+    assert ("📌 Кастом", "n:cm") in pairs
+    assert all(text != "📌 Показатели" for text, _ in pairs)
+
+
+def test_custom_metrics_list_has_quick_add():
+    metric = SimpleNamespace(id=3, name="Вода", enabled=1)
+    pairs = _pairs(custom_metrics_kb([metric], True))
+    assert ("Вода", "cm:o:3") in pairs
+    assert ("➕", "cm:add:3") in pairs
+    assert ("➕ Создать метрику", "cm:new") in pairs
+
+
+def test_custom_metrics_disabled_has_no_quick_add():
+    metric = SimpleNamespace(id=3, name="Вода", enabled=0)
+    pairs = _pairs(custom_metrics_kb([metric], True))
+    assert ("Вода (выкл)", "cm:o:3") in pairs
+    assert ("➕", "cm:add:3") not in pairs
+
+
+def test_metric_templates_and_types_explain_choice():
+    templates = _pairs(metric_templates_kb())
+    assert ("💧 Вода · мл", "cm:tpl:water") in templates
+    assert ("✏️ Своя метрика", "cm:own") in templates
+    types = dict(_pairs(metric_types_kb()))
+    assert types["🔢 Число"] == "cm:t:number"
+    assert types["📋 Выбор"] == "cm:t:choice"
+    assert types["🕐 Время суток"] == "cm:t:time"
+
+
+def test_metric_units_and_value_presets():
+    units = dict(_pairs(metric_units_kb()))
+    assert units["мл"] == "cm:u:ml"
+    assert units["Без единицы"] == "cm:u:none"
+    assert units["Другая единица"] == "cm:u:own"
+    numbers = dict(_pairs(metric_number_kb("мл", "cm:o:1")))
+    assert numbers["250 мл"] == "cm:q:250"
+    assert numbers["1 л"] == "cm:q:1000"
+    duration = dict(_pairs(metric_duration_kb("cm:o:1")))
+    assert duration["30 мин"] == "cm:d:30"
+    times = dict(_pairs(metric_time_kb("cm:o:1")))
+    assert times["07:00"] == "cm:tm:0700"
