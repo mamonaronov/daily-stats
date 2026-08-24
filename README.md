@@ -125,9 +125,18 @@ docker compose logs -f bot
 Остановка:
 
 ```bash
-docker compose stop bot    # SIGTERM → shutdown-backup, затем выход
-docker compose down        # контейнер останавливается, volumes на хосте остаются
+docker compose stop bot     # SIGTERM → shutdown-backup; через 30s Docker шлёт SIGKILL
+docker compose down         # то же, контейнер удаляется; volumes на хосте остаются
 ```
+
+Чтобы Docker **не выключал** бота, пока тот не допишет бэкап на диск и в Telegram, без лимита ожидания (`-t -1` — ждать, пока процесс сам не выйдет):
+
+```bash
+docker compose stop -t -1 bot
+docker compose down -t -1
+```
+
+Не используйте `-t 0`: это сразу SIGKILL, без бэкапа.
 
 Не запускайте два контейнера на одном файле SQLite.
 
@@ -266,7 +275,7 @@ Backup идёт через SQLite Online Backup API: в копию попада�
 
 - по расписанию (`BACKUP_INTERVAL_HOURS`)
 - перед миграциями (`pre_migrate_...`)
-- при graceful shutdown (`SIGTERM` / `docker compose stop`) — `shutdown_...`
+- при graceful shutdown (`SIGTERM` / `docker compose stop`) — `shutdown_...`. По умолчанию Docker ждёт 30s (`stop_grace_period`), затем SIGKILL. Чтобы ждать бэкап сколько угодно: `docker compose stop -t -1 bot` или `docker compose down -t -1`
 - при ошибке старта, если возможно — `crash_...`
 
 Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются.
@@ -534,7 +543,7 @@ docker run --rm -v "$PWD":/app -w /app python:3.11-slim \
 - Не пишется: токен, пароли, секреты
 - Ошибка в одном handler не роняет процесс: middleware логирует, отвечает пользователю без traceback, владельцу уходит алерт
 - Критическая ошибка старта (невосстановимая БД) завершает процесс с кодом 1 — Docker перезапускает контейнер
-- `restart: unless-stopped`, `stop_grace_period: 30s`
+- `restart: unless-stopped`, `stop_grace_period: 30s` (перекрывается `docker compose stop/down -t -1` — ждать, пока процесс сам не выйдет)
 
 Алерт владельцу (этот же бот): тип, время UTC, описание, контекст, traceback при необходимости. Пользователю внутренний traceback не показывается.
 
