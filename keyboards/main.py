@@ -904,6 +904,7 @@ def admin_sql_kb() -> InlineKeyboardMarkup:
 
 _VPN_SPAN_LABELS = {
     "5m": "5 мин",
+    "30m": "30 мин",
     "1h": "час",
     "24h": "сутки",
     "7d": "неделю",
@@ -920,8 +921,9 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
     token = "a:r" if view == "a" and rounded else view
     b = InlineKeyboardBuilder()
     rows = (
-        (("5m", "5 мин"), ("1h", "1 ч"), ("24h", "сутки")),
-        (("7d", "неделя"), ("30d", "месяц"), ("all", "всё время")),
+        (("5m", "5 мин"), ("30m", "30 мин"), ("1h", "1 ч")),
+        (("24h", "сутки"), ("7d", "неделя"), ("30d", "месяц")),
+        (("all", "всё время"),),
     )
     for labels in rows:
         b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}:{token}") for key, label in labels])

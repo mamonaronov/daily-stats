@@ -665,6 +665,7 @@ async def admin_balances(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 
 VPN_PERIODS: dict[str, tuple[timedelta | None, str]] = {
     "5m": (timedelta(minutes=5), "последние 5 минут"),
+    "30m": (timedelta(minutes=30), "последние 30 минут"),
     "1h": (timedelta(hours=1), "последний час"),
     "24h": (timedelta(hours=24), "последние сутки"),
     "7d": (timedelta(days=7), "последнюю неделю"),
@@ -845,6 +846,11 @@ def _parse_vpn_chart(data: str | None) -> tuple[str, bool, bool]:
     return period, availability, rounded
 
 
+async def _owner_timezone(repo: Repo, config: Config) -> str:
+    owner = await repo.get_user(config.owner_id)
+    return owner.timezone if owner and owner.timezone else config.default_timezone
+
+
 @router.callback_query(F.data == "ad:vpn")
 @router.callback_query(F.data.startswith("adv:"))
 async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
@@ -862,16 +868,17 @@ async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> Non
         return
     period, availability, rounded = _parse_vpn_chart(cb.data)
     _period, start, end, title = await _vpn_window(repo, period)
+    tz_name = await _owner_timezone(repo, config)
     await cb.answer("Строю графики")
     if cb.message is None:
         return
     try:
         if availability:
             charts = await build_vpn_availability_charts(
-                repo, to_iso(start), to_iso(end), title, rounded=rounded
+                repo, to_iso(start), to_iso(end), title, rounded=rounded, tz_name=tz_name
             )
         else:
-            charts = await build_vpn_charts(repo, to_iso(start), to_iso(end), title)
+            charts = await build_vpn_charts(repo, to_iso(start), to_iso(end), title, tz_name=tz_name)
     except Exception:
         logger.exception("VPN charts failed")
         await safe_send(cb.message.answer, "Не удалось построить графики.")
@@ -910,8 +917,7 @@ async def admin_vpn_log(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not payload:
         await cb.answer(f"За {title} логов нет", show_alert=True)
         return
-    owner = await repo.get_user(config.owner_id)
-    tz_name = owner.timezone if owner and owner.timezone else config.default_timezone
+    tz_name = await _owner_timezone(repo, config)
     text = format_vpn_log(payload, start_iso, end_iso, tz_name=tz_name)
     filename = f"vpn-{period}-{end.strftime('%Y%m%d-%H%M')}.txt"
     await cb.answer("Отправляю файл")

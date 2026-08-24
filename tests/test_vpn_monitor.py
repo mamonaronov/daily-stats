@@ -525,6 +525,7 @@ def test_admin_vpn_kb_callback_limit():
     datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "adv:24h:n" in datas
     assert "adv:5m:n" in datas
+    assert "adv:30m:n" in datas
     assert "adv:24h:s" in datas
     assert "adv:24h:a" in datas
     assert "adv:all:n" in datas
@@ -534,6 +535,16 @@ def test_admin_vpn_kb_callback_limit():
     labels = [btn.text for row in kb.inline_keyboard for btn in row]
     assert any(text and text.startswith("• Ноды") for text in labels)
     assert any(text == "Доступность" for text in labels)
+    assert any(text == "30 мин" for text in labels)
+    half_hour = admin_vpn_kb("30m")
+    half_datas = [btn.callback_data for row in half_hour.inline_keyboard for btn in row]
+    half_labels = [btn.text for row in half_hour.inline_keyboard for btn in row]
+    assert "adv:30m:n" in half_datas
+    assert "advl:30m" in half_datas
+    assert "advc:30m" in half_datas
+    assert any(text and text.startswith("• 30 мин") for text in half_labels)
+    assert any(text and "Логи за 30 мин" in text for text in half_labels)
+    assert any(text and "Картинки за 30 мин" in text for text in half_labels)
 
     week = admin_vpn_kb("7d", "s")
     week_datas = [btn.callback_data for row in week.inline_keyboard for btn in row]
@@ -1083,6 +1094,7 @@ def test_expected_vpn_ticks_matches_period():
     end = datetime(2026, 8, 21, 12, 0, tzinfo=utc)
     assert expected_vpn_ticks(end, end, 10) == 0
     assert expected_vpn_ticks(end - timedelta(minutes=5), end, 10) == 30
+    assert expected_vpn_ticks(end - timedelta(minutes=30), end, 10) == 180
     assert expected_vpn_ticks(end - timedelta(hours=1), end, 10) == 360
     assert expected_vpn_ticks(end - timedelta(hours=24), end, 10) == 8640
     assert expected_vpn_ticks(end - timedelta(seconds=25), end, 10) == 2
@@ -1165,8 +1177,10 @@ def test_parse_vpn_view_availability():
     assert _parse_vpn_view("adv:24h:a") == ("24h", "a", False)
     assert _parse_vpn_view("adv:30d:a:r") == ("30d", "a", True)
     assert _parse_vpn_view("adv:5m:n:r") == ("5m", "n", False)
+    assert _parse_vpn_view("adv:30m:a") == ("30m", "a", False)
     assert _parse_vpn_chart("advc:7d") == ("7d", False, False)
     assert _parse_vpn_chart("advc:24h:a") == ("24h", True, False)
+    assert _parse_vpn_chart("advc:30m:a:r") == ("30m", True, True)
     assert _parse_vpn_chart("advc:all:a:r") == ("all", True, True)
 
 
@@ -1317,3 +1331,21 @@ def test_render_availability_charts_png():
     assert len(rounded) == 1
     assert "округление" in rounded[0][0]
     assert rounded[0][1].startswith(b"\x89PNG")
+
+
+def test_vpn_chart_time_formatter_uses_local_tz():
+    from datetime import datetime, timezone
+
+    from matplotlib.dates import date2num
+
+    from services.vpn_charts import _time_formatter
+    from utils.time import zone
+
+    utc = datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc)
+    x = date2num(utc)
+    moscow = _time_formatter(3600, zone("Europe/Moscow"))
+    assert moscow(x) == "15:00"
+    utc_fmt = _time_formatter(3600, zone("UTC"))
+    assert utc_fmt(x) == "12:00"
+    half_hour = _time_formatter(30 * 60, zone("Europe/Moscow"))
+    assert half_hour(x) == "15:00:00"

@@ -6,7 +6,7 @@ import io
 import math
 from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from statistics import mean, median
 
 import matplotlib
@@ -22,7 +22,7 @@ from matplotlib.ticker import FixedLocator
 from database.models import VpnLatencySample
 from database.queries import Repo
 from services.vpn_monitor import subscription_label
-from utils.time import parse_iso
+from utils.time import parse_iso, zone
 from utils.uptime import host_uptime_seconds
 
 plt.rcParams["font.family"] = "DejaVu Sans"
@@ -910,12 +910,14 @@ def _merged_spans(points: list[TimelinePoint], step: timedelta) -> list[tuple[da
     return spans
 
 
-def _time_formatter(span_seconds: float) -> DateFormatter:
-    if span_seconds <= 15 * 60:
-        return DateFormatter("%H:%M:%S")
-    if span_seconds <= 36 * 3600:
-        return DateFormatter("%H:%M")
-    return DateFormatter("%d.%m %H:%M")
+def _time_formatter(span_seconds: float, tz: tzinfo | None = None) -> DateFormatter:
+    if span_seconds <= 45 * 60:
+        fmt = "%H:%M:%S"
+    elif span_seconds <= 36 * 3600:
+        fmt = "%H:%M"
+    else:
+        fmt = "%d.%m %H:%M"
+    return DateFormatter(fmt, tz=tz)
 
 
 def render_central_chart(values: list[int], period_title: str) -> bytes:
@@ -953,6 +955,7 @@ def render_timeline_chart(
     color_by_sub: bool,
     color_by_ping: bool = False,
     rounded: bool = False,
+    tz_name: str = "Europe/Moscow",
 ) -> bytes:
     fig, ax = plt.subplots(figsize=(18.5, 8.2))
     _apply_dark(fig, ax)
@@ -1036,9 +1039,11 @@ def render_timeline_chart(
     ping_values = [point.ping_ms for point in points if not math.isnan(point.ping_ms)]
     _apply_ping_ticks(ax, max(ping_values) if ping_values else 80.0, axis="y")
     span = (points[-1].time - points[0].time).total_seconds() if len(points) > 1 else 0
-    ax.xaxis.set_major_formatter(_time_formatter(span))
+    tz = zone(tz_name)
+    ax.xaxis_date(tz)
+    ax.xaxis.set_major_formatter(_time_formatter(span, tz))
     ax.set_ylabel("Пинг, мс")
-    ax.set_xlabel("Время (UTC)")
+    ax.set_xlabel("Время")
     if color_by_ping:
         round_note = " · округление" if rounded else ""
         color_note = f"цвет фона — пинг{round_note}"
@@ -1096,6 +1101,7 @@ def render_vpn_charts(
     *,
     window_start: datetime | None = None,
     window_end: datetime | None = None,
+    tz_name: str = "Europe/Moscow",
 ) -> list[tuple[str, bytes]]:
     if not samples:
         return []
@@ -1119,7 +1125,12 @@ def render_vpn_charts(
         )
         charts.append((caption, render_central_chart(ok_latencies, period_title)))
     if points:
-        charts.append((f"Пинг по времени · {period_title}", render_timeline_chart(points, period_title, color_by_sub=color_by_sub)))
+        charts.append(
+            (
+                f"Пинг по времени · {period_title}",
+                render_timeline_chart(points, period_title, color_by_sub=color_by_sub, tz_name=tz_name),
+            )
+        )
     return charts
 
 
@@ -1130,6 +1141,7 @@ def render_availability_charts(
     window_start: datetime | None = None,
     window_end: datetime | None = None,
     rounded: bool = False,
+    tz_name: str = "Europe/Moscow",
 ) -> list[tuple[str, bytes]]:
     if not samples:
         return []
@@ -1156,14 +1168,23 @@ def render_availability_charts(
                 color_by_sub=False,
                 color_by_ping=True,
                 rounded=rounded,
+                tz_name=tz_name,
             ),
         )
     ]
 
 
-async def build_vpn_charts(repo: Repo, start: str, end: str, period_title: str) -> list[tuple[str, bytes]]:
+async def build_vpn_charts(
+    repo: Repo, start: str, end: str, period_title: str, *, tz_name: str = "Europe/Moscow"
+) -> list[tuple[str, bytes]]:
     samples = await repo.list_vpn_samples(start, end)
-    return render_vpn_charts(samples, period_title, window_start=parse_iso(start), window_end=parse_iso(end))
+    return render_vpn_charts(
+        samples,
+        period_title,
+        window_start=parse_iso(start),
+        window_end=parse_iso(end),
+        tz_name=tz_name,
+    )
 
 
 async def build_vpn_availability_charts(
@@ -1173,6 +1194,7 @@ async def build_vpn_availability_charts(
     period_title: str,
     *,
     rounded: bool = False,
+    tz_name: str = "Europe/Moscow",
 ) -> list[tuple[str, bytes]]:
     samples = await repo.list_vpn_samples(start, end)
     return render_availability_charts(
@@ -1181,4 +1203,5 @@ async def build_vpn_availability_charts(
         window_start=parse_iso(start),
         window_end=parse_iso(end),
         rounded=rounded,
+        tz_name=tz_name,
     )
