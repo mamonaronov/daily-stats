@@ -41,6 +41,7 @@ from utils.callbacks import (
     ENTRY_CAF,
     NAV_BACK,
     NAV_HISTORY,
+    NAV_GUIDE,
     NAV_MAIN,
     NAV_METRICS,
     NAV_MARKERS,
@@ -211,6 +212,7 @@ def test_main_menu_custom_metrics_button():
     pairs = _pairs(main_menu(SimpleNamespace(), False))
     assert ("📌 Кастом", "n:cm") in pairs
     assert ("🔖 Метки", NAV_MARKERS) in pairs
+    assert ("📖 Гайд", NAV_GUIDE) in pairs
     assert all(text != "📌 Показатели" for text, _ in pairs)
     assert all("Настроение" not in text for text, _ in pairs)
     assert all("Самочувствие" not in text for text, _ in pairs)
@@ -406,7 +408,9 @@ def test_reply_and_followup_keyboards():
     reply = reply_main_kb()
     labels = [btn.text for row in reply.keyboard for btn in row]
     assert labels == ["Сигарета", "Снюс", "Сон", "Ещё"]
-    assert dict(_pairs(how_to_kb()))["Понятно"] == "onb:ok"
+    how_to = dict(_pairs(how_to_kb()))
+    assert how_to["Понятно"] == "onb:ok"
+    assert how_to["📖 Подробный гайд"] == NAV_GUIDE
     done = dict(_pairs(charts_done_kb()))
     assert done["Другой период"] == NAV_STATS
     assert done["🏠 Меню"] == NAV_MAIN

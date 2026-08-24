@@ -10,6 +10,7 @@ NAV_ADMIN = "n:a"
 NAV_METRICS = "n:cm"
 NAV_MARKERS = "n:mk"
 NAV_BALANCE = "n:bal"
+NAV_GUIDE = "n:g"
 
 ADMIN_DEPLOY_OK = "ad:upd:ok"
 ADMIN_DEPLOY_NO = "ad:upd:no"

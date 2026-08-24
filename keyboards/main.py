@@ -20,6 +20,7 @@ from utils.callbacks import (
     NAV_ADMIN,
     NAV_BACK,
     NAV_BALANCE,
+    NAV_GUIDE,
     NAV_HISTORY,
     NAV_MAIN,
     NAV_METRICS,
@@ -129,6 +130,7 @@ def main_menu(
         b.row(_btn(name, f"cm:o:{metric.id}"), _btn("➕", f"cm:add:{metric.id}"))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
+    b.row(_btn("📖 Гайд", NAV_GUIDE))
     if is_owner:
         b.row(_btn("🛠 Админ-панель", NAV_ADMIN))
     return b.as_markup()
@@ -489,8 +491,27 @@ def export_period_kb(back: str = NAV_SETTINGS, *, prefix: str = "exp") -> Inline
 
 def how_to_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    b.row(_btn("📖 Подробный гайд", NAV_GUIDE))
     b.row(_btn("Понятно", "onb:ok"))
     return b.as_markup()
+
+
+def guide_index_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Как записать событие", "g:write"))
+    b.row(_btn("🚬 Сигарета", "g:cig"), _btn("🟢 Снюс", "g:snus"))
+    b.row(_btn("🤌 Валять дурака", "g:fool"), _btn("😴 Сон", "g:sleep"))
+    b.row(_btn("☕ Кофеин", "g:caf"), _btn("🍺 Алкоголь", "g:alc"))
+    b.row(_btn("🏃 Активность", "g:act"), _btn("📌 Кастом", "g:cm"))
+    b.row(_btn("🔖 Метки", "g:mk"))
+    b.row(_btn("📊 Статистика", "g:st"), _btn("📅 История", "g:hist"))
+    b.row(_btn("⚙️ Настройки", "g:set"), _btn("💰 Баланс", "g:bal"))
+    b.row(_btn("⌨️ Кнопки внизу экрана", "g:keys"))
+    return with_nav(b)
+
+
+def guide_page_kb() -> InlineKeyboardMarkup:
+    return back_kb(NAV_GUIDE)
 
 
 def charts_done_kb() -> InlineKeyboardMarkup:

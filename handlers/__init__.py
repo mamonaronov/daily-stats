@@ -15,6 +15,7 @@ from handlers import (
     cigarettes,
     custom_metrics,
     fooling,
+    guide,
     history,
     legal,
     markers,
@@ -34,6 +35,7 @@ def setup_routers() -> Router:
     root.include_router(start.router)
     root.include_router(legal.router)
     root.include_router(menu.router)
+    root.include_router(guide.router)
     root.include_router(admin.router)
     root.include_router(admin_deploy.router)
     root.include_router(admin_restore.router)

@@ -60,6 +60,8 @@ def test_bot_commands_exist():
     assert 'Command("menu")' in src
     assert 'Command("today")' in src
     assert 'Command("stats")' in src
+    guide = Path("handlers/guide.py").read_text(encoding="utf-8")
+    assert 'Command("guide")' in guide
 
 
 @pytest.mark.asyncio

@@ -325,6 +325,7 @@ async def run() -> None:
                     BotCommand(command="menu", description="Главный экран"),
                     BotCommand(command="today", description="Сводка дня"),
                     BotCommand(command="stats", description="Статистика"),
+                    BotCommand(command="guide", description="Как пользоваться ботом"),
                 ]
             )
         except Exception:
