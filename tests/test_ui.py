@@ -6,7 +6,7 @@ import pytest
 from aiogram.fsm.storage.base import StorageKey
 
 from database.fsm_storage import SqliteStorage
-from handlers.common import HOW_TO, TZ_PROMPT, menu_text
+from handlers.common import BOT_PURPOSE, HOW_TO, LEGAL_PROMPT, TZ_PROMPT, menu_text
 from services.charts import build_charts
 from services.export import export_user_csv
 from services.history import PAGE_SIZE, build_timeline, paginate
@@ -52,7 +52,22 @@ async def test_today_snapshot_and_menu_text(repo):
 
 def test_tz_prompt_does_not_promise_reminders():
     blob = f"{TZ_PROMPT}\n{HOW_TO}".lower()
-    assert "напоминан" not in blob
+    assert "напомню" not in blob
+    assert "напомним" not in blob
+    assert "напомнит" not in blob
+
+
+def test_first_start_explains_purpose_and_capabilities():
+    text = LEGAL_PROMPT.lower()
+    assert BOT_PURPOSE in LEGAL_PROMPT
+    assert "дневник" in text
+    assert "привыч" in text
+    for needle in ("статистик", "истори", "график", "сон", "метрик"):
+        assert needle in text
+    assert "напомню" not in text
+    assert "напомним" not in text
+    assert HOW_TO.startswith("📓")
+    assert "для чего" in HOW_TO.lower()
 
 
 def test_bot_commands_exist():
