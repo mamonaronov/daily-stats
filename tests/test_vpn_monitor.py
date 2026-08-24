@@ -526,6 +526,8 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:24h:n" in datas
     assert "adv:5m:n" in datas
     assert "adv:30m:n" in datas
+    assert "adv:6h:n" in datas
+    assert "adv:12h:n" in datas
     assert "adv:24h:s" in datas
     assert "adv:24h:a" in datas
     assert "adv:all:n" in datas
@@ -536,6 +538,8 @@ def test_admin_vpn_kb_callback_limit():
     assert any(text and text.startswith("• Ноды") for text in labels)
     assert any(text == "Доступность" for text in labels)
     assert any(text == "30 мин" for text in labels)
+    assert any(text == "6 ч" for text in labels)
+    assert any(text == "12 ч" for text in labels)
     half_hour = admin_vpn_kb("30m")
     half_datas = [btn.callback_data for row in half_hour.inline_keyboard for btn in row]
     half_labels = [btn.text for row in half_hour.inline_keyboard for btn in row]
@@ -576,6 +580,26 @@ def test_admin_vpn_kb_callback_limit():
     assert any(text and text.startswith("• Округление") for text in rounded_labels)
     assert any(text and "Доступность за неделю" in text for text in rounded_labels)
     assert all(len(data.encode()) <= 64 for data in rounded_datas)
+
+    six_hours = admin_vpn_kb("6h")
+    six_datas = [btn.callback_data for row in six_hours.inline_keyboard for btn in row]
+    six_labels = [btn.text for row in six_hours.inline_keyboard for btn in row]
+    assert "adv:6h:n" in six_datas
+    assert "advl:6h" in six_datas
+    assert "advc:6h" in six_datas
+    assert any(text and text.startswith("• 6 ч") for text in six_labels)
+    assert any(text and "Логи за 6 часов" in text for text in six_labels)
+    assert any(text and "Картинки за 6 часов" in text for text in six_labels)
+
+    twelve_hours = admin_vpn_kb("12h", "a")
+    twelve_datas = [btn.callback_data for row in twelve_hours.inline_keyboard for btn in row]
+    twelve_labels = [btn.text for row in twelve_hours.inline_keyboard for btn in row]
+    assert "adv:12h:a" in twelve_datas
+    assert "advl:12h" in twelve_datas
+    assert "advc:12h:a" in twelve_datas
+    assert any(text and text.startswith("• 12 ч") for text in twelve_labels)
+    assert any(text and "Логи за 12 часов" in text for text in twelve_labels)
+    assert any(text and "Доступность за 12 часов" in text for text in twelve_labels)
 
     all_time = admin_vpn_kb("all", "n")
     all_labels = [btn.text for row in all_time.inline_keyboard for btn in row]
@@ -1178,7 +1202,11 @@ def test_parse_vpn_view_availability():
     assert _parse_vpn_view("adv:30d:a:r") == ("30d", "a", True)
     assert _parse_vpn_view("adv:5m:n:r") == ("5m", "n", False)
     assert _parse_vpn_view("adv:30m:a") == ("30m", "a", False)
+    assert _parse_vpn_view("adv:6h:n") == ("6h", "n", False)
+    assert _parse_vpn_view("adv:12h:a:r") == ("12h", "a", True)
     assert _parse_vpn_chart("advc:7d") == ("7d", False, False)
+    assert _parse_vpn_chart("advc:6h") == ("6h", False, False)
+    assert _parse_vpn_chart("advc:12h:a:r") == ("12h", True, True)
     assert _parse_vpn_chart("advc:24h:a") == ("24h", True, False)
     assert _parse_vpn_chart("advc:30m:a:r") == ("30m", True, True)
     assert _parse_vpn_chart("advc:all:a:r") == ("all", True, True)
