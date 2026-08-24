@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from handlers.admin_deploy import format_deploy_accepted, format_deploy_skipped
+from handlers.admin_deploy import (
+    format_deploy_accepted,
+    format_deploy_skipped,
+    format_updates_panel,
+    updates_actions,
+)
 from tests.test_deploy import _bash
 from utils.deploy_offer import (
     APPROVE,
     SKIP,
+    DeployDecision,
     DeployOffer,
     clear_deploy_handshake,
     read_decision,
@@ -83,3 +89,43 @@ def test_format_deploy_messages_escape_html():
     skipped = format_deploy_skipped(offer)
     assert skipped.startswith("⏭ <b>Обновление отложено</b>")
     assert "x&lt;y&gt;" in skipped
+
+
+def test_updates_panel_states_and_actions():
+    offer = _offer(was_title="x<y>", new_title="a&b")
+    idle = format_updates_panel(running_short="deadbeef", running_title="fix <bot>")
+    assert idle.startswith("🔄 <b>Обновления</b>")
+    assert "<code>deadbeef</code>" in idle
+    assert "fix &lt;bot&gt;" in idle
+    assert "Актуально" in idle
+    assert updates_actions(None, None) == (False, False)
+
+    pending = format_updates_panel(
+        running_short="aaa111",
+        running_title="old",
+        offer=offer,
+    )
+    assert "x&lt;y&gt;" in pending
+    assert "a&amp;b" in pending
+    assert "Доступно обновление" in pending
+    assert updates_actions(offer, None) == (True, True)
+
+    skipped_decision = DeployDecision(action=SKIP, sha=offer.new)
+    skipped = format_updates_panel(
+        running_short="aaa111",
+        running_title="old",
+        offer=offer,
+        decision=skipped_decision,
+    )
+    assert "Отложено" in skipped
+    assert updates_actions(offer, skipped_decision) == (True, False)
+
+    approved = DeployDecision(action=APPROVE, sha=offer.new)
+    accepted = format_updates_panel(
+        running_short="aaa111",
+        running_title="old",
+        offer=offer,
+        decision=approved,
+    )
+    assert "Принято" in accepted
+    assert updates_actions(offer, approved) == (False, False)

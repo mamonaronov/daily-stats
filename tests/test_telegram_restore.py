@@ -301,11 +301,13 @@ def test_admin_restore_keyboards_callback_limit():
         admin_disk_backups_kb,
         admin_restore_confirm_kb,
         admin_root_kb,
+        admin_updates_kb,
     )
 
     root = [btn.callback_data for row in admin_root_kb().inline_keyboard for btn in row]
     assert "ad:bk" in root
     assert "ad:bc" in root
+    assert "ad:upd" in root
     assert "ad:rst" not in root
     backups = [btn.callback_data for row in admin_backups_kb().inline_keyboard for btn in row]
     assert "ad:bknow" in backups
@@ -320,6 +322,6 @@ def test_admin_restore_keyboards_callback_limit():
     datas = [btn.callback_data for row in disk.inline_keyboard for btn in row]
     assert "ad:bks:0" in datas
     assert "ad:bkr:1" in datas
-    for kb in (admin_root_kb(), admin_db_kb(), admin_backups_kb(), admin_restore_confirm_kb(disk=True), disk):
+    for kb in (admin_root_kb(), admin_db_kb(), admin_backups_kb(), admin_restore_confirm_kb(disk=True), disk, admin_updates_kb(can_approve=True, can_skip=True)):
         payload = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         assert all(data and len(data.encode()) <= 64 for data in payload)

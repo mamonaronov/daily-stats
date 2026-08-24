@@ -11,10 +11,13 @@ from aiogram.types import CallbackQuery
 
 from config import Config
 from handlers.admin import _owner
-from utils.callbacks import ADMIN_DEPLOY_NO, ADMIN_DEPLOY_OK
+from keyboards.main import admin_updates_kb
+from utils.app_version import app_build_identity
+from utils.callbacks import ADMIN_DEPLOY_NO, ADMIN_DEPLOY_OK, ADMIN_UPDATES
 from utils.deploy_offer import (
     APPROVE,
     SKIP,
+    DeployDecision,
     DeployOffer,
     read_decision,
     read_offer,
@@ -52,6 +55,81 @@ def format_deploy_skipped(offer: DeployOffer) -> str:
     )
 
 
+def updates_actions(
+    offer: DeployOffer | None,
+    decision: DeployDecision | None,
+) -> tuple[bool, bool]:
+    if offer is None:
+        return False, False
+    if decision is not None and decision.sha == offer.new:
+        if decision.action == APPROVE:
+            return False, False
+        if decision.action == SKIP:
+            return True, False
+    return True, True
+
+
+def format_updates_panel(
+    *,
+    running_short: str,
+    running_title: str,
+    offer: DeployOffer | None = None,
+    decision: DeployDecision | None = None,
+) -> str:
+    lines = [
+        "🔄 <b>Обновления</b>",
+        "",
+        f"Работает: <code>{html.escape(running_short)}</code> — {html.escape(running_title)}",
+    ]
+    if offer is None:
+        lines.append("")
+        lines.append("Актуально. Хост сам предложит, когда в main появится другой коммит.")
+        return "\n".join(lines)
+    lines.append("")
+    lines.append(_commit_line("Сейчас", offer.was_short, offer.was_title))
+    lines.append(_commit_line("Новая", offer.new_short, offer.new_title))
+    lines.append("")
+    if decision is not None and decision.sha == offer.new:
+        if decision.action == APPROVE:
+            lines.append("Принято. Выкатываю новую версию. Сначала дождусь простоя бота.")
+        else:
+            lines.append("Отложено. Напомню, когда в main появится другой коммит.")
+            lines.append("Можно выкатить эту версию сейчас.")
+    else:
+        lines.append("Доступно обновление. Выкатить эту версию?")
+    return "\n".join(lines)
+
+
+def _updates_view(config: Config) -> tuple[str, object]:
+    data_dir = _data_dir(config)
+    offer = read_offer(data_dir)
+    decision = read_decision(data_dir)
+    running_short, running_title = app_build_identity()
+    can_approve, can_skip = updates_actions(offer, decision)
+    return (
+        format_updates_panel(
+            running_short=running_short,
+            running_title=running_title,
+            offer=offer,
+            decision=decision,
+        ),
+        admin_updates_kb(can_approve=can_approve, can_skip=can_skip),
+    )
+
+
+async def _show_updates(cb: CallbackQuery, config: Config) -> None:
+    text, markup = _updates_view(config)
+    await safe_edit(cb.message, text, markup)
+
+
+@router.callback_query(F.data == ADMIN_UPDATES)
+async def updates_root(cb: CallbackQuery, config: Config) -> None:
+    if not await _owner(cb, config):
+        return
+    await cb.answer()
+    await _show_updates(cb, config)
+
+
 @router.callback_query(F.data == ADMIN_DEPLOY_OK)
 async def deploy_approve(cb: CallbackQuery, config: Config) -> None:
     if not await _owner(cb, config):
@@ -60,16 +138,17 @@ async def deploy_approve(cb: CallbackQuery, config: Config) -> None:
     offer = read_offer(data_dir)
     if offer is None:
         await cb.answer("Предложение уже неактуально.", show_alert=True)
+        await _show_updates(cb, config)
         return
     existing = read_decision(data_dir)
     if existing is not None and existing.action == APPROVE and existing.sha == offer.new:
         await cb.answer("Уже принято")
-        await safe_edit(cb.message, format_deploy_accepted(offer))
+        await _show_updates(cb, config)
         return
     write_decision(data_dir, APPROVE, offer.new)
     logger.info("Owner approved deploy %s", offer.new)
     await cb.answer("Выкатываю")
-    await safe_edit(cb.message, format_deploy_accepted(offer))
+    await _show_updates(cb, config)
 
 
 @router.callback_query(F.data == ADMIN_DEPLOY_NO)
@@ -80,12 +159,14 @@ async def deploy_skip(cb: CallbackQuery, config: Config) -> None:
     offer = read_offer(data_dir)
     if offer is None:
         await cb.answer("Предложение уже неактуально.", show_alert=True)
+        await _show_updates(cb, config)
         return
     existing = read_decision(data_dir)
     if existing is not None and existing.action == APPROVE and existing.sha == offer.new:
         await cb.answer("Обновление уже принято.", show_alert=True)
+        await _show_updates(cb, config)
         return
     write_decision(data_dir, SKIP, offer.new)
     logger.info("Owner skipped deploy %s", offer.new)
     await cb.answer("Отложено")
-    await safe_edit(cb.message, format_deploy_skipped(offer))
+    await _show_updates(cb, config)

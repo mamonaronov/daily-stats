@@ -140,3 +140,35 @@ def test_deploy_confirm_markup_matches_keyboard():
     assert ("🔄 Обновить", ADMIN_DEPLOY_OK) in pairs
     assert ("⏭ Позже", ADMIN_DEPLOY_NO) in pairs
     assert all(data and len(data.encode()) <= 64 for _, data in pairs)
+
+
+def test_admin_updates_kb_actions():
+    from keyboards.main import admin_updates_kb
+    from utils.callbacks import ADMIN_DEPLOY_NO, ADMIN_DEPLOY_OK, ADMIN_UPDATES, NAV_ADMIN
+
+    idle = [
+        (btn.text, btn.callback_data)
+        for row in admin_updates_kb().inline_keyboard
+        for btn in row
+    ]
+    assert ("🛠 Админка", NAV_ADMIN) in idle
+    assert all(data != ADMIN_DEPLOY_OK and data != ADMIN_DEPLOY_NO for _, data in idle)
+
+    pending = [
+        (btn.text, btn.callback_data)
+        for row in admin_updates_kb(can_approve=True, can_skip=True).inline_keyboard
+        for btn in row
+    ]
+    assert ("🔄 Обновить", ADMIN_DEPLOY_OK) in pending
+    assert ("⏭ Позже", ADMIN_DEPLOY_NO) in pending
+    assert ("🛠 Админка", NAV_ADMIN) in pending
+
+    skipped = [
+        btn.callback_data
+        for row in admin_updates_kb(can_approve=True).inline_keyboard
+        for btn in row
+    ]
+    assert ADMIN_DEPLOY_OK in skipped
+    assert ADMIN_DEPLOY_NO not in skipped
+    assert ADMIN_UPDATES not in skipped
+    assert all(data and len(data.encode()) <= 64 for data in skipped)

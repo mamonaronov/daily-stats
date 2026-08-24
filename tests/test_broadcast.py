@@ -48,6 +48,7 @@ def test_admin_root_has_broadcast_button():
     pairs = [(btn.text, btn.callback_data) for row in admin_root_kb().inline_keyboard for btn in row]
     assert ("📢 Рассылка", "ad:bc") in pairs
     assert ("📦 Бэкапы", "ad:bk") in pairs
+    assert ("🔄 Обновления", "ad:upd") in pairs
     assert ("🏠 Меню", NAV_MAIN) in pairs
 
 
