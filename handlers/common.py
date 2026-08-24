@@ -11,7 +11,7 @@ from database.queries import Repo
 from keyboards.main import back_kb, calendar_kb, hours_kb, legal_consent_kb, main_menu, timezone_kb, when_kb
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
-from utils.telegram import answer_with_reply_kb, safe_edit
+from utils.telegram import hide_reply_keyboard, safe_edit
 
 TZ_PROMPT = "Выберите часовой пояс. Он нужен для статистики и границ дня."
 TZ_RESTORE_PROMPT = (
@@ -84,7 +84,7 @@ async def show_main(
     state: FSMContext | None = None,
     repo: Repo | None = None,
     *,
-    attach_reply: bool = False,
+    hide_reply: bool = False,
 ) -> None:
     if state:
         await state.clear()
@@ -102,15 +102,12 @@ async def show_main(
         pinned = [item for item in metrics if item.pinned][:MAX_PINS]
     text = menu_text(user, config, today_block)
     markup = main_menu(user, is_owner, sleep, hidden=hidden, pinned=pinned)
+    if hide_reply:
+        source = target.message if isinstance(target, CallbackQuery) else target
+        await hide_reply_keyboard(source)
     if isinstance(target, CallbackQuery):
         await target.answer()
-        if attach_reply:
-            await answer_with_reply_kb(target.message, text, markup, replace=True)
-            return
         await safe_edit(target.message, text, markup)
-        return
-    if attach_reply:
-        await answer_with_reply_kb(target, text, markup)
         return
     await target.answer(text, reply_markup=markup)
 

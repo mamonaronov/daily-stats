@@ -7,43 +7,24 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 
 logger = logging.getLogger(__name__)
 
 
-async def answer_with_reply_kb(
-    message: Message | None,
-    text: str,
-    inline: InlineKeyboardMarkup | None = None,
-    *,
-    replace: bool = False,
-) -> Message | None:
-    """Send text, attach the persistent reply keyboard, then set inline buttons."""
+async def hide_reply_keyboard(message: Message | None) -> None:
+    """Drop a leftover reply keyboard so the inline menu has room on screen."""
     if message is None:
-        return None
-    from keyboards.main import reply_main_kb
-
+        return
     try:
-        sent = await message.answer(text, reply_markup=reply_main_kb())
+        stub = await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
     except Exception:
-        logger.exception("Failed to send message with reply keyboard")
-        try:
-            return await message.answer(text, reply_markup=inline)
-        except Exception:
-            logger.exception("Failed to send fallback message")
-            return None
-    if inline is not None:
-        try:
-            await sent.edit_reply_markup(reply_markup=inline)
-        except Exception:
-            logger.exception("Failed to set inline keyboard after reply keyboard")
-    if replace:
-        try:
-            await message.delete()
-        except Exception:
-            logger.debug("Could not delete previous message after attaching reply keyboard", exc_info=True)
-    return sent
+        logger.exception("Failed to hide reply keyboard")
+        return
+    try:
+        await stub.delete()
+    except Exception:
+        logger.debug("Could not delete reply-keyboard removal stub", exc_info=True)
 
 
 async def safe_edit(

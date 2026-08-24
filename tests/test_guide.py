@@ -22,7 +22,6 @@ def test_guide_pages_cover_menu_topics():
         "hist",
         "set",
         "bal",
-        "keys",
     }
     for key, body in PAGES.items():
         assert page_text(key) == body
@@ -36,6 +35,7 @@ def test_guide_index_buttons_match_pages():
     for key in PAGES:
         assert f"g:{key}" in pairs.values()
     assert pairs["🏠 Меню"] == NAV_MAIN
+    assert "Кнопки внизу" not in pairs
     assert "Напоминаний нет" in INDEX_TEXT or "напоминаний нет" in INDEX_TEXT.lower()
     assert "дневник" in INDEX_TEXT.lower() or "привычек" in INDEX_TEXT.lower()
 

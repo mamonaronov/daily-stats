@@ -194,3 +194,29 @@ async def test_coverage_notice_once_a_day(repo, tmp_path):
     await send_coverage_notices(repo, bot, config)
     targeted_again = [item for item in bot.sent if item[0] == 55]
     assert len(targeted_again) == 1
+
+
+@pytest.mark.asyncio
+async def test_hide_reply_keyboard_removes_stub():
+    from aiogram.types import ReplyKeyboardRemove
+
+    from utils.telegram import hide_reply_keyboard
+
+    class _Msg:
+        def __init__(self) -> None:
+            self.answers: list[tuple] = []
+            self.deleted = 0
+
+        async def answer(self, text, reply_markup=None):
+            self.answers.append((text, reply_markup))
+            return self
+
+        async def delete(self):
+            self.deleted += 1
+
+    msg = _Msg()
+    await hide_reply_keyboard(msg)
+    assert msg.answers == [("\u2060", msg.answers[0][1])]
+    assert isinstance(msg.answers[0][1], ReplyKeyboardRemove)
+    assert msg.deleted == 1
+    await hide_reply_keyboard(None)

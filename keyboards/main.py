@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import SleepRecord, User
@@ -506,7 +506,6 @@ def guide_index_kb() -> InlineKeyboardMarkup:
     b.row(_btn("🔖 Метки", "g:mk"))
     b.row(_btn("📊 Статистика", "g:st"), _btn("📅 История", "g:hist"))
     b.row(_btn("⚙️ Настройки", "g:set"), _btn("💰 Баланс", "g:bal"))
-    b.row(_btn("⌨️ Кнопки внизу экрана", "g:keys"))
     return with_nav(b)
 
 
@@ -530,23 +529,6 @@ def balance_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Я оплатил", "bal:paid"))
     return with_nav(b)
-
-
-REPLY_CIG = "Сигарета"
-REPLY_SNUS = "Снюс"
-REPLY_SLEEP = "Сон"
-REPLY_MORE = "Ещё"
-
-
-def reply_main_kb() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=REPLY_CIG), KeyboardButton(text=REPLY_SNUS)],
-            [KeyboardButton(text=REPLY_SLEEP), KeyboardButton(text=REPLY_MORE)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
 
 
 def legal_consent_kb() -> InlineKeyboardMarkup:

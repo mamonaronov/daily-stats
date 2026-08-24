@@ -14,7 +14,7 @@ from handlers.common import TZ_PROMPT, show_main, start_payload
 from keyboards.main import back_kb, timezone_kb
 from services.billing import process_user
 from states.diary import RegisterSG
-from utils.telegram import answer_with_reply_kb, safe_edit
+from utils.telegram import hide_reply_keyboard, safe_edit
 from utils.time import is_valid_timezone
 
 router = Router(name="start")
@@ -55,8 +55,9 @@ async def _activate(
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, repo: Repo, config: Config, db_user: User | None, is_owner: bool) -> None:
     await state.clear()
+    await hide_reply_keyboard(message)
     if db_user and db_user.is_active:
-        await show_main(message, db_user, config, is_owner, state, repo, attach_reply=True)
+        await show_main(message, db_user, config, is_owner, state, repo)
         return
     text, markup = start_payload(db_user, config, is_owner)
     if db_user and db_user.is_banned:
@@ -87,9 +88,10 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
         from keyboards.main import how_to_kb
 
         await state.clear()
-        await answer_with_reply_kb(cb.message, HOW_TO, how_to_kb(), replace=True)
+        await hide_reply_keyboard(cb.message)
+        await safe_edit(cb.message, HOW_TO, how_to_kb())
         return
-    await show_main(cb, db_user, config, is_owner, state, repo, attach_reply=True)
+    await show_main(cb, db_user, config, is_owner, state, repo, hide_reply=True)
 
 
 @router.callback_query(F.data == "tz:list", RegisterSG.timezone_custom)
@@ -115,9 +117,10 @@ async def custom_tz(message: Message, state: FSMContext, repo: Repo, config: Con
         from keyboards.main import how_to_kb
 
         await state.clear()
-        await answer_with_reply_kb(message, HOW_TO, how_to_kb())
+        await hide_reply_keyboard(message)
+        await message.answer(HOW_TO, reply_markup=how_to_kb())
         return
-    await show_main(message, db_user, config, is_owner, state, repo, attach_reply=True)
+    await show_main(message, db_user, config, is_owner, state, repo, hide_reply=True)
 
 
 @router.message(Command("menu"))
@@ -135,7 +138,7 @@ async def cmd_menu(
     user = await require_active(message, db_user)
     if user is None:
         return
-    await show_main(message, user, config, is_owner, state, repo, attach_reply=True)
+    await show_main(message, user, config, is_owner, state, repo, hide_reply=True)
 
 
 @router.message(Command("stats"))
@@ -166,4 +169,4 @@ async def onboarding_ok(
     user = await require_active(cb, db_user)
     if user is None:
         return
-    await show_main(cb, user, config, is_owner, state, repo, attach_reply=True)
+    await show_main(cb, user, config, is_owner, state, repo, hide_reply=True)

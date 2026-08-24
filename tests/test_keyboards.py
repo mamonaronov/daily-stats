@@ -401,13 +401,10 @@ def test_stats_metrics_kb_includes_custom():
     assert pairs["☑ Вода"] == "stm:m5"
 
 
-def test_reply_and_followup_keyboards():
-    from keyboards.main import charts_done_kb, how_to_kb, reply_main_kb
+def test_followup_keyboards():
+    from keyboards.main import charts_done_kb, how_to_kb
     from utils.callbacks import NAV_STATS
 
-    reply = reply_main_kb()
-    labels = [btn.text for row in reply.keyboard for btn in row]
-    assert labels == ["Сигарета", "Снюс", "Сон", "Ещё"]
     how_to = dict(_pairs(how_to_kb()))
     assert how_to["Понятно"] == "onb:ok"
     assert how_to["📖 Подробный гайд"] == NAV_GUIDE
