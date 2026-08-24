@@ -110,9 +110,10 @@ async def notify_owner_lifecycle(
     started: bool,
     backup_problems: list[tuple[str, BaseException]] | None = None,
 ) -> None:
-    """Status, then the /start screen, then backup failures with reasons if any."""
+    """Status, then the /start screen on startup, then backup failures with reasons if any."""
     await notify_owner(bot, config, BOT_STARTED_TEXT if started else BOT_STOPPED_TEXT)
-    await send_owner_start_screen(bot, repo, config)
+    if started:
+        await send_owner_start_screen(bot, repo, config)
     if backup_problems:
         when = "при запуске" if started else "при выключении"
         await notify_owner(bot, config, format_backup_problems(when, backup_problems))
