@@ -512,7 +512,17 @@ def downsample_timeline(points: list[TimelinePoint], max_ok: int = _MAX_TIMELINE
     if len(down_idx) > max_down:
         step = math.ceil(len(down_idx) / max_down)
         down_idx = down_idx[::step]
-    keep = sorted(set(ok_idx) | set(down_idx) | {0, len(points) - 1})
+    run_ends: set[int] = {0, len(points) - 1}
+    for i, point in enumerate(points):
+        prev_break = i == 0 or points[i - 1].color_key != point.color_key or points[i - 1].signal != point.signal
+        next_break = (
+            i == len(points) - 1
+            or points[i + 1].color_key != point.color_key
+            or points[i + 1].signal != point.signal
+        )
+        if prev_break or next_break:
+            run_ends.add(i)
+    keep = sorted(set(ok_idx) | set(down_idx) | run_ends)
     return [points[i] for i in keep]
 
 
@@ -885,8 +895,12 @@ def _merged_spans(points: list[TimelinePoint], step: timedelta) -> list[tuple[da
     key = points[0].color_key
     signal = points[0].signal
     for prev, current in zip(points, points[1:]):
-        jumped = current.time - prev.time > gap_limit
-        if current.color_key != key or current.signal != signal or jumped:
+        # Start/end markers of service-down / server-off are far apart on purpose.
+        # Same for thinned no-ping runs. Keep them as one band, not two stripes.
+        same_run = current.color_key == key and current.signal == signal
+        same_signal_run = signal is not None and same_run
+        jumped = (not same_signal_run) and current.time - prev.time > gap_limit
+        if not same_run or jumped:
             end = current.time if not jumped else prev.time + step
             spans.append((start, end, key, signal))
             start = current.time

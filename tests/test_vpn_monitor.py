@@ -971,6 +971,59 @@ def test_fill_downtime_gaps_marks_power_off_after_reboot():
     assert SIGNAL_SERVICE_DOWN in signals
 
 
+def test_downtime_markers_merge_into_periods():
+    from datetime import datetime, timedelta, timezone
+
+    from database.models import VpnLatencySample
+    from services.vpn_charts import (
+        SIGNAL_SERVER_OFF,
+        SIGNAL_SERVICE_DOWN,
+        _merged_spans,
+        fill_downtime_gaps,
+        samples_to_timeline,
+    )
+
+    utc = timezone.utc
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 100, "n1", "sub1", None, 50000.0),
+        VpnLatencySample(2, "2026-08-19T10:10:00+00:00", 1, 90, "n1", "sub1", None, 40.0),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    filled = fill_downtime_gaps(
+        points,
+        window_start=datetime(2026, 8, 19, 10, 0, tzinfo=utc),
+        window_end=datetime(2026, 8, 19, 10, 10, tzinfo=utc),
+        now_host_uptime_s=40.0,
+    )
+    spans = _merged_spans(filled, timedelta(seconds=10))
+    off = [(start, end) for start, end, _, signal in spans if signal == SIGNAL_SERVER_OFF]
+    down = [(start, end) for start, end, _, signal in spans if signal == SIGNAL_SERVICE_DOWN]
+    assert len(off) == 1
+    assert len(down) == 1
+    assert (off[0][1] - off[0][0]).total_seconds() > 60
+    assert (down[0][1] - down[0][0]).total_seconds() > 30
+    ok_durations = [(end - start).total_seconds() for start, end, _, signal in spans if signal is None]
+    assert ok_durations
+    assert max(ok_durations) < (off[0][1] - off[0][0]).total_seconds()
+
+
+def test_merged_spans_keeps_ok_samples_together():
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import TimelinePoint, _merged_spans
+
+    utc = timezone.utc
+    t0 = datetime(2026, 8, 19, 10, 0, tzinfo=utc)
+    points = [
+        TimelinePoint(t0 + timedelta(seconds=10 * i), 80.0 + i, "n1", None, "n1")
+        for i in range(6)
+    ]
+    spans = _merged_spans(points, timedelta(seconds=10))
+    assert len(spans) == 1
+    assert spans[0][3] is None
+    assert (spans[0][1] - spans[0][0]).total_seconds() == 60
+
+
 def test_vpn_bucket_lines_exclusive_layout():
     from handlers.admin import _vpn_bucket_lines
 
