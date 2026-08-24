@@ -12,6 +12,40 @@ from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
 logger = logging.getLogger(__name__)
 
 
+async def answer_with_reply_kb(
+    message: Message | None,
+    text: str,
+    inline: InlineKeyboardMarkup | None = None,
+    *,
+    replace: bool = False,
+) -> Message | None:
+    """Send text, attach the persistent reply keyboard, then set inline buttons."""
+    if message is None:
+        return None
+    from keyboards.main import reply_main_kb
+
+    try:
+        sent = await message.answer(text, reply_markup=reply_main_kb())
+    except Exception:
+        logger.exception("Failed to send message with reply keyboard")
+        try:
+            return await message.answer(text, reply_markup=inline)
+        except Exception:
+            logger.exception("Failed to send fallback message")
+            return None
+    if inline is not None:
+        try:
+            await sent.edit_reply_markup(reply_markup=inline)
+        except Exception:
+            logger.exception("Failed to set inline keyboard after reply keyboard")
+    if replace:
+        try:
+            await message.delete()
+        except Exception:
+            logger.debug("Could not delete previous message after attaching reply keyboard", exc_info=True)
+    return sent
+
+
 async def safe_edit(
     message: Message | None,
     text: str,

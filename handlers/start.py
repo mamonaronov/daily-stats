@@ -14,7 +14,7 @@ from handlers.common import TZ_PROMPT, show_main, start_payload
 from keyboards.main import back_kb, timezone_kb
 from services.billing import process_user
 from states.diary import RegisterSG
-from utils.telegram import safe_edit
+from utils.telegram import answer_with_reply_kb, safe_edit
 from utils.time import is_valid_timezone
 
 router = Router(name="start")
@@ -84,11 +84,10 @@ async def pick_tz(cb: CallbackQuery, state: FSMContext, repo: Repo, config: Conf
     await cb.answer()
     if is_new:
         from handlers.common import HOW_TO
-        from keyboards.main import how_to_kb, reply_main_kb
+        from keyboards.main import how_to_kb
 
         await state.clear()
-        await cb.message.answer("Быстрый ввод: Сигарета · Снюс · Сон · Ещё", reply_markup=reply_main_kb())
-        await safe_edit(cb.message, HOW_TO, how_to_kb())
+        await answer_with_reply_kb(cb.message, HOW_TO, how_to_kb(), replace=True)
         return
     await show_main(cb, db_user, config, is_owner, state, repo, attach_reply=True)
 
@@ -113,11 +112,10 @@ async def custom_tz(message: Message, state: FSMContext, repo: Repo, config: Con
     db_user, is_new = await _activate(repo, config, user.id, user.username, user.first_name, user.last_name, token)
     if is_new:
         from handlers.common import HOW_TO
-        from keyboards.main import how_to_kb, reply_main_kb
+        from keyboards.main import how_to_kb
 
         await state.clear()
-        await message.answer("Быстрый ввод: Сигарета · Снюс · Сон · Ещё", reply_markup=reply_main_kb())
-        await message.answer(HOW_TO, reply_markup=how_to_kb())
+        await answer_with_reply_kb(message, HOW_TO, how_to_kb())
         return
     await show_main(message, db_user, config, is_owner, state, repo, attach_reply=True)
 
