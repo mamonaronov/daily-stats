@@ -929,7 +929,7 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     fig, ax = plt.subplots(figsize=(16.0, 8.0))
     _apply_dark(fig, ax)
     ax.fill_between(xs, ys, color="#3b82f6", alpha=0.32, linewidth=0, zorder=1)
-    ax.plot(xs, ys, color="#7dd3fc", linewidth=3.0, solid_capstyle="round", zorder=2)
+    ax.plot(xs, ys, color="#7dd3fc", linewidth=1.4, solid_capstyle="round", zorder=2)
     markers = (
         (stats.mean, "#60a5fa", "-", f"среднее {stats.mean:.0f} мс"),
         (stats.median, "#4ade80", "--", f"медиана {stats.median:.0f} мс"),
@@ -938,7 +938,7 @@ def render_central_chart(values: list[int], period_title: str) -> bytes:
     for x, color, style, label in markers:
         if x > _PING_DISPLAY_MAX:
             continue
-        ax.axvline(x, color=color, linewidth=2.4, linestyle=style, label=label, zorder=3)
+        ax.axvline(x, color=color, linewidth=1.2, linestyle=style, label=label, zorder=3)
     ax.set_xlabel("Пинг, мс")
     ax.set_ylabel("замеров")
     ax.set_title(f"Распределение пинга · среднее / медиана / мода · {period_title}")
@@ -986,7 +986,7 @@ def render_timeline_chart(
             xs,
             ys,
             color="#e2e8f0",
-            linewidth=1.85,
+            linewidth=0.95,
             alpha=0.92,
             zorder=3,
             solid_capstyle="round",
@@ -1012,7 +1012,7 @@ def render_timeline_chart(
                 seg_t,
                 seg_y,
                 color=_AVG_LINE,
-                linewidth=2.7,
+                linewidth=1.35,
                 alpha=0.95,
                 zorder=5,
                 solid_capstyle="round",
@@ -1080,7 +1080,7 @@ def render_timeline_chart(
         avg_handle.set_label("сглаженный пинг")
         handles.append(avg_handle)
     elif len(finite) >= 2:
-        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=2.7, label="сглаженный пинг"))
+        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=1.35, label="сглаженный пинг"))
     if handles:
         _style_legend(
             ax.legend(
