@@ -79,7 +79,7 @@ proxy-providers:
     type: http
     url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS%2BAll_RUS.txt" #Черные Списки Shadowsocks+All / Все конфиги
     path: ./providers/sub2.yaml
-    interval: 3600
+    interval: 900
     size-limit: 10485760
     proxy: AUTO
     header:
@@ -103,7 +103,7 @@ proxy-providers:
     type: http
     url: "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt" #Черные Списки VLESS / 150 лучших для телефона
     path: ./providers/sub3.yaml
-    interval: 3600
+    interval: 900
     size-limit: 10485760
     proxy: AUTO
     header:
