@@ -171,77 +171,77 @@ proxy-providers:
       udp: true
     exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
-  sub6:
-    type: http
-    url: "https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/1.txt"
-    path: ./providers/sub6.yaml
-    interval: 3600
-    size-limit: 10485760
-    proxy: AUTO
-    header:
-      User-Agent:
-        - "clash.meta"
-        - "mihomo"
-        - "clash-verge"
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 600
-      timeout: 4000
-      lazy: false
-      expected-status: 204
-    override:
-      additional-prefix: "s6 | "
-      udp: true
-    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+  # sub6:
+  #   type: http
+  #   url: "REPLACE_ME_SUB6"
+  #   path: ./providers/sub6.yaml
+  #   interval: 3600
+  #   size-limit: 10485760
+  #   proxy: AUTO
+  #   header:
+  #     User-Agent:
+  #       - "clash.meta"
+  #       - "mihomo"
+  #       - "clash-verge"
+  #   health-check:
+  #     enable: true
+  #     url: https://www.gstatic.com/generate_204
+  #     interval: 600
+  #     timeout: 4000
+  #     lazy: false
+  #     expected-status: 204
+  #   override:
+  #     additional-prefix: "s6 | "
+  #     udp: true
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
-  sub7:
-    type: http
-    url: "https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/6.txt"
-    path: ./providers/sub7.yaml
-    interval: 3600
-    size-limit: 10485760
-    proxy: AUTO
-    header:
-      User-Agent:
-        - "clash.meta"
-        - "mihomo"
-        - "clash-verge"
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 600
-      timeout: 4000
-      lazy: false
-      expected-status: 204
-    override:
-      additional-prefix: "s7 | "
-      udp: true
-    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+  # sub7:
+  #   type: http
+  #   url: "REPLACE_ME_SUB7"
+  #   path: ./providers/sub7.yaml
+  #   interval: 3600
+  #   size-limit: 10485760
+  #   proxy: AUTO
+  #   header:
+  #     User-Agent:
+  #       - "clash.meta"
+  #       - "mihomo"
+  #       - "clash-verge"
+  #   health-check:
+  #     enable: true
+  #     url: https://www.gstatic.com/generate_204
+  #     interval: 600
+  #     timeout: 4000
+  #     lazy: false
+  #     expected-status: 204
+  #   override:
+  #     additional-prefix: "s7 | "
+  #     udp: true
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
-  sub8:
-    type: http
-    url: "https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/refs/heads/main/githubmirror/22.txt"
-    path: ./providers/sub8.yaml
-    interval: 3600
-    size-limit: 10485760
-    proxy: AUTO
-    header:
-      User-Agent:
-        - "clash.meta"
-        - "mihomo"
-        - "clash-verge"
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 600
-      timeout: 4000
-      lazy: false
-      expected-status: 204
-    override:
-      additional-prefix: "s8 | "
-      udp: true
-    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+  # sub8:
+  #   type: http
+  #   url: "REPLACE_ME_SUB8"
+  #   path: ./providers/sub8.yaml
+  #   interval: 3600
+  #   size-limit: 10485760
+  #   proxy: AUTO
+  #   header:
+  #     User-Agent:
+  #       - "clash.meta"
+  #       - "mihomo"
+  #       - "clash-verge"
+  #   health-check:
+  #     enable: true
+  #     url: https://www.gstatic.com/generate_204
+  #     interval: 600
+  #     timeout: 4000
+  #     lazy: false
+  #     expected-status: 204
+  #   override:
+  #     additional-prefix: "s8 | "
+  #     udp: true
+  #   exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
 
 proxy-groups:
   - name: AUTO
