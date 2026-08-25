@@ -51,6 +51,30 @@ async def test_sleep_phone_then_away_then_wake_up_and_onset(repo):
 
 
 @pytest.mark.asyncio
+async def test_sleep_onset_after_wake_without_getting_up(repo):
+    user = await repo.create_user(34, "s", "S", None, "UTC", 0, "23:00")
+    bed = datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc)
+    wake = datetime(2026, 8, 17, 6, 0, tzinfo=timezone.utc)
+    onset = datetime(2026, 8, 16, 22, 0, tzinfo=timezone.utc)
+
+    item_id, error = await add_sleep_phone_away(repo, user, bed)
+    assert error is None
+    _, error = await add_sleep_wake(repo, user, wake, quality=4)
+    assert error is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.phase() == "awake"
+    assert rec.sleep_onset_at is None
+
+    _, error = await add_sleep_onset(repo, user, onset)
+    assert error is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.sleep_onset_at is not None
+    assert rec.out_of_bed_at is None
+    assert rec.phase() == "awake"
+    assert rec.duration_minutes == 8 * 60
+
+
+@pytest.mark.asyncio
 async def test_new_night_leaves_previous_open(repo):
     user = await repo.create_user(32, "s", "S", None, "UTC", 0, "23:00")
     first = datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc)

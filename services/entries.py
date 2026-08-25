@@ -160,8 +160,10 @@ async def add_sleep_onset(repo: Repo, user: User, when: datetime) -> tuple[int |
     if blocked:
         return None, blocked
     rec = await repo.latest_sleep(user.telegram_id)
-    if rec is None or rec.sleep_onset_at is not None or rec.out_of_bed_at is None:
-        return None, "Сначала отметьте, что встали с кровати."
+    if rec is None or rec.wake_time is None:
+        return None, "Сначала отметьте пробуждение."
+    if rec.sleep_onset_at is not None:
+        return None, "Время засыпания уже указано."
     iso = to_iso(when)
     if rec.wake_time:
         elapsed = _sleep_duration(iso, rec.wake_time)

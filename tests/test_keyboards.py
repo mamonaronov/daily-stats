@@ -90,6 +90,19 @@ def test_sleep_row_changes_with_phase():
         "slp:wakeup",
         "slp:away",
     ]
+    awake = SimpleNamespace(phase=lambda: "awake", sleep_onset_at=None)
+    assert [btn.callback_data for btn in sleep_row(awake)] == [
+        "slp:askonset",
+        "slp:up",
+        "slp:phone",
+        "slp:nophone",
+    ]
+    awake_done = SimpleNamespace(phase=lambda: "awake", sleep_onset_at="2026-08-16T21:00:00+00:00")
+    assert [btn.callback_data for btn in sleep_row(awake_done)] == [
+        "slp:up",
+        "slp:phone",
+        "slp:nophone",
+    ]
 
 
 def test_calendar_has_yesterday_and_daybefore():
@@ -271,6 +284,33 @@ def test_saved_entry_actions_use_undo():
     onset = dict(_pairs(sleep_onset_kb("wu", 3)))
     assert onset["🗑 Отменить"] == "un:wu:3"
     assert onset["Позже"] == "slp:later:wu:3"
+    assert onset["Сейчас"] == "slo:now"
+    assert onset["🕐 Указать время"] == "slo:time"
+    assert onset["5 мин назад"] == "slo:ago:5"
+
+
+def test_when_kb_sleep_wake_goes_back_to_quality():
+    pairs = dict(_pairs(when_kb("slw")))
+    assert pairs["Сейчас"] == "slw:now"
+    assert pairs["🕐 Указать время"] == "slw:time"
+    assert pairs["⬅️ Назад"] == "slp:ql"
+
+
+def test_when_kb_sleep_up_goes_back_to_sleep():
+    from utils.callbacks import ENTRY_SLEEP
+
+    pairs = dict(_pairs(when_kb("slu")))
+    assert pairs["Сейчас"] == "slu:now"
+    assert pairs["🕐 Указать время"] == "slu:time"
+    assert pairs["⬅️ Назад"] == ENTRY_SLEEP
+
+
+def test_sleep_when_prefixes_map_to_purposes():
+    from handlers.time_pick import WHEN_TO_PURPOSE
+
+    assert WHEN_TO_PURPOSE["slw"] == "slp_wake"
+    assert WHEN_TO_PURPOSE["slu"] == "slp_up"
+    assert WHEN_TO_PURPOSE["slo"] == "slp_onset"
 
 
 def test_markers_root_and_card():

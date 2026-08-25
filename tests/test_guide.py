@@ -68,3 +68,6 @@ def test_guide_explains_core_flows():
         assert needle in blob
     assert "напомним" not in blob
     assert "напомню" not in blob
+    assert "во сколько проснулись" in PAGES["sleep"].lower()
+    assert "указать время" in PAGES["sleep"].lower()
+    assert "когда заснули" in PAGES["sleep"].lower()

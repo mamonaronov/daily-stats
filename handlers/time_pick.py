@@ -34,13 +34,12 @@ from utils.time import (
     parse_hhmm,
     parse_minutes_ago,
     parse_when_text,
-    to_iso,
     user_today,
 )
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "cmt", "slp", "mkt")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "slu", "slo", "cmt", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
@@ -48,10 +47,12 @@ WHEN_TO_PURPOSE = {
     "alct": "alc",
     "actt": "act",
     "slw": "slp_wake",
+    "slu": "slp_up",
+    "slo": "slp_onset",
     "cmt": "cm",
     "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|cmt|slp|mkt)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|slu|slo|cmt|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -68,6 +69,16 @@ async def _finish(
 ) -> None:
     data = await state.get_data()
     purpose = data.get("time_purpose")
+    if purpose == "slp_wake":
+        from handlers.sleep import complete_sleep_wake
+
+        await complete_sleep_wake(event, state, repo, user, when)
+        return
+    if purpose == "slp_up":
+        from handlers.sleep import complete_sleep_up
+
+        await complete_sleep_up(event, state, repo, user, when)
+        return
     item_id = None
     error = None
     if purpose == "cig":
@@ -274,33 +285,29 @@ async def _prepare_when_purpose(state: FSMContext, prefix: str, user: User) -> N
         payload["time_purpose"] = purpose
     data = await state.get_data()
     if "time_exit" not in data:
-        payload["time_exit"] = "sleep" if prefix == "slp" else f"when:{prefix}"
+        payload["time_exit"] = f"when:{prefix}"
     await state.update_data(**payload)
+
+
+def _onset_undo(data: dict) -> tuple[str | None, int | None]:
+    kind = data.get("onset_undo_kind")
+    raw_id = data.get("onset_undo_id")
+    return kind, int(raw_id) if raw_id is not None else None
 
 
 async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) -> None:
     prefix = data.get("when_prefix") or "cig"
     await cb.answer()
-    if prefix == "slp":
+    if prefix == "slo":
+        undo_kind, undo_id = _onset_undo(data)
         await state.set_state(None)
-        await safe_edit(cb.message, "😴 Сон", sleep_onset_kb())
+        await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
         return
-    if prefix == "slw":
+    if prefix in {"slw", "slu"}:
         await state.set_state(SleepSG.when)
     else:
         await state.set_state(None)
     await safe_edit(cb.message, when_title(prefix), when_kb(prefix, metric_id=data.get("metric_id")))
-
-
-async def _sleep_after_when(event: CallbackQuery | Message, state: FSMContext, when) -> None:
-    await state.set_state(None)
-    await state.update_data(sleep_when=to_iso(when))
-    text = "Что отметить?"
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-        await safe_edit(event.message, text, sleep_onset_kb())
-    else:
-        await event.answer(text, reply_markup=sleep_onset_kb())
 
 
 async def _save_relative(
@@ -314,9 +321,6 @@ async def _save_relative(
     when,
 ) -> None:
     await _prepare_when_purpose(state, prefix, user)
-    if prefix == "slp":
-        await _sleep_after_when(event, state, when)
-        return
     await _finish(event, state, repo, config, user, is_owner, when)
 
 
@@ -469,12 +473,20 @@ async def _restore_before_time_pick(
     await state.set_state(None)
     if exit_to.startswith("when:"):
         prefix = exit_to.split(":", 1)[1]
+        if prefix == "slo":
+            undo_kind, undo_id = _onset_undo(data)
+            await cb.answer()
+            await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
+            return
+        if prefix in {"slw", "slu"}:
+            await state.set_state(SleepSG.when)
         await cb.answer()
         await safe_edit(cb.message, when_title(prefix), when_kb(prefix, metric_id=metric_id))
         return
     if exit_to in {"sleep", "slp_onset"}:
+        undo_kind, undo_id = _onset_undo(data)
         await cb.answer()
-        await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb())
+        await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
         return
     if exit_to == "snus":
         from handlers.snus import show_snus_menu

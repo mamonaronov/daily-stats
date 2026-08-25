@@ -71,10 +71,13 @@ def sleep_row(sleep: SleepRecord | None) -> list[InlineKeyboardButton]:
     if phase == "no_phone":
         return [wake, _btn("И встал", "slp:wakeup")]
     if phase == "awake":
-        return [_btn("Встал", "slp:up"), phone, nophone]
+        buttons = [_btn("Встал", "slp:up"), phone, nophone]
+        if sleep is not None and sleep.sleep_onset_at is None:
+            buttons.insert(0, _btn("Заснул?", "slp:askonset"))
+        return buttons
     if phase == "need_onset":
         return [
-            _btn("Заснул?", "slp:onset"),
+            _btn("Заснул?", "slp:askonset"),
             wake,
             _btn("С тел.", "slp:phone"),
             _btn("Без тел.", "slp:nophone"),
@@ -152,7 +155,9 @@ _WHEN_TITLES = {
     "caft": "Когда это было?",
     "alct": "Когда это было?",
     "actt": "Когда была активность?",
-    "slw": "Когда проснулись? Можно указать время задним числом.",
+    "slw": "Когда проснулись?",
+    "slu": "Когда встали?",
+    "slo": "Когда заснули?",
     "cmt": "Когда зафиксировать?",
     "mkt": "Когда поставить метку?",
 }
@@ -163,7 +168,8 @@ _WHEN_BACK = {
     "caft": ENTRY_CAF,
     "alct": ENTRY_ALC,
     "actt": ENTRY_ACT,
-    "slw": "slp:wake",
+    "slw": "slp:ql",
+    "slu": ENTRY_SLEEP,
     "mkt": NAV_MARKERS,
 }
 
@@ -219,7 +225,9 @@ def ago_pick_kb(prefix: str, back: str | None = NAV_BACK) -> InlineKeyboardMarku
 def sleep_onset_kb(undo_kind: str | None = None, undo_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     later = f"slp:later:{undo_kind}:{undo_id}" if undo_kind and undo_id is not None else "slp:later"
-    b.row(_btn("Указать время", "slp:onset"), _btn("Позже", later))
+    b.row(_btn("Сейчас", "slo:now"), _btn("🕐 Указать время", "slo:time"))
+    _relative_when_rows(b, "slo")
+    b.row(_btn("Позже", later))
     if undo_kind and undo_id is not None:
         b.row(_btn("🗑 Отменить", f"un:{undo_kind}:{undo_id}"))
     return with_nav(b)
