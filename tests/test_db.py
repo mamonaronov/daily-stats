@@ -43,6 +43,24 @@ async def test_backup_and_integrity(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_backup_does_not_use_main_connection(tmp_path):
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("backup must not run on the request connection")
+
+    db.conn.backup = boom  # type: ignore[method-assign]
+    path = await db.backup(prefix="side")
+    assert path.exists()
+    async with db.conn.execute("SELECT 1") as cur:
+        row = await cur.fetchone()
+    await db.close()
+    assert row[0] == 1
+
+
+@pytest.mark.asyncio
 async def test_backup_rotation_skips_pending_restore(tmp_path):
     from database.database import list_sqlite_backups
 
