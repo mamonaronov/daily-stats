@@ -15,7 +15,6 @@ from services.alerts import format_alert, notify_alert
 from services.billing import run_billing_tick
 from utils.time import now_utc, to_iso
 from utils.timeouts import await_or_abandon
-from utils.runtime import get_runtime, hold
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +23,6 @@ _TELEGRAM_BACKUP_RETRY = timedelta(minutes=15)
 _BILLING_JOB_TIMEOUT = 30.0
 _TELEGRAM_BACKUP_SEND_TIMEOUT = 180.0
 _VPN_MONITOR_JOB_SLACK = 5.0
-
-
-def _skip_if_draining() -> bool:
-    runtime = get_runtime()
-    return runtime is not None and runtime.draining
 
 
 def reschedule_telegram_backup(
@@ -144,28 +138,23 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
 
 
 async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
-    if _skip_if_draining():
-        return
-    async with hold("billing"):
-        try:
-            stats = await await_or_abandon(
-                run_billing_tick(repo),
-                _BILLING_JOB_TIMEOUT,
-                name="billing_job",
-            )
-            logger.info("Billing tick %s", stats)
-        except TimeoutError:
-            logger.warning("Billing job timed out after %.0fs", _BILLING_JOB_TIMEOUT)
-        except Exception as exc:
-            logger.exception("Billing tick failed")
-            await notify_alert(
-                bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc), db=repo.db
-            )
+    try:
+        stats = await await_or_abandon(
+            run_billing_tick(repo),
+            _BILLING_JOB_TIMEOUT,
+            name="billing_job",
+        )
+        logger.info("Billing tick %s", stats)
+    except TimeoutError:
+        logger.warning("Billing job timed out after %.0fs", _BILLING_JOB_TIMEOUT)
+    except Exception as exc:
+        logger.exception("Billing tick failed")
+        await notify_alert(
+            bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc), db=repo.db
+        )
 
 
 async def backup_job(db: Database, bot: Bot, config: Config) -> None:
-    if _skip_if_draining():
-        return
     try:
         path = await db.backup(prefix="scheduled")
         logger.info("Scheduled backup %s", path.name)
@@ -191,9 +180,6 @@ async def telegram_backup_job(
     )
 
     interval = config.telegram_backup_interval_minutes
-    if _skip_if_draining():
-        _schedule_telegram_backup_at(scheduler, bot, db, config, now_utc() + timedelta(seconds=30))
-        return
     try:
         last = await last_telegram_backup_at(db)
         if not telegram_backup_due(last, interval):
@@ -212,12 +198,11 @@ async def telegram_backup_job(
                 now_utc() + timedelta(minutes=max(interval, 1)),
             )
             return
-        async with hold("telegram_backup"):
-            await await_or_abandon(
-                send_telegram_backup(db, bot, config),
-                _TELEGRAM_BACKUP_SEND_TIMEOUT,
-                name="telegram_backup",
-            )
+        await await_or_abandon(
+            send_telegram_backup(db, bot, config),
+            _TELEGRAM_BACKUP_SEND_TIMEOUT,
+            name="telegram_backup",
+        )
         when = now_utc() + timedelta(minutes=interval)
         logger.info("Telegram backup next at %s", when.isoformat())
         _schedule_telegram_backup_at(scheduler, bot, db, config, when)
@@ -239,8 +224,6 @@ async def telegram_backup_job(
 
 
 async def cleanup_job(repo: Repo) -> None:
-    if _skip_if_draining():
-        return
     try:
         threshold = now_utc() - timedelta(days=2)
         await repo.cleanup_callbacks(to_iso(threshold))
@@ -249,8 +232,6 @@ async def cleanup_job(repo: Repo) -> None:
 
 
 async def notices_job(repo: Repo, bot: Bot, config: Config) -> None:
-    if _skip_if_draining():
-        return
     try:
         from services.notices import send_coverage_notices
 
@@ -267,8 +248,6 @@ def vpn_monitor_job_timeout(monitor) -> float:
 
 
 async def vpn_monitor_job(monitor, bot: Bot, repo: Repo) -> None:
-    if _skip_if_draining():
-        return
     timeout = vpn_monitor_job_timeout(monitor)
     try:
         await await_or_abandon(monitor.tick(bot, repo), timeout, name="vpn_monitor_job")

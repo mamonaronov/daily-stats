@@ -11,7 +11,6 @@ from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from config import Config
 from database.queries import Repo
 from services.alerts import format_alert, notify_alert
-from utils.deploy_drain import UPDATING_TEXT
 
 logger = logging.getLogger(__name__)
 
@@ -36,45 +35,6 @@ class ContextMiddleware(BaseMiddleware):
         data["app_bot"] = self.bot
         data["runtime"] = self.runtime
         return await handler(event, data)
-
-
-class DrainMiddleware(BaseMiddleware):
-    """Reject new user work while a deploy is waiting for idle; track in-flight handlers."""
-
-    async def __call__(
-        self,
-        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
-        data: dict[str, Any],
-    ) -> Any:
-        runtime = data.get("runtime")
-        if runtime is not None and runtime.draining:
-            await _tell_updating(event)
-            return None
-        if runtime is None:
-            return await handler(event, data)
-        async with runtime.hold("handler"):
-            return await handler(event, data)
-
-
-def _reply_target(event: TelegramObject):
-    if isinstance(event, Update):
-        return event.callback_query or event.message or event.edited_message
-    return event
-
-
-async def _tell_updating(event: TelegramObject) -> None:
-    target = _reply_target(event)
-    if isinstance(target, CallbackQuery):
-        try:
-            await target.answer(UPDATING_TEXT, show_alert=True)
-        except Exception:
-            logger.exception("Failed to answer callback during deploy drain")
-    elif isinstance(target, Message):
-        try:
-            await target.answer(UPDATING_TEXT)
-        except Exception:
-            logger.exception("Failed to answer message during deploy drain")
 
 
 def _extract_user(event: TelegramObject):

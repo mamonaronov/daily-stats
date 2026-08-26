@@ -12,10 +12,6 @@ NAV_MARKERS = "n:mk"
 NAV_BALANCE = "n:bal"
 NAV_GUIDE = "n:g"
 
-ADMIN_UPDATES = "ad:upd"
-ADMIN_DEPLOY_OK = "ad:upd:ok"
-ADMIN_DEPLOY_NO = "ad:upd:no"
-
 ENTRY_CIG = "e:cig"
 ENTRY_FOOL = "e:fool"
 ENTRY_SNUS = "e:sns"

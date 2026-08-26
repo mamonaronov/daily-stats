@@ -27,9 +27,6 @@ from utils.callbacks import (
     NAV_MARKERS,
     NAV_SETTINGS,
     NAV_STATS,
-    ADMIN_DEPLOY_NO,
-    ADMIN_DEPLOY_OK,
-    ADMIN_UPDATES,
 )
 from utils.formatting import SCORE_EMOJI, SCORE_LABELS, truncate
 from utils.time import COMMON_TIMEZONES, MONTHS_RU, WEEKDAYS_RU, format_date, format_dt, parse_iso
@@ -769,7 +766,6 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🖴 Аптайм", "ad:vpn"))
     b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
     b.row(_btn("📦 Бэкапы", "ad:bk"), _btn("📢 Рассылка", "ad:bc"))
-    b.row(_btn("🔄 Обновления", ADMIN_UPDATES))
     return with_nav(b)
 
 
@@ -952,25 +948,6 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
         b.row(_btn(f"📈 Доступность за {span}", f"advc:{period}:a" + (":r" if rounded else "")))
     else:
         b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
-    b.row(_btn("🛠 Админка", NAV_ADMIN))
-    return b.as_markup()
-
-
-def admin_deploy_confirm_kb() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(_btn("🔄 Обновить", ADMIN_DEPLOY_OK), _btn("⏭ Позже", ADMIN_DEPLOY_NO))
-    return b.as_markup()
-
-
-def admin_updates_kb(*, can_approve: bool = False, can_skip: bool = False) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    actions: list[InlineKeyboardButton] = []
-    if can_approve:
-        actions.append(_btn("🔄 Обновить", ADMIN_DEPLOY_OK))
-    if can_skip:
-        actions.append(_btn("⏭ Позже", ADMIN_DEPLOY_NO))
-    if actions:
-        b.row(*actions)
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 

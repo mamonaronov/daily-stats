@@ -12,7 +12,6 @@ import aiosqlite
 
 from config import Config
 from utils.time import now_utc, to_iso
-from utils.runtime import hold
 
 logger = logging.getLogger(__name__)
 
@@ -208,37 +207,36 @@ class Database:
         Copies via a side connection so a stuck sqlite3_backup cannot block
         the request connection that polling and handlers use.
         """
-        async with hold("backup"):
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = dest_path.with_name(dest_path.name + ".tmp")
-            src: aiosqlite.Connection | None = None
-            dest: aiosqlite.Connection | None = None
-            try:
-                src = await aiosqlite.connect(self.path)
-                dest = await aiosqlite.connect(tmp_path)
-                await asyncio.wait_for(src.backup(dest), timeout=_BACKUP_TIMEOUT_SECONDS)
-                await self._close_backup_conn(dest)
-                dest = None
-                await self._close_backup_conn(src)
-                src = None
-                tmp_path.replace(dest_path)
-                return dest_path
-            except TimeoutError as exc:
-                logger.error(
-                    "SQLite backup timed out after %.0fs: %s",
-                    _BACKUP_TIMEOUT_SECONDS,
-                    dest_path.name,
-                )
-                tmp_path.unlink(missing_ok=True)
-                raise DatabaseError(
-                    f"SQLite backup timed out after {_BACKUP_TIMEOUT_SECONDS:.0f}s"
-                ) from exc
-            except Exception:
-                tmp_path.unlink(missing_ok=True)
-                raise
-            finally:
-                await self._close_backup_conn(dest)
-                await self._close_backup_conn(src)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = dest_path.with_name(dest_path.name + ".tmp")
+        src: aiosqlite.Connection | None = None
+        dest: aiosqlite.Connection | None = None
+        try:
+            src = await aiosqlite.connect(self.path)
+            dest = await aiosqlite.connect(tmp_path)
+            await asyncio.wait_for(src.backup(dest), timeout=_BACKUP_TIMEOUT_SECONDS)
+            await self._close_backup_conn(dest)
+            dest = None
+            await self._close_backup_conn(src)
+            src = None
+            tmp_path.replace(dest_path)
+            return dest_path
+        except TimeoutError as exc:
+            logger.error(
+                "SQLite backup timed out after %.0fs: %s",
+                _BACKUP_TIMEOUT_SECONDS,
+                dest_path.name,
+            )
+            tmp_path.unlink(missing_ok=True)
+            raise DatabaseError(
+                f"SQLite backup timed out after {_BACKUP_TIMEOUT_SECONDS:.0f}s"
+            ) from exc
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        finally:
+            await self._close_backup_conn(dest)
+            await self._close_backup_conn(src)
 
     async def backup(self, prefix: str = "backup") -> Path:
         """Online backup via SQLite Backup API — includes WAL pages."""

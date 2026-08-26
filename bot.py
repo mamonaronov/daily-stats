@@ -6,7 +6,6 @@ import asyncio
 import logging
 import signal
 import sys
-from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -23,7 +22,6 @@ from handlers import setup_routers
 from middlewares import (
     CallbackIdempotencyMiddleware,
     ContextMiddleware,
-    DrainMiddleware,
     ErrorIsolationMiddleware,
     SpamWatchMiddleware,
     UserMiddleware,
@@ -33,7 +31,6 @@ from services.spam_watch import SpamWatch, set_spam_watch
 from services.jobs import setup_scheduler
 from services.billing import run_billing_tick
 from services.telegram_restore import RestoreError, apply_pending_telegram_restore, format_restore_done
-from utils.deploy_drain import watch_deploy_drain
 from utils.logging import setup_logging
 from utils.runtime import RuntimeControl, set_runtime
 from utils.telegram_session import make_telegram_session
@@ -274,7 +271,6 @@ async def run() -> None:
     set_spam_watch(SpamWatch(bot, repo, config))
 
     dp.update.outer_middleware(ContextMiddleware(repo, config, scheduler, bot, runtime))
-    dp.update.outer_middleware(DrainMiddleware())
     dp.update.outer_middleware(ErrorIsolationMiddleware())
     dp.update.outer_middleware(UserMiddleware())
     dp.callback_query.outer_middleware(CallbackIdempotencyMiddleware())
@@ -344,18 +340,9 @@ async def run() -> None:
         except Exception:
             logger.exception("Failed to send ready notification")
 
-    drain_task = asyncio.create_task(
-        watch_deploy_drain(runtime, Path(config.db_path).parent, runtime.stop),
-        name="deploy_drain",
-    )
     try:
         await _start_polling_with_retry(dp, bot, runtime.stop, proxy_url=config.telegram_proxy_url)
     finally:
-        drain_task.cancel()
-        try:
-            await drain_task
-        except asyncio.CancelledError:
-            pass
         set_spam_watch(None)
         set_runtime(None)
         await graceful_shutdown(bot, db, scheduler, config, repo, notify=became_ready)

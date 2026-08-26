@@ -19,15 +19,12 @@ Applies configs from the repository:
   deploy/mihomo/config.yaml   -> /etc/mihomo/config.yaml
   deploy/mihomo/mihomo.service -> /etc/systemd/system/mihomo.service
   deploy/daily-stats.service  -> /etc/systemd/system/daily-stats.service
-  deploy/daily-stats-update.timer -> systemd: git fetch origin/main, confirm in bot, rebuild
   .env                        VPN keys synced from mihomo config
   docker-compose.override.yml from mihomo mixed-port (not v2rayN 10808)
 
 Then enables systemd units and runs docker compose up -d --build.
 
-After this once, a push to main is offered in the bot: deploy/update.sh
-asks the owner to confirm, then rebuilds, notifies after the bot is ready,
-and on failure.
+To update later: git pull --ff-only && ./deploy.sh
 
   --skip-docker   only apply host configs / mihomo, do not touch the container
   --skip-mihomo   skip copying and restarting mihomo
@@ -131,17 +128,10 @@ awk -v wd="$ROOT" -v docker="$docker_bin" '
 run_sudo install -m 644 "$unit_tmp" /etc/systemd/system/daily-stats.service
 rm -f "$unit_tmp"
 
-echo "==> installing daily-stats-update.timer (WorkingDirectory=$ROOT)"
-chmod +x "$ROOT/deploy/update.sh"
-update_tmp="$(mktemp)"
-awk -v wd="$ROOT" '
-  /^WorkingDirectory=/ { print "WorkingDirectory=" wd; next }
-  /^ExecStart=/ { print "ExecStart=" wd "/deploy/update.sh"; next }
-  { print }
-' "$ROOT/deploy/daily-stats-update.service" > "$update_tmp"
-run_sudo install -m 644 "$update_tmp" /etc/systemd/system/daily-stats-update.service
-run_sudo install -m 644 "$ROOT/deploy/daily-stats-update.timer" /etc/systemd/system/daily-stats-update.timer
-rm -f "$update_tmp"
+echo "==> removing leftover daily-stats-update timer"
+run_sudo systemctl disable --now daily-stats-update.timer 2>/dev/null || true
+run_sudo systemctl disable --now daily-stats-update.service 2>/dev/null || true
+run_sudo rm -f /etc/systemd/system/daily-stats-update.timer /etc/systemd/system/daily-stats-update.service
 
 echo "==> systemd daemon-reload"
 run_sudo systemctl daemon-reload
@@ -171,7 +161,6 @@ if [[ "$SKIP_MIHOMO" -eq 0 ]]; then
 fi
 
 run_sudo systemctl enable daily-stats.service
-run_sudo systemctl enable --now daily-stats-update.timer
 
 if [[ "$SKIP_DOCKER" -eq 1 ]]; then
   echo "==> skip docker"
