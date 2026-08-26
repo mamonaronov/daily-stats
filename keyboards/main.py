@@ -586,10 +586,6 @@ def entry_actions(
         delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
         delete_cb = f"un:{kind}:{item_id}" if undo else f"rm:{kind}:{item_id}"
         b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
-        if kind in {"cig", "fool"}:
-            b.row(_btn("Ещё одну", f"more:{kind}:{item_id}"))
-        elif kind in {"caf", "alc"}:
-            b.row(_btn("Как тогда", f"more:{kind}:{item_id}"))
         if kind == "act":
             b.row(_btn("💬 Коммент", f"act:cmt:{item_id}"))
     hist = _btn("⬅️ Назад", "h:back") if from_history else _btn("📅 История", NAV_HISTORY)

@@ -430,10 +430,14 @@ def test_entry_actions_repeat_and_history_back():
     from keyboards.main import entry_actions
 
     cig = dict(_pairs(entry_actions("cig", 4, True, undo=True)))
-    assert cig["Ещё одну"] == "more:cig:4"
+    assert "Ещё одну" not in cig
     assert cig["🏠 Меню"] == NAV_MAIN
     caf = dict(_pairs(entry_actions("caf", 2, True, undo=True)))
-    assert caf["Как тогда"] == "more:caf:2"
+    assert "Как тогда" not in caf
+    fool = dict(_pairs(entry_actions("fool", 3, True, undo=True)))
+    assert "Ещё одну" not in fool
+    alc = dict(_pairs(entry_actions("alc", 1, True, undo=True)))
+    assert "Как тогда" not in alc
     hist = dict(_pairs(entry_actions("cig", 4, True, from_history=True)))
     assert hist["⬅️ Назад"] == "h:back"
 

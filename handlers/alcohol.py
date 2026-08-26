@@ -94,31 +94,6 @@ async def alc_now(
     await show_saved_entry(cb, repo, user, "alc", item_id, state)
 
 
-@router.callback_query(F.data.startswith("more:alc:"))
-async def alc_more(
-    cb: CallbackQuery,
-    state: FSMContext,
-    repo: Repo,
-    config: Config,
-    db_user: User | None,
-    is_owner: bool,
-) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    rec = await repo.get_alcohol(int(cb.data.split(":")[2]), user.telegram_id)
-    if rec is None:
-        await cb.answer("Запись не найдена", show_alert=True)
-        return
-    item_id, error = await entries.add_alcohol(
-        repo, user, rec.drink_type, rec.amount, rec.unit, user_now(user.timezone)
-    )
-    if error:
-        await cb.answer(error, show_alert=True)
-        return
-    await show_saved_entry(cb, repo, user, "alc", item_id, state)
-
-
 @router.callback_query(F.data == "alct:time")
 async def alc_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
