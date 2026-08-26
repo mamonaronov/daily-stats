@@ -293,8 +293,12 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             if day in series and item.value_number is not None:
                 buckets[day].append(item.value_number)
         for day in days:
-            series[day] = mean(buckets[day]) if buckets[day] else 0.0
-        charts.append((name, _line(name, labels, [series[d] for d in days], "значение", **overlay)))
+            if items[0].data_type == "period":
+                series[day] = sum(buckets[day]) if buckets[day] else 0.0
+            else:
+                series[day] = mean(buckets[day]) if buckets[day] else 0.0
+        unit = "мин" if items[0].data_type == "period" else "значение"
+        charts.append((name, _line(name, labels, [series[d] for d in days], unit, **overlay)))
     return charts
 
 

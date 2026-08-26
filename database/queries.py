@@ -1131,6 +1131,37 @@ class Repo:
         rows = await self.fetchall(sql, params)
         return [CustomValue(**dict(r)) for r in rows]
 
+    async def update_metric_value(self, item_id: int, telegram_id: int, **fields: Any) -> None:
+        allowed = {"value_number", "value_text", "value_bool", "occurred_at"}
+        await self._update_fields("custom_metric_values", allowed, item_id, telegram_id, fields)
+
+    async def get_open_metric_value(self, telegram_id: int, metric_id: int) -> CustomValue | None:
+        row = await self.fetchone(
+            """
+            SELECT v.*, m.name AS metric_name, m.data_type, m.unit
+            FROM custom_metric_values v
+            JOIN custom_metrics m ON m.id = v.metric_id AND m.telegram_id = v.telegram_id
+            WHERE v.telegram_id = ? AND v.metric_id = ? AND v.value_bool = 1 AND m.data_type = 'period'
+            ORDER BY v.occurred_at ASC
+            LIMIT 1
+            """,
+            (telegram_id, metric_id),
+        )
+        return _opt(CustomValue, row)
+
+    async def list_open_metric_values(self, telegram_id: int) -> list[CustomValue]:
+        rows = await self.fetchall(
+            """
+            SELECT v.*, m.name AS metric_name, m.data_type, m.unit
+            FROM custom_metric_values v
+            JOIN custom_metrics m ON m.id = v.metric_id AND m.telegram_id = v.telegram_id
+            WHERE v.telegram_id = ? AND m.data_type = 'period' AND v.value_bool = 1
+            ORDER BY v.occurred_at ASC
+            """,
+            (telegram_id,),
+        )
+        return [CustomValue(**dict(r)) for r in rows]
+
     # event markers / periods
     _MARKER_SELECT = """
 SELECT m.*,

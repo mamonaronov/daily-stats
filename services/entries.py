@@ -246,6 +246,67 @@ async def add_custom_value(repo: Repo, user: User, metric_id: int, when: datetim
     return _saved(user, "кастомная метрика", when, item_id)
 
 
+async def start_metric_period(
+    repo: Repo, user: User, metric_id: int, when: datetime
+) -> tuple[int | None, str | None]:
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    if metric is None or metric.data_type != "period" or not metric.enabled:
+        return None, "Метрика недоступна"
+    if await repo.get_open_metric_value(user.telegram_id, metric_id):
+        return None, "Уже идёт — сначала закончите."
+    item_id = await repo.add_metric_value(
+        user.telegram_id, metric_id, to_iso(when), value_bool=1
+    )
+    return _saved(user, "кастомный интервал", when, item_id)
+
+
+async def end_metric_period(
+    repo: Repo,
+    user: User,
+    metric_id: int,
+    when: datetime,
+    *,
+    start_at: datetime | None = None,
+) -> tuple[int | None, str | None]:
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    if metric is None or metric.data_type != "period" or not metric.enabled:
+        return None, "Метрика недоступна"
+    end_iso = to_iso(when)
+    if start_at is not None:
+        minutes = _elapsed_minutes(to_iso(start_at), end_iso)
+        if minutes is None:
+            return None, "Конец должен быть позже начала."
+        item_id = await repo.add_metric_value(
+            user.telegram_id,
+            metric_id,
+            to_iso(start_at),
+            value_number=float(minutes),
+            value_text=end_iso,
+            value_bool=0,
+        )
+        return _saved(user, "кастомный интервал", when, item_id)
+    open_rec = await repo.get_open_metric_value(user.telegram_id, metric_id)
+    if open_rec is None:
+        return None, "Сначала отметьте начало."
+    minutes = _elapsed_minutes(open_rec.occurred_at, end_iso)
+    if minutes is None:
+        return None, "Конец должен быть позже начала."
+    await repo.update_metric_value(
+        open_rec.id,
+        user.telegram_id,
+        value_number=float(minutes),
+        value_text=end_iso,
+        value_bool=0,
+    )
+    return _saved(user, "кастомный интервал", when, open_rec.id)
+
+
 def _has_sleep_night(rec) -> bool:
     return bool(rec.phone_in_bed_at or rec.phone_away_at or rec.bedtime)
 
@@ -261,6 +322,14 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
         if rec is None:
             return "Запись не найдена."
         await repo.update_snus_pack(item_id, tid, finished_at=None, duration_minutes=None)
+        return None
+    if kind == "cme":
+        rec = await repo.get_metric_value(item_id, tid)
+        if rec is None:
+            return "Запись не найдена."
+        await repo.update_metric_value(
+            item_id, tid, value_number=None, value_text=None, value_bool=1
+        )
         return None
     if kind in {"sa", "sw", "su", "so", "wu", "slp"}:
         rec = await repo.get_sleep(item_id, tid)

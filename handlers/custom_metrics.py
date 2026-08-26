@@ -27,7 +27,7 @@ from keyboards.main import (
     metric_units_kb,
     when_kb,
 )
-from services.entries import add_custom_value
+from services.entries import add_custom_value, end_metric_period, start_metric_period
 from services.metric_types import (
     UNIT_BY_KEY,
     created_metric_text,
@@ -44,18 +44,18 @@ from services.users import can_write
 from states.diary import CustomMetricSG
 from utils.callbacks import NAV_METRICS
 from utils.telegram import safe_edit
-from utils.time import parse_hhmm, parse_minutes_ago, user_now
+from utils.time import parse_hhmm, parse_iso, parse_minutes_ago, to_iso, user_now
 
 router = Router(name="custom_metrics")
 
 METRICS_EMPTY = (
     "📌 <b>Кастомные метрики</b>\n\n"
-    "Свои записи, которых нет в меню: вода, шаги, вес, лекарства — что угодно.\n\n"
+    "Свои записи, которых нет в меню: вода, шаги, вес, ванная — что угодно.\n\n"
     "Создайте первую метрику. Потом значения добавляются в пару нажатий."
 )
 METRICS_LIST = (
     "📌 <b>Кастомные метрики</b>\n\n"
-    "➕ — записать значение. Название — открыть метрику."
+    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. Название — открыть метрику."
 )
 CREATE_INTRO = (
     "Новая кастомная метрика\n\n"
@@ -88,7 +88,8 @@ async def show_custom_metrics(
     if state:
         await state.clear()
     metrics = await repo.list_metrics(user.telegram_id)
-    text, markup = _root_text(metrics), custom_metrics_kb(metrics, can_write(user))
+    open_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
+    text, markup = _root_text(metrics), custom_metrics_kb(metrics, can_write(user), open_ids=open_ids)
     if isinstance(target, CallbackQuery):
         await safe_edit(target.message, text, markup)
         return
@@ -105,7 +106,10 @@ async def _show_card(
 ) -> None:
     from services.ui_prefs import MAX_PINS
 
-    body = text or metric_card_text(metric)
+    open_period = None
+    if metric.data_type == "period":
+        open_period = await repo.get_open_metric_value(user.telegram_id, metric.id)
+    body = text or metric_card_text(metric, open_period=open_period, tz=user.timezone)
     pinned_n = sum(1 for item in await repo.list_metrics(user.telegram_id) if item.pinned)
     markup = metric_card_kb(
         metric.id,
@@ -113,6 +117,8 @@ async def _show_card(
         can_write(user),
         pinned=bool(metric.pinned),
         can_pin=bool(metric.pinned) or pinned_n < MAX_PINS,
+        data_type=metric.data_type,
+        has_open=open_period is not None,
     )
     if isinstance(target, CallbackQuery):
         await safe_edit(target.message, body, markup)
@@ -177,6 +183,176 @@ async def _ask_when(event: CallbackQuery | Message, state: FSMContext, payload: 
         await safe_edit(event.message, "Когда зафиксировать?", when_kb("cmt", metric_id=metric_id))
         return
     await event.answer("Когда зафиксировать?", reply_markup=when_kb("cmt", metric_id=metric_id))
+
+
+async def _begin_period(
+    cb: CallbackQuery,
+    state: FSMContext,
+    user: User,
+    metric: CustomMetric,
+    action: str,
+) -> None:
+    await state.update_data(
+        metric_id=metric.id,
+        metric_name=metric.name,
+        period_action=action,
+        period_start=None,
+        tz=user.timezone,
+        time_exit=f"cm:{metric.id}",
+    )
+    if action == "end":
+        prefix = "cme"
+        prompt = f"Когда закончили «{metric.name}»?"
+    elif action == "complete":
+        prefix = "cms"
+        prompt = f"Когда начали «{metric.name}»? Потом отметите, когда закончили."
+    else:
+        prefix = "cms"
+        prompt = f"Когда начали «{metric.name}»?"
+    await cb.answer()
+    await safe_edit(cb.message, prompt, when_kb(prefix, metric_id=metric.id))
+
+
+async def finish_period_start(
+    event: CallbackQuery | Message,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    when,
+) -> None:
+    data = await state.get_data()
+    metric_id = int(data["metric_id"])
+    if data.get("period_action") == "complete":
+        await state.update_data(period_start=to_iso(when), period_action="complete_end")
+        name = data.get("metric_name") or "метрика"
+        prompt = f"Когда закончили «{name}»?"
+        markup = when_kb("cme", metric_id=metric_id)
+        if isinstance(event, CallbackQuery):
+            await event.answer()
+            await safe_edit(event.message, prompt, markup)
+            return
+        await event.answer(prompt, reply_markup=markup)
+        return
+    item_id, error = await start_metric_period(repo, user, metric_id, when)
+    if error:
+        if isinstance(event, CallbackQuery):
+            await event.answer(error, show_alert=True)
+        else:
+            await event.answer(error)
+        return
+    await show_saved_entry(event, repo, user, "cm", item_id, state)
+
+
+async def finish_period_end(
+    event: CallbackQuery | Message,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    when,
+) -> None:
+    data = await state.get_data()
+    metric_id = int(data["metric_id"])
+    start_raw = data.get("period_start") if data.get("period_action") == "complete_end" else None
+    start_at = parse_iso(start_raw) if start_raw else None
+    item_id, error = await end_metric_period(repo, user, metric_id, when, start_at=start_at)
+    if error:
+        if isinstance(event, CallbackQuery):
+            await event.answer(error, show_alert=True)
+        else:
+            await event.answer(error)
+        return
+    kind = "cm" if start_at is not None else "cme"
+    await show_saved_entry(event, repo, user, kind, item_id, state)
+
+
+@router.callback_query(F.data.startswith("cm:st:"))
+async def metric_period_start(
+    cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await repo.get_metric(int(cb.data.split(":")[2]), user.telegram_id)
+    if metric is None or not metric.enabled or metric.data_type != "period":
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return
+    if await repo.get_open_metric_value(user.telegram_id, metric.id):
+        await cb.answer("Уже идёт — сначала закончите.", show_alert=True)
+        return
+    await _begin_period(cb, state, user, metric, "start")
+
+
+@router.callback_query(F.data.startswith("cm:en:"))
+async def metric_period_end(
+    cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await repo.get_metric(int(cb.data.split(":")[2]), user.telegram_id)
+    if metric is None or not metric.enabled or metric.data_type != "period":
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return
+    open_rec = await repo.get_open_metric_value(user.telegram_id, metric.id)
+    await _begin_period(cb, state, user, metric, "end" if open_rec else "complete")
+
+
+@router.callback_query(F.data == "cms:now")
+async def metric_period_start_now(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if "metric_id" not in data:
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return
+    await finish_period_start(cb, state, repo, user, user_now(user.timezone))
+
+
+@router.callback_query(F.data == "cme:now")
+async def metric_period_end_now(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if "metric_id" not in data:
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return
+    await finish_period_end(cb, state, repo, user, user_now(user.timezone))
+
+
+@router.callback_query(F.data == "cms:time")
+async def metric_period_start_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if "metric_id" not in data:
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return
+    await start_time_pick(cb, state, "cm_start", {**data, "tz": user.timezone, "time_exit": f"cm:{data['metric_id']}"})
+
+
+@router.callback_query(F.data == "cme:time")
+async def metric_period_end_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    if "metric_id" not in data:
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return
+    await start_time_pick(cb, state, "cm_end", {**data, "tz": user.timezone, "time_exit": f"cm:{data['metric_id']}"})
 
 
 def _parse_value(data_type: str, raw: str, unit: str | None) -> dict:
@@ -420,6 +596,10 @@ async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
         unit=metric.unit,
     )
     spec = get_type(metric.data_type)
+    if spec.key == "period":
+        open_rec = await repo.get_open_metric_value(user.telegram_id, metric_id)
+        await _begin_period(cb, state, user, metric, "end" if open_rec else "start")
+        return
     prompt = value_prompt(metric.name, metric.data_type, metric.unit)
     if spec.key == "boolean":
         await cb.answer()

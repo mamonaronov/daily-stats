@@ -6,7 +6,9 @@ import json
 import re
 from dataclasses import dataclass
 
+from utils.formatting import duration_human
 from utils.quantity import is_volume_unit, parse_drink_amount, quantity_in_unit
+from utils.time import format_time, parse_iso
 
 _LEADING_NUMBER = re.compile(r"^[+-]?\d+(?:\.\d+)?")
 
@@ -74,6 +76,14 @@ METRIC_TYPES: dict[str, MetricType] = {
         example="20 мин, 1ч 15м",
         numeric=True,
     ),
+    "period": MetricType(
+        "period",
+        "Интервал",
+        "▶️",
+        hint="Начал и закончил: ванная, работа, поездка",
+        example="вошёл → вышел",
+        numeric=True,
+    ),
 }
 
 
@@ -95,6 +105,7 @@ METRIC_TEMPLATES: tuple[MetricTemplate, ...] = (
     MetricTemplate("meds", "💊 Лекарства · да/нет", "Лекарства", "boolean"),
     MetricTemplate("energy", "⚡️ Энергия · выбор", "Энергия", "choice", None, ("низкая", "средняя", "высокая")),
     MetricTemplate("focus", "⏱ Фокус · минуты", "Фокус", "duration"),
+    MetricTemplate("bath", "🛁 Ванная · интервал", "Ванная", "period"),
 )
 
 TEMPLATE_BY_KEY = {item.key: item for item in METRIC_TEMPLATES}
@@ -140,7 +151,34 @@ def types_prompt(name: str) -> str:
     return "\n".join(lines)
 
 
-def metric_card_text(metric) -> str:
+def is_period_open(rec) -> bool:
+    return getattr(rec, "data_type", None) == "period" and rec.value_bool == 1
+
+
+def format_period_value(rec, tz: str | None = None) -> str:
+    start = format_time(parse_iso(rec.occurred_at), tz) if tz else rec.occurred_at
+    if is_period_open(rec) or not rec.value_text:
+        return f"идёт с {start}"
+    end = format_time(parse_iso(rec.value_text), tz) if tz else rec.value_text
+    minutes = int(rec.value_number) if rec.value_number is not None else None
+    span = f" ({duration_human(minutes)})" if minutes is not None else ""
+    return f"{start} — {end}{span}"
+
+
+def format_metric_value(rec, tz: str | None = None) -> str:
+    if getattr(rec, "data_type", None) == "period":
+        return format_period_value(rec, tz)
+    if rec.value_number is not None:
+        text = f"{rec.value_number:g}"
+        if rec.unit:
+            text += f" {rec.unit}"
+        return text
+    if rec.value_bool is not None:
+        return "да" if rec.value_bool else "нет"
+    return rec.value_text or ""
+
+
+def metric_card_text(metric, *, open_period=None, tz: str | None = None) -> str:
     spec = METRIC_TYPES[metric.data_type]
     status = "включена" if metric.enabled else "выключена"
     lines = [f"📌 <b>{metric.name}</b>", "", f"Тип: {spec.emoji} {spec.label}"]
@@ -152,12 +190,25 @@ def metric_card_text(metric) -> str:
             lines.append("Варианты: " + ", ".join(choices))
     lines.append(f"Статус: {status}")
     lines.append("")
+    if spec.key == "period":
+        if open_period is not None:
+            lines.append(f"Сейчас: {format_period_value(open_period, tz)}")
+            lines.append("Нажмите «Закончил», когда выйдете.")
+        else:
+            lines.append(spec.hint)
+            lines.append("«Начал» — вход. «Закончил» — выход; если вход не отмечали, спросим когда заходили.")
+        return "\n".join(lines)
     lines.append(spec.hint)
     lines.append(f"Пример: {spec.example}")
     return "\n".join(lines)
 
 
 def created_metric_text(metric) -> str:
+    if getattr(metric, "data_type", None) == "period":
+        return (
+            f"Метрика «{metric.name}» создана. Можно сразу нажать «Начал» или «Закончил».\n\n"
+            + metric_card_text(metric)
+        )
     return f"Метрика «{metric.name}» создана. Можно сразу записать значение.\n\n" + metric_card_text(metric)
 
 

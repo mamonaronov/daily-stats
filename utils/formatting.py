@@ -50,6 +50,7 @@ METRIC_TYPE_LABELS = {
     "choice": "выбор",
     "time": "время суток",
     "duration": "длительность",
+    "period": "интервал",
 }
 
 ENTRY_TITLES = {

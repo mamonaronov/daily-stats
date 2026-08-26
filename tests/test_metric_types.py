@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from services.metric_types import (
     created_metric_text,
     format_clock,
+    format_period_value,
     get_template,
     metric_card_text,
     parse_metric_number,
@@ -27,6 +28,7 @@ def test_types_prompt_explains_each_choice():
     assert "Количество" in text
     assert "Да / нет" in text
     assert "Время суток" in text
+    assert "Интервал" in text
 
 
 def test_value_prompt_mentions_unit_and_examples():
@@ -59,3 +61,39 @@ def test_water_template_and_card_text():
 
 def test_format_clock():
     assert format_clock(7, 5) == "07:05"
+
+
+def test_period_card_explains_start_and_end():
+    template = get_template("bath")
+    assert template is not None
+    assert template.data_type == "period"
+    metric = SimpleNamespace(
+        name="Ванная",
+        data_type="period",
+        unit=None,
+        choices_json=None,
+        enabled=1,
+    )
+    card = metric_card_text(metric)
+    assert "Интервал" in card
+    assert "Начал" in card
+    assert "Закончил" in card
+    created = created_metric_text(metric)
+    assert "Начал" in created
+    open_rec = SimpleNamespace(
+        data_type="period",
+        occurred_at="2026-08-26T15:00:00+00:00",
+        value_text=None,
+        value_number=None,
+        value_bool=1,
+    )
+    running = metric_card_text(metric, open_period=open_rec, tz="UTC")
+    assert "идёт с 15:00" in running
+    closed = SimpleNamespace(
+        data_type="period",
+        occurred_at="2026-08-26T15:00:00+00:00",
+        value_text="2026-08-26T15:20:00+00:00",
+        value_number=20,
+        value_bool=0,
+    )
+    assert format_period_value(closed, "UTC") == "15:00 — 15:20 (20 мин)"

@@ -95,6 +95,7 @@ def main_menu(
     *,
     hidden: set[str] | None = None,
     pinned: list | None = None,
+    open_metric_ids: set[int] | None = None,
 ) -> InlineKeyboardMarkup:
     hidden = hidden or set()
     b = InlineKeyboardBuilder()
@@ -127,8 +128,7 @@ def main_menu(
     if "markers" not in hidden:
         b.row(_btn("🔖 Метки", NAV_MARKERS))
     for metric in (pinned or [])[:3]:
-        name = (metric.name or "Метрика")[:20]
-        b.row(_btn(name, f"cm:o:{metric.id}"), _btn("➕", f"cm:add:{metric.id}"))
+        b.row(*_metric_quick_row(metric, open_metric_ids))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     b.row(_btn("📖 Гайд", NAV_GUIDE))
@@ -156,6 +156,8 @@ _WHEN_TITLES = {
     "slu": "Когда встали?",
     "slo": "Когда заснули?",
     "cmt": "Когда зафиксировать?",
+    "cms": "Когда начали?",
+    "cme": "Когда закончили?",
     "mkt": "Когда поставить метку?",
 }
 
@@ -177,7 +179,7 @@ def when_title(prefix: str) -> str:
 
 def when_kb(prefix: str, *, metric_id: int | None = None) -> InlineKeyboardMarkup:
     back = _WHEN_BACK.get(prefix)
-    if prefix == "cmt" and metric_id is not None:
+    if prefix in {"cmt", "cms", "cme"} and metric_id is not None:
         back = f"cm:o:{metric_id}"
     return now_or_time(prefix, back)
 
@@ -611,10 +613,28 @@ def skip_comment_kb(back: str | None = None) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def custom_metrics_kb(metrics, writable: bool) -> InlineKeyboardMarkup:
+def _metric_quick_row(metric, open_ids: set[int] | None = None) -> list[InlineKeyboardButton]:
+    name = (metric.name or "Метрика")[:20]
+    if getattr(metric, "data_type", None) == "period":
+        if open_ids and metric.id in open_ids:
+            name = f"{name} · идёт"[:28]
+        return [
+            _btn(name, f"cm:o:{metric.id}"),
+            _btn("▶️", f"cm:st:{metric.id}"),
+            _btn("⏹", f"cm:en:{metric.id}"),
+        ]
+    return [_btn(name, f"cm:o:{metric.id}"), _btn("➕", f"cm:add:{metric.id}")]
+
+
+def custom_metrics_kb(
+    metrics, writable: bool, *, open_ids: set[int] | None = None
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for metric in metrics:
         flag = "" if metric.enabled else " (выкл)"
+        if writable and metric.enabled and getattr(metric, "data_type", None) == "period":
+            b.row(*_metric_quick_row(metric, open_ids))
+            continue
         name_btn = _btn(f"{metric.name}{flag}", f"cm:o:{metric.id}")
         if writable and metric.enabled:
             b.row(name_btn, _btn("➕", f"cm:add:{metric.id}"))
@@ -724,10 +744,21 @@ def metric_card_kb(
     *,
     pinned: bool = False,
     can_pin: bool = True,
+    data_type: str | None = None,
+    has_open: bool = False,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
-        b.row(_btn("➕ Записать значение", f"cm:add:{metric_id}"))
+        if data_type == "period":
+            if has_open:
+                b.row(_btn("⏹ Закончил", f"cm:en:{metric_id}"))
+            else:
+                b.row(
+                    _btn("▶️ Начал", f"cm:st:{metric_id}"),
+                    _btn("⏹ Закончил", f"cm:en:{metric_id}"),
+                )
+        else:
+            b.row(_btn("➕ Записать значение", f"cm:add:{metric_id}"))
         label = "Выключить" if enabled else "Включить"
         b.row(_btn(label, f"cm:tog:{metric_id}"))
         if pinned:

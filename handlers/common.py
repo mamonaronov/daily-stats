@@ -92,6 +92,7 @@ async def show_main(
     today_block = None
     hidden: set[str] = set()
     pinned: list = []
+    open_metric_ids: set[int] = set()
     if repo is not None:
         from services.today import today_block as today_text
         from services.ui_prefs import MAX_PINS, prefs_of
@@ -100,8 +101,11 @@ async def show_main(
         hidden = prefs_of(user).hidden
         metrics = await repo.list_metrics(user.telegram_id, enabled_only=True)
         pinned = [item for item in metrics if item.pinned][:MAX_PINS]
+        open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
     text = menu_text(user, config, today_block)
-    markup = main_menu(user, is_owner, sleep, hidden=hidden, pinned=pinned)
+    markup = main_menu(
+        user, is_owner, sleep, hidden=hidden, pinned=pinned, open_metric_ids=open_metric_ids
+    )
     if hide_reply:
         source = target.message if isinstance(target, CallbackQuery) else target
         await hide_reply_keyboard(source)
@@ -189,6 +193,8 @@ async def start_time_pick(
                 "alc": "when:alct",
                 "act": "when:actt",
                 "cm": "when:cmt",
+                "cm_start": "when:cms",
+                "cm_end": "when:cme",
                 "mk": "when:mkt",
             }.get(purpose, "when:cig")
     user_tz = extra.get("tz")

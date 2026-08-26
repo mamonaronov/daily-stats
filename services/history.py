@@ -6,6 +6,7 @@ from datetime import date
 
 from database.models import TimelineItem, User
 from database.queries import Repo
+from services.metric_types import format_metric_value
 from utils.formatting import (
     ACTIVITY_TYPES,
     ALCOHOL_TYPES,
@@ -92,14 +93,8 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
 
     for rec in await repo.list_metric_values(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
-        value = rec.value_text
-        if rec.value_number is not None:
-            value = f"{rec.value_number:g}"
-            if rec.unit:
-                value += f" {rec.unit}"
-        elif rec.value_bool is not None:
-            value = "да" if rec.value_bool else "нет"
-        items.append(TimelineItem("custom", rec.id, dt, f"📌 {rec.metric_name}", value or "", {}))
+        value = format_metric_value(rec, user.timezone)
+        items.append(TimelineItem("custom", rec.id, dt, f"📌 {rec.metric_name}", value, {}))
 
     for rec in await repo.list_markers(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)

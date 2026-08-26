@@ -39,7 +39,7 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "slu", "slo", "cmt", "mkt")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "slu", "slo", "cmt", "cms", "cme", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
@@ -50,9 +50,11 @@ WHEN_TO_PURPOSE = {
     "slu": "slp_up",
     "slo": "slp_onset",
     "cmt": "cm",
+    "cms": "cm_start",
+    "cme": "cm_end",
     "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|slu|slo|cmt|mkt)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|slu|slo|cmt|cms|cme|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -113,6 +115,16 @@ async def _finish(
             value_text=data.get("value_text"),
             value_bool=data.get("value_bool"),
         )
+    elif purpose == "cm_start":
+        from handlers.custom_metrics import finish_period_start
+
+        await finish_period_start(event, state, repo, user, when)
+        return
+    elif purpose == "cm_end":
+        from handlers.custom_metrics import finish_period_end
+
+        await finish_period_end(event, state, repo, user, when)
+        return
     elif purpose == "mk":
         from services.markers import add_marker
 
@@ -511,8 +523,7 @@ async def _restore_before_time_pick(
         )
         return
     if exit_to.startswith("cm:"):
-        from keyboards.main import metric_card_kb
-        from services.metric_types import metric_card_text
+        from handlers.custom_metrics import _show_card
 
         metric = await repo.get_metric(int(exit_to.split(":")[1]), user.telegram_id)
         if metric is None:
@@ -520,7 +531,7 @@ async def _restore_before_time_pick(
             await safe_edit(cb.message, "📌 Кастомные метрики", None)
             return
         await cb.answer()
-        await safe_edit(cb.message, metric_card_text(metric), metric_card_kb(metric.id, bool(metric.enabled), True))
+        await _show_card(cb, user, metric, repo)
         return
     await cb.answer()
     await safe_edit(cb.message, when_title("cig"), when_kb("cig"))

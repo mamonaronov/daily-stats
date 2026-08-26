@@ -467,6 +467,17 @@ def _custom_metric_stats(items: list) -> str:
     if not items:
         return "📌 Нет данных по выбранной метрике."
     name = items[0].metric_name or "Метрика"
+    if items[0].data_type == "period":
+        durs = [int(item.value_number) for item in items if item.value_number is not None]
+        open_n = sum(1 for item in items if item.value_bool == 1)
+        lines = [f"📌 <b>{name}</b>", f"Записей: {len(items)}"]
+        if open_n:
+            lines.append(f"Ещё открыто: {open_n}")
+        if durs:
+            lines.append(f"Суммарно: {duration_human(sum(durs))}")
+            lines.append(f"Средняя длительность: {duration_human(int(mean(durs)))}")
+            lines.append(f"Мин: {duration_human(min(durs))} · Макс: {duration_human(max(durs))}")
+        return "\n".join(lines)
     numbers = [item.value_number for item in items if item.value_number is not None]
     lines = [f"📌 <b>{name}</b>", f"Записей: {len(items)}"]
     if numbers:

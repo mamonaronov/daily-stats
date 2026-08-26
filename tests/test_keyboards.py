@@ -256,6 +256,8 @@ def test_metric_templates_and_types_explain_choice():
     assert types["🔢 Число"] == "cm:t:number"
     assert types["📋 Выбор"] == "cm:t:choice"
     assert types["🕐 Время суток"] == "cm:t:time"
+    assert types["▶️ Интервал"] == "cm:t:period"
+    assert ("🛁 Ванная · интервал", "cm:tpl:bath") in templates
 
 
 def test_metric_units_and_value_presets():
@@ -311,6 +313,8 @@ def test_sleep_when_prefixes_map_to_purposes():
     assert WHEN_TO_PURPOSE["slw"] == "slp_wake"
     assert WHEN_TO_PURPOSE["slu"] == "slp_up"
     assert WHEN_TO_PURPOSE["slo"] == "slp_onset"
+    assert WHEN_TO_PURPOSE["cms"] == "cm_start"
+    assert WHEN_TO_PURPOSE["cme"] == "cm_end"
 
 
 def test_markers_root_and_card():
@@ -395,6 +399,31 @@ def test_main_menu_shows_pinned_metric():
     pairs = _pairs(main_menu(SimpleNamespace(), False, pinned=[metric]))
     assert ("Вода", "cm:o:9") in pairs
     assert ("➕", "cm:add:9") in pairs
+
+
+def test_period_metric_uses_start_end_buttons():
+    from keyboards.main import metric_card_kb
+
+    metric = SimpleNamespace(id=4, name="Ванная", enabled=1, data_type="period")
+    pairs = _pairs(custom_metrics_kb([metric], True, open_ids={4}))
+    assert ("Ванная · идёт", "cm:o:4") in pairs
+    assert ("▶️", "cm:st:4") in pairs
+    assert ("⏹", "cm:en:4") in pairs
+    assert ("➕", "cm:add:4") not in pairs
+    idle = dict(_pairs(metric_card_kb(4, True, True, data_type="period")))
+    assert idle["▶️ Начал"] == "cm:st:4"
+    assert idle["⏹ Закончил"] == "cm:en:4"
+    running = dict(_pairs(metric_card_kb(4, True, True, data_type="period", has_open=True)))
+    assert "▶️ Начал" not in running
+    assert running["⏹ Закончил"] == "cm:en:4"
+
+
+def test_main_menu_shows_pinned_period_metric():
+    metric = SimpleNamespace(id=9, name="Ванная", data_type="period")
+    pairs = _pairs(main_menu(SimpleNamespace(), False, pinned=[metric], open_metric_ids={9}))
+    assert ("Ванная · идёт", "cm:o:9") in pairs
+    assert ("▶️", "cm:st:9") in pairs
+    assert ("⏹", "cm:en:9") in pairs
 
 
 def test_entry_actions_repeat_and_history_back():

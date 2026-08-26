@@ -342,6 +342,7 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         "alc": repo.get_alcohol,
         "act": repo.get_activity,
         "cm": repo.get_metric_value,
+        "cme": repo.get_metric_value,
         "mk": repo.get_marker,
     }
     loader = loaders.get(kind)
@@ -412,16 +413,12 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         body = f"🏃 {label.capitalize()}\nВремя: {stamp}\nДлительность: {duration_human(rec.duration_minutes)}"
         if rec.comment:
             body += f"\nКомментарий: {rec.comment}"
-    elif kind == "cm":
-        value = rec.value_text
-        if rec.value_number is not None:
-            value = f"{rec.value_number:g}"
-            if rec.unit:
-                value += f" {rec.unit}"
-        elif rec.value_bool is not None:
-            value = "да" if rec.value_bool else "нет"
+    elif kind in {"cm", "cme"}:
+        from services.metric_types import format_metric_value
+
         name = rec.metric_name or "Метрика"
         body = f"📌 {name}\nВремя: {stamp}"
+        value = format_metric_value(rec, user.timezone)
         if value:
             body += f"\nЗначение: {value}"
     elif kind == "mk":
@@ -475,6 +472,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
         "cm": repo.delete_metric_value,
+        "cme": repo.delete_metric_value,
         "mk": repo.delete_marker,
     }
     fn = mapping.get(kind)
