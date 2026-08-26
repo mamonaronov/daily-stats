@@ -1,4 +1,4 @@
-"""Notify the service owner through the same bot."""
+"""Owner notices go to the owner; service errors go to the backup group."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardMarkup
 
 from config import Config
+from database.database import Database
 from database.queries import Repo
 from utils.time import now_utc
 from utils.timeouts import await_or_abandon
@@ -67,27 +68,60 @@ def format_backup_problems(when: str, problems: list[tuple[str, BaseException]])
     return "\n".join(parts)
 
 
-async def notify_owner(
+async def _send_notice(
     bot: Bot,
-    config: Config,
+    chat_id: int,
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
+    *,
+    name: str,
 ) -> None:
     kwargs: dict = {"request_timeout": int(_NOTIFY_TIMEOUT)}
     if reply_markup is not None:
         kwargs["reply_markup"] = reply_markup
     try:
         await await_or_abandon(
-            bot.send_message(config.owner_id, text, **kwargs),
+            bot.send_message(chat_id, text, **kwargs),
             _NOTIFY_TIMEOUT,
-            name="notify_owner",
+            name=name,
         )
     except TelegramForbiddenError:
-        logger.error("Owner has blocked the bot; cannot send alert")
+        logger.error("Cannot send %s to chat %s", name, chat_id)
     except TimeoutError:
-        logger.warning("Owner notify timed out after %.0fs", _NOTIFY_TIMEOUT)
+        logger.warning("%s timed out after %.0fs", name, _NOTIFY_TIMEOUT)
     except Exception:
-        logger.exception("Failed to notify owner")
+        logger.exception("Failed to send %s", name)
+
+
+async def notify_owner(
+    bot: Bot,
+    config: Config,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    await _send_notice(bot, config.owner_id, text, reply_markup, name="notify_owner")
+
+
+async def notify_alert(
+    bot: Bot,
+    config: Config,
+    text: str,
+    *,
+    db: Database | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    chat_id = None
+    if db is not None:
+        try:
+            from services.telegram_backup import telegram_backup_chat
+
+            chat_id, _ = await telegram_backup_chat(db)
+        except Exception:
+            logger.exception("Failed to resolve backup group for alert")
+    if chat_id is None:
+        logger.warning("Alert not sent: backup group is not bound")
+        return
+    await _send_notice(bot, chat_id, text, reply_markup, name="notify_alert")
 
 
 async def send_owner_start_screen(bot: Bot, repo: Repo, config: Config) -> None:
@@ -116,4 +150,4 @@ async def notify_owner_lifecycle(
         await send_owner_start_screen(bot, repo, config)
     if backup_problems:
         when = "при запуске" if started else "при выключении"
-        await notify_owner(bot, config, format_backup_problems(when, backup_problems))
+        await notify_alert(bot, config, format_backup_problems(when, backup_problems), db=repo.db)

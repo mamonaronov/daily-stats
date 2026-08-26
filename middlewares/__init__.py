@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
 from config import Config
 from database.queries import Repo
-from services.alerts import format_alert, notify_owner
+from services.alerts import format_alert, notify_alert
 from utils.deploy_drain import UPDATING_TEXT
 
 logger = logging.getLogger(__name__)
@@ -128,11 +128,13 @@ class ErrorIsolationMiddleware(BaseMiddleware):
             logger.exception("Handler error")
             bot = data.get("app_bot") or data.get("bot")
             config: Config | None = data.get("config")
+            repo: Repo | None = data.get("repo")
             if bot is not None and config is not None:
-                await notify_owner(
+                await notify_alert(
                     bot,
                     config,
                     format_alert("handler", "Необработанная ошибка хендлера", exc=exc),
+                    db=repo.db if repo is not None else None,
                 )
             if isinstance(event, CallbackQuery):
                 try:

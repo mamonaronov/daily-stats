@@ -11,7 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import Config
 from database.database import Database
 from database.queries import Repo
-from services.alerts import format_alert, notify_owner
+from services.alerts import format_alert, notify_alert
 from services.billing import run_billing_tick
 from utils.time import now_utc, to_iso
 from utils.timeouts import await_or_abandon
@@ -158,7 +158,9 @@ async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
             logger.warning("Billing job timed out after %.0fs", _BILLING_JOB_TIMEOUT)
         except Exception as exc:
             logger.exception("Billing tick failed")
-            await notify_owner(bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc))
+            await notify_alert(
+                bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc), db=repo.db
+            )
 
 
 async def backup_job(db: Database, bot: Bot, config: Config) -> None:
@@ -169,7 +171,9 @@ async def backup_job(db: Database, bot: Bot, config: Config) -> None:
         logger.info("Scheduled backup %s", path.name)
     except Exception as exc:
         logger.exception("Scheduled backup failed")
-        await notify_owner(bot, config, format_alert("backup", "Не удалось сделать бэкап на диск", exc=exc))
+        await notify_alert(
+            bot, config, format_alert("backup", "Не удалось сделать бэкап на диск", exc=exc), db=db
+        )
 
 
 async def telegram_backup_job(
@@ -219,10 +223,11 @@ async def telegram_backup_job(
         _schedule_telegram_backup_at(scheduler, bot, db, config, when)
     except Exception as exc:
         logger.exception("Telegram backup failed")
-        await notify_owner(
+        await notify_alert(
             bot,
             config,
             format_alert("telegram_backup", "Не удалось сделать или отправить бэкап в Telegram", exc=exc),
+            db=db,
         )
         _schedule_telegram_backup_at(
             scheduler,

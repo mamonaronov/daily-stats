@@ -28,7 +28,7 @@ from middlewares import (
     SpamWatchMiddleware,
     UserMiddleware,
 )
-from services.alerts import format_alert, format_backup_problems, notify_owner, notify_owner_lifecycle
+from services.alerts import format_alert, format_backup_problems, notify_alert, notify_owner, notify_owner_lifecycle
 from services.spam_watch import SpamWatch, set_spam_watch
 from services.jobs import setup_scheduler
 from services.billing import run_billing_tick
@@ -135,10 +135,10 @@ async def _start_polling_with_retry(
                 delay = min(delay * 2, max_delay)
 
 
-async def _on_error(event, bot: Bot, config) -> None:
+async def _on_error(event, bot: Bot, config, db: Database | None = None) -> None:
     exc = event.exception
     logger.exception("Dispatcher error")
-    await notify_owner(bot, config, format_alert("dispatcher", "Ошибка диспетчера", exc=exc))
+    await notify_alert(bot, config, format_alert("dispatcher", "Ошибка диспетчера", exc=exc), db=db)
 
 
 async def graceful_shutdown(
@@ -179,9 +179,13 @@ async def graceful_shutdown(
                 logger.exception("Shutdown telegram backup failed")
                 backup_problems.append(("отправить бэкап в Telegram", exc))
         if backup_problems:
-            await notify_owner(bot, config, format_backup_problems("при выключении", backup_problems))
+            await notify_alert(
+                bot, config, format_backup_problems("при выключении", backup_problems), db=db
+            )
     elif backup_problems:
-        await notify_owner(bot, config, format_backup_problems("при выключении", backup_problems))
+        await notify_alert(
+            bot, config, format_backup_problems("при выключении", backup_problems), db=db
+        )
     try:
         await bot.session.close()
     except Exception:
@@ -230,12 +234,12 @@ async def run() -> None:
         await db.initialize()
     except RestoreError as exc:
         logger.critical("Telegram restore failed: %s", exc)
-        await notify_owner(bot, config, format_alert("restore", str(exc), exc=exc))
+        await notify_alert(bot, config, format_alert("restore", str(exc), exc=exc), db=db)
         await bot.session.close()
         raise SystemExit(1) from exc
     except DatabaseUnrecoverableError as exc:
         logger.critical("Database unrecoverable: %s", exc)
-        await notify_owner(bot, config, format_alert("database", str(exc), exc=exc))
+        await notify_alert(bot, config, format_alert("database", str(exc), exc=exc), db=db)
         await bot.session.close()
         raise SystemExit(1) from exc
     except Exception as exc:
@@ -246,12 +250,15 @@ async def run() -> None:
         except Exception as backup_exc:
             logger.exception("Crash backup failed")
             backup_error = backup_exc
-        await notify_owner(bot, config, format_alert("startup", "Ошибка инициализации БД", exc=exc))
+        await notify_alert(
+            bot, config, format_alert("startup", "Ошибка инициализации БД", exc=exc), db=db
+        )
         if backup_error is not None:
-            await notify_owner(
+            await notify_alert(
                 bot,
                 config,
                 format_alert("backup", "Не удалось сделать бэкап после ошибки запуска", exc=backup_error),
+                db=db,
             )
         await bot.session.close()
         raise SystemExit(1) from exc
@@ -276,7 +283,7 @@ async def run() -> None:
 
     @dp.error()
     async def dispatcher_error(event) -> None:
-        await _on_error(event, bot, config)
+        await _on_error(event, bot, config, db)
 
     loop = asyncio.get_running_loop()
 
@@ -307,7 +314,9 @@ async def run() -> None:
         scheduler.start()
     except Exception as exc:
         logger.exception("Failed to start background jobs")
-        await notify_owner(bot, config, format_alert("scheduler", "Ошибка запуска задач", exc=exc))
+        await notify_alert(
+            bot, config, format_alert("scheduler", "Ошибка запуска задач", exc=exc), db=db
+        )
 
     became_ready = False
 

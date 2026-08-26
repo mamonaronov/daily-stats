@@ -11,8 +11,10 @@ from services.alerts import (
     BOT_STOPPED_TEXT,
     format_alert,
     format_backup_problems,
+    notify_alert,
     notify_owner_lifecycle,
 )
+from services.telegram_backup import set_telegram_backup_chat
 from tests.conftest import make_config
 from utils.callbacks import NAV_ADMIN
 
@@ -137,6 +139,7 @@ async def test_lifecycle_stop_reports_backup_failure_without_menu(tmp_path):
     await db.initialize()
     repo = Repo(db)
     await repo.create_user(1, "owner", "Owner", None, "UTC", 10, "23:00")
+    await set_telegram_backup_chat(db, -100123, "Backups")
     bot = _FakeBot()
     try:
         await notify_owner_lifecycle(
@@ -147,7 +150,9 @@ async def test_lifecycle_stop_reports_backup_failure_without_menu(tmp_path):
             backup_problems=[("отправить бэкап в Telegram", RuntimeError("file too big"))],
         )
         assert bot.sent[0]["text"] == BOT_STOPPED_TEXT
+        assert bot.sent[0]["chat_id"] == config.owner_id
         assert bot.sent[0].get("reply_markup") is None
+        assert bot.sent[1]["chat_id"] == -100123
         assert "Не удалось сделать или отправить бэкап при выключении." in bot.sent[1]["text"]
         assert "Причина (отправить бэкап в Telegram): RuntimeError: file too big" in bot.sent[1]["text"]
         assert len(bot.sent) == 2
@@ -163,6 +168,7 @@ async def test_graceful_shutdown_notifies_when_backup_fails(tmp_path, monkeypatc
     await db.initialize()
     repo = Repo(db)
     await repo.create_user(1, "owner", "Owner", None, "UTC", 10, "23:00")
+    await set_telegram_backup_chat(db, -100123, "Backups")
 
     async def fail_backup(self, prefix: str = "backup"):
         raise RuntimeError("no space")
@@ -186,7 +192,9 @@ async def test_graceful_shutdown_notifies_when_backup_fails(tmp_path, monkeypatc
     try:
         await graceful_shutdown(bot, db, scheduler, config, repo, notify=True)
         assert bot.sent[0]["text"] == BOT_STOPPED_TEXT
+        assert bot.sent[0]["chat_id"] == config.owner_id
         assert "Причина (сделать копию на диск): RuntimeError: no space" in bot.sent[1]["text"]
+        assert bot.sent[1]["chat_id"] == -100123
         assert bot.session.closed == 1
     finally:
         await db.close()
@@ -221,7 +229,37 @@ async def test_graceful_shutdown_reports_telegram_send_reason(tmp_path, monkeypa
     try:
         await graceful_shutdown(bot, db, scheduler, config, repo, notify=True)
         assert bot.sent[0]["text"] == BOT_STOPPED_TEXT
+        assert bot.sent[0]["chat_id"] == config.owner_id
+        assert bot.sent[1]["chat_id"] == -100123
         assert "Причина (отправить бэкап в Telegram): RuntimeError: file is too big" in bot.sent[1]["text"]
         assert bot.session.closed == 1
+    finally:
+        await db.close()
+
+
+async def test_notify_alert_goes_to_backup_group_not_owner(tmp_path):
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    await set_telegram_backup_chat(db, -100123, "Backups")
+    bot = _FakeBot()
+    try:
+        await notify_alert(bot, config, format_alert("handler", "Необработанная ошибка хендлера"), db=db)
+        assert len(bot.sent) == 1
+        assert bot.sent[0]["chat_id"] == -100123
+        assert bot.sent[0]["chat_id"] != config.owner_id
+        assert "Необработанная ошибка хендлера" in bot.sent[0]["text"]
+    finally:
+        await db.close()
+
+
+async def test_notify_alert_skipped_when_group_unbound(tmp_path):
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    bot = _FakeBot()
+    try:
+        await notify_alert(bot, config, format_alert("backup", "Не удалось сделать бэкап"), db=db)
+        assert bot.sent == []
     finally:
         await db.close()
