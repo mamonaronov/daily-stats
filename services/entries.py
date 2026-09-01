@@ -238,6 +238,35 @@ async def add_activity(
     return _saved(user, "активность", when, item_id)
 
 
+async def upsert_steps(
+    repo: Repo, user: User, day, steps: int
+) -> tuple[int | None, str | None, bool]:
+    from datetime import date as date_type
+
+    from utils.time import combine_local
+
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked, False
+    if not isinstance(day, date_type):
+        day = date_type.fromisoformat(str(day))
+    when = combine_local(user.timezone, day, 0, 0)
+    item_id, updated = await repo.upsert_steps(
+        user.telegram_id, day.isoformat(), steps, to_iso(when)
+    )
+    action = "шаги (обновление)" if updated else "шаги"
+    note_write(user, action, when)
+    return item_id, None, updated
+
+
+async def add_weight(repo: Repo, user: User, kilograms: float, when: datetime) -> tuple[int | None, str | None]:
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked
+    item_id = await repo.add_weight(user.telegram_id, kilograms, to_iso(when))
+    return _saved(user, "вес", when, item_id)
+
+
 async def add_custom_value(repo: Repo, user: User, metric_id: int, when: datetime, **values) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
@@ -388,6 +417,8 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
         "caf": repo.delete_caffeine,
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
+        "stp": repo.delete_steps,
+        "wgt": repo.delete_weight,
         "cm": repo.delete_metric_value,
         "mk": repo.delete_marker,
     }

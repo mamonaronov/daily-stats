@@ -30,6 +30,9 @@ from keyboards.main import (
     skip_comment_kb,
     sleep_rows,
     spam_alert_kb,
+    stats_metrics_kb,
+    steps_day_kb,
+    steps_value_kb,
     timezone_kb,
     when_kb,
 )
@@ -247,9 +250,21 @@ def test_activity_duration_presets():
     assert ("1,5 ч", "act:d:90") in pairs
 
 
+def test_steps_day_and_value_keyboards():
+    pairs = dict(_pairs(steps_day_kb(today_steps=8432)))
+    assert pairs["Сегодня · 8 432"] == "stp:today"
+    assert pairs["Вчера"] == "stp:yest"
+    assert pairs["📅 Другая дата"] == "stp:date"
+    values = dict(_pairs(steps_value_kb("e:stp")))
+    assert values["10 000"] == "stp:q:10000"
+    assert values["✖️ Отмена"] == "e:stp"
+
+
 def test_main_menu_custom_metrics_button():
     pairs = _pairs(main_menu(SimpleNamespace(), False))
     assert ("📌 Кастом", "n:cm") in pairs
+    assert ("🚶 Шаги", "e:stp") in pairs
+    assert ("⚖️ Вес", "e:wgt") in pairs
     assert ("🔖 Метки", NAV_MARKERS) in pairs
     assert ("📖 Гайд", NAV_GUIDE) in pairs
     assert all(text != "📌 Показатели" for text, _ in pairs)
@@ -278,6 +293,10 @@ def test_metric_templates_and_types_explain_choice():
     templates = _pairs(metric_templates_kb())
     assert ("💧 Вода · мл", "cm:tpl:water") in templates
     assert ("✏️ Своя метрика", "cm:own") in templates
+    assert all("cm:tpl:steps" not in data for _, data in templates)
+    assert all("cm:tpl:weight" not in data for _, data in templates)
+    assert all("Шаги" not in text for text, _ in templates)
+    assert all(not text.startswith("⚖️ Вес") for text, _ in templates)
     types = dict(_pairs(metric_types_kb()))
     assert types["🔢 Число"] == "cm:t:number"
     assert types["📋 Выбор"] == "cm:t:choice"
@@ -341,6 +360,7 @@ def test_sleep_when_prefixes_map_to_purposes():
     assert WHEN_TO_PURPOSE["slo"] == "slp_onset"
     assert WHEN_TO_PURPOSE["cms"] == "cm_start"
     assert WHEN_TO_PURPOSE["cme"] == "cm_end"
+    assert WHEN_TO_PURPOSE["wgt"] == "wgt"
 
 
 def test_markers_root_and_card():
@@ -410,12 +430,14 @@ def test_main_menu_collapses_idle_sleep_and_hides_types():
     pairs = _pairs(main_menu(SimpleNamespace(), False))
     assert ("😴 Сон", ENTRY_SLEEP) in pairs
     assert "slp:wake" not in {cb for _, cb in pairs}
-    hidden = _pairs(main_menu(SimpleNamespace(), False, hidden={"caffeine", "alcohol", "fooling", "snus"}))
+    hidden = _pairs(main_menu(SimpleNamespace(), False, hidden={"caffeine", "alcohol", "fooling", "snus", "steps", "weight"}))
     texts = {t for t, _ in hidden}
     assert "☕ Кофеин" not in texts
     assert "🍺 Алкоголь" not in texts
     assert "🤌 Валять дурака" not in texts
     assert "🟢 Снюс" not in texts
+    assert "🚶 Шаги" not in texts
+    assert "⚖️ Вес" not in texts
     assert "🚬 Сигарета" in texts
     assert "😴 Сон" in texts
 
@@ -473,6 +495,9 @@ def test_entry_actions_repeat_and_history_back():
     assert "Как тогда" not in alc
     hist = dict(_pairs(entry_actions("cig", 4, True, from_history=True)))
     assert hist["⬅️ Назад"] == "h:back"
+    steps = dict(_pairs(entry_actions("stp", 8, True, undo=True)))
+    assert steps["✏️ Изменить"] == "stp:e:8"
+    assert steps["🗑 Отменить"] == "un:stp:8"
 
 
 def test_history_day_kb_paginates_and_neighbors():
@@ -499,12 +524,14 @@ def test_history_day_kb_paginates_and_neighbors():
 
 
 def test_stats_metrics_kb_includes_custom():
-    from keyboards.main import stats_metrics_kb
-
     metric = SimpleNamespace(id=5, name="Вода")
     pairs = dict(_pairs(stats_metrics_kb({"cigarettes", "m5"}, [metric])))
     assert "☑ 🚬 Сигареты" in pairs
     assert pairs["☑ Вода"] == "stm:m5"
+    all_pairs = dict(_pairs(stats_metrics_kb(set(), [])))
+    assert "☐ 🚶 Шаги" in all_pairs
+    assert all_pairs["☐ 🚶 Шаги"] == "stm:steps"
+    assert all_pairs["☐ ⚖️ Вес"] == "stm:weight"
 
 
 def test_followup_keyboards():

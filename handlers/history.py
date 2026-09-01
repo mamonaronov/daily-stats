@@ -43,6 +43,8 @@ KIND_MAP = {
     "caffeine": "caf",
     "alcohol": "alc",
     "activity": "act",
+    "steps": "stp",
+    "weight": "wgt",
     "custom": "cm",
     "marker": "mk",
 }
@@ -341,6 +343,8 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         "caf": repo.get_caffeine,
         "alc": repo.get_alcohol,
         "act": repo.get_activity,
+        "stp": repo.get_steps,
+        "wgt": repo.get_weight,
         "cm": repo.get_metric_value,
         "cme": repo.get_metric_value,
         "mk": repo.get_marker,
@@ -413,6 +417,18 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         body = f"🏃 {label.capitalize()}\nВремя: {stamp}\nДлительность: {duration_human(rec.duration_minutes)}"
         if rec.comment:
             body += f"\nКомментарий: {rec.comment}"
+    elif kind == "stp":
+        from datetime import date as date_type
+
+        from utils.formatting import format_int_spaces
+        from utils.time import format_date_long
+
+        day = date_type.fromisoformat(rec.day)
+        body = f"🚶 Шаги\nДень: {format_date_long(day)}\nШагов: {format_int_spaces(rec.steps)}"
+    elif kind == "wgt":
+        from utils.formatting import format_kg
+
+        body = f"⚖️ Вес\nВремя: {stamp}\nВес: {format_kg(rec.kilograms)}"
     elif kind in {"cm", "cme"}:
         from services.metric_types import format_metric_value
 
@@ -471,6 +487,8 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "caf": repo.delete_caffeine,
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
+        "stp": repo.delete_steps,
+        "wgt": repo.delete_weight,
         "cm": repo.delete_metric_value,
         "cme": repo.delete_metric_value,
         "mk": repo.delete_marker,

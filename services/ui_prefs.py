@@ -16,6 +16,8 @@ HIDEABLE_TYPES = (
     "activity",
     "custom",
     "markers",
+    "steps",
+    "weight",
 )
 
 HIDEABLE_LABELS = {
@@ -26,6 +28,8 @@ HIDEABLE_LABELS = {
     "activity": "🏃 Активность",
     "custom": "📌 Кастом",
     "markers": "🔖 Метки",
+    "steps": "🚶 Шаги",
+    "weight": "⚖️ Вес",
 }
 
 MAX_PINS = 3

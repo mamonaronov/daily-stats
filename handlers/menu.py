@@ -19,6 +19,8 @@ from utils.callbacks import (
     ENTRY_FOOL,
     ENTRY_SLEEP,
     ENTRY_SNUS,
+    ENTRY_STP,
+    ENTRY_WGT,
     NAV_BALANCE,
     NAV_CANCEL,
     NAV_MAIN,
@@ -168,6 +170,28 @@ async def act_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     await state.clear()
     await cb.answer()
     await safe_edit(cb.message, "🏃 Какая активность?", activity_types())
+
+
+@router.callback_query(F.data == ENTRY_STP)
+async def steps_entry(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    from handlers.common import require_writable
+    from handlers.steps import show_steps_menu
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await show_steps_menu(cb, repo, user, state)
+
+
+@router.callback_query(F.data == ENTRY_WGT)
+async def weight_entry(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    from handlers.common import require_writable
+    from handlers.weight import show_weight_prompt
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await show_weight_prompt(cb, state, repo, user)
 
 
 @router.callback_query(F.data == "bal:paid")

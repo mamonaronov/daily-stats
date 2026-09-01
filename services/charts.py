@@ -272,6 +272,33 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
                 _bar("Физическая активность, мин", labels, [mins[d] for d in days], "мин", **overlay),
             )
         )
+    if "steps" in selected:
+        counts = {d: 0 for d in days}
+        for item in data["steps"]:
+            day = to_user(parse_iso(item.occurred_at), user.timezone).date()
+            if day in counts:
+                counts[day] = item.steps
+        charts.append(
+            (
+                "Шаги",
+                _bar("Шаги по дням", labels, [counts[d] for d in days], "шаги", **overlay),
+            )
+        )
+    if "weight" in selected:
+        series = {d: float("nan") for d in days}
+        buckets: dict[date, list[float]] = defaultdict(list)
+        for item in data["weight"]:
+            day = to_user(parse_iso(item.occurred_at), user.timezone).date()
+            if day in series:
+                buckets[day].append(item.kilograms)
+        for day, values in buckets.items():
+            series[day] = values[-1]
+        charts.append(
+            (
+                "Вес",
+                _line("Вес, кг", labels, [series[d] for d in days], "кг", **overlay),
+            )
+        )
     if "caffeine" in selected:
         charts.append(_drink_chart("Кофеин", "Кофеин по дням", user, data["caffeine"], days, labels, overlay))
     if "alcohol" in selected:

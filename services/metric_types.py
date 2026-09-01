@@ -34,7 +34,7 @@ METRIC_TYPES: dict[str, MetricType] = {
         "number",
         "Число",
         "🔢",
-        hint="Количество: вода, шаги, вес, страницы",
+        hint="Количество: вода, страницы, повторения",
         example="250, 0.5л, 8000",
         needs_unit=True,
         numeric=True,
@@ -99,8 +99,6 @@ class MetricTemplate:
 
 METRIC_TEMPLATES: tuple[MetricTemplate, ...] = (
     MetricTemplate("water", "💧 Вода · мл", "Вода", "number", "мл"),
-    MetricTemplate("steps", "🚶 Шаги", "Шаги", "number", "шаги"),
-    MetricTemplate("weight", "⚖️ Вес · кг", "Вес", "number", "кг"),
     MetricTemplate("pages", "📖 Страницы", "Страницы", "number", "стр"),
     MetricTemplate("meds", "💊 Лекарства · да/нет", "Лекарства", "boolean"),
     MetricTemplate("energy", "⚡️ Энергия · выбор", "Энергия", "choice", None, ("низкая", "средняя", "высокая")),
@@ -265,6 +263,28 @@ def parse_metric_number(raw: str, unit: str | None) -> float:
     if not match:
         raise ValueError("number")
     return float(match.group(0))
+
+
+MAX_STEPS = 200_000
+MIN_WEIGHT_KG = 1.0
+MAX_WEIGHT_KG = 500.0
+
+
+def parse_steps(raw: str) -> int:
+    value = parse_metric_number(raw, "шаги")
+    if abs(value - round(value)) > 1e-9:
+        raise ValueError("steps")
+    count = int(round(value))
+    if count < 0 or count > MAX_STEPS:
+        raise ValueError("steps")
+    return count
+
+
+def parse_weight_kg(raw: str) -> float:
+    value = parse_metric_number(raw, "кг")
+    if value < MIN_WEIGHT_KG or value > MAX_WEIGHT_KG:
+        raise ValueError("weight")
+    return round(value, 2)
 
 
 def format_clock(hour: int, minute: int) -> str:

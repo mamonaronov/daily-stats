@@ -156,6 +156,26 @@ class ActivityRecord:
 
 
 @dataclass(slots=True)
+class StepRecord:
+    id: int
+    telegram_id: int
+    day: str
+    steps: int
+    occurred_at: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
+class WeightRecord:
+    id: int
+    telegram_id: int
+    kilograms: float
+    occurred_at: str
+    created_at: str
+
+
+@dataclass(slots=True)
 class CustomMetric:
     id: int
     telegram_id: int

@@ -14,6 +14,8 @@ from utils.formatting import (
     ALCOHOL_TYPES,
     CAFFEINE_TYPES,
     duration_human,
+    format_int_spaces,
+    format_kg,
     score_text,
 )
 from utils.quantity import format_volume_ml, milliliters_of
@@ -38,6 +40,8 @@ METRIC_KEYS = [
     "caffeine",
     "alcohol",
     "activity",
+    "steps",
+    "weight",
 ]
 
 
@@ -74,6 +78,8 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "caffeine": await repo.list_caffeine(tid, a, b),
         "alcohol": await repo.list_alcohol(tid, a, b),
         "activity": await repo.list_activity(tid, a, b),
+        "steps": await repo.list_steps(tid, a, b),
+        "weight": await repo.list_weight(tid, a, b),
         "custom": await repo.list_metric_values(tid, a, b),
         "markers": await repo.list_markers(tid, a, b),
         "periods": await repo.list_periods_overlapping(tid, a, b),
@@ -350,6 +356,47 @@ def activity_stats(user: User, items, start: date, end: date) -> str:
     return base + "\n" + "\n".join(extra)
 
 
+def steps_stats(user: User, items, start: date, end: date) -> str:
+    if not items:
+        return "🚶 <b>Шаги</b>\nНет записей за период."
+    values = [int(item.steps) for item in items]
+    lines = [
+        "🚶 <b>Шаги</b>",
+        f"Дней с записью: {len(values)}",
+        f"Сумма: {format_int_spaces(sum(values))}",
+        f"В среднем за день с записью: {format_int_spaces(int(round(mean(values))))}",
+        f"Минимум: {format_int_spaces(min(values))} · Максимум: {format_int_spaces(max(values))}",
+    ]
+    top = sorted(items, key=lambda rec: rec.steps, reverse=True)[:3]
+    lines.append(
+        "Больше всего: "
+        + ", ".join(
+            f"{format_date(to_user(parse_iso(rec.occurred_at), user.timezone).date())} — {format_int_spaces(rec.steps)}"
+            for rec in top
+        )
+    )
+    return "\n".join(lines)
+
+
+def weight_stats(user: User, items, start: date, end: date) -> str:
+    if not items:
+        return "⚖️ <b>Вес</b>\nНет записей за период."
+    values = [float(item.kilograms) for item in items]
+    first, last = values[0], values[-1]
+    delta = last - first
+    sign = "+" if delta > 0 else ""
+    lines = [
+        "⚖️ <b>Вес</b>",
+        f"Замеров: {len(values)}",
+        f"Последний: {format_kg(last)}",
+        f"Среднее: {format_kg(mean(values))}",
+        f"Мин: {format_kg(min(values))} · Макс: {format_kg(max(values))}",
+    ]
+    if len(values) >= 2:
+        lines.append(f"Изменение за период: {sign}{format_kg(delta)}")
+    return "\n".join(lines)
+
+
 def daily_series(user: User, items, start: date, end: date, value_fn) -> dict[date, float]:
     series = {day: 0.0 for day in daterange(start, end)}
     buckets: dict[date, list] = defaultdict(list)
@@ -372,6 +419,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "alcohol": lambda items: daily_volume_ml(user, items, start, end),
         "sleep": lambda items: _sleep_series(user, items, start, end),
         "activity": lambda items: daily_series(user, items, start, end, lambda xs: float(sum(i.duration_minutes or 0 for i in xs))),
+        "steps": lambda items: daily_series(user, items, start, end, lambda xs: float(xs[0].steps if xs else 0)),
     }
     if left not in builders or right not in builders:
         return None
@@ -391,6 +439,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "caffeine": "кофеин",
         "alcohol": "алкоголь",
         "activity": "активность",
+        "steps": "шаги",
     }
     return (
         f"Связь {names[left]} ↔ {names[right]}: корреляция Пирсона {corr:.2f}.\n"
@@ -425,6 +474,7 @@ PAIRS = [
     ("snus", "cigarettes"),
     ("caffeine", "sleep"),
     ("alcohol", "sleep"),
+    ("sleep", "steps"),
 ]
 
 
@@ -507,6 +557,10 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         )
     if "activity" in selected:
         parts.append(activity_stats(user, data["activity"], start, end))
+    if "steps" in selected:
+        parts.append(steps_stats(user, data["steps"], start, end))
+    if "weight" in selected:
+        parts.append(weight_stats(user, data["weight"], start, end))
     custom_ids = [int(key[1:]) for key in selected if key.startswith("m") and key[1:].isdigit()]
     if custom_ids:
         from collections import defaultdict as _dd

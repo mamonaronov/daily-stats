@@ -64,6 +64,16 @@ ENTRY_TITLES = {
     "custom": "📌 Кастом",
 }
 
+
+def format_int_spaces(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+def format_kg(kg: float) -> str:
+    text = f"{kg:.2f}".rstrip("0").rstrip(".")
+    return f"{text.replace('.', ',')} кг"
+
+
 BALANCE_ENDED = (
     "Баланс закончился. Новые записи временно недоступны.\n\n"
     "Ваша история и статистика по-прежнему доступны.\n\n"

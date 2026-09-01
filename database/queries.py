@@ -26,8 +26,10 @@ from database.models import (
     Fooling,
     SleepRecord,
     SnusPack,
+    StepRecord,
     User,
     VpnLatencySample,
+    WeightRecord,
 )
 from utils.time import now_utc, to_iso
 
@@ -49,6 +51,8 @@ _DIARY_COUNT_SPECS: tuple[tuple[str, str], ...] = (
     ("caffeine_records", "occurred_at"),
     ("alcohol_records", "occurred_at"),
     ("activity_records", "occurred_at"),
+    ("step_records", "occurred_at"),
+    ("weight_records", "occurred_at"),
     ("custom_metric_values", "occurred_at"),
     ("event_markers", "occurred_at"),
 )
@@ -1031,6 +1035,117 @@ class Repo:
     async def list_activity(self, telegram_id: int, start: str, end: str) -> list[ActivityRecord]:
         return await self._list_range("activity_records", ActivityRecord, telegram_id, start, end)
 
+    # steps / weight
+    async def upsert_steps(
+        self,
+        telegram_id: int,
+        day: str,
+        steps: int,
+        occurred_at: str,
+    ) -> tuple[int, bool]:
+        existing = await self.get_steps_by_day(telegram_id, day)
+        ts = to_iso(now_utc())
+        if existing is not None:
+            await self.conn.execute(
+                """
+                UPDATE step_records
+                SET steps = ?, updated_at = ?
+                WHERE id = ? AND telegram_id = ?
+                """,
+                (steps, ts, existing.id, telegram_id),
+            )
+            await self.conn.commit()
+            return existing.id, True
+        item_id = await self._insert(
+            """
+            INSERT INTO step_records (
+                telegram_id, day, steps, occurred_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (telegram_id, day, steps, occurred_at, ts, ts),
+        )
+        return item_id, False
+
+    async def get_steps(self, item_id: int, telegram_id: int) -> StepRecord | None:
+        return await self._get("step_records", StepRecord, item_id, telegram_id)
+
+    async def get_steps_by_day(self, telegram_id: int, day: str) -> StepRecord | None:
+        row = await self.fetchone(
+            "SELECT * FROM step_records WHERE telegram_id = ? AND day = ?",
+            (telegram_id, day),
+        )
+        return _opt(StepRecord, row)
+
+    async def update_steps(self, item_id: int, telegram_id: int, **fields: Any) -> None:
+        allowed = {"day", "steps", "occurred_at"}
+        sets, params = [], []
+        for key, value in fields.items():
+            if key not in allowed:
+                raise ValueError(key)
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        params.append(to_iso(now_utc()))
+        params.extend([item_id, telegram_id])
+        await self.conn.execute(
+            f"UPDATE step_records SET {', '.join(sets)} WHERE id = ? AND telegram_id = ?",
+            params,
+        )
+        await self.conn.commit()
+
+    async def delete_steps(self, item_id: int, telegram_id: int) -> bool:
+        return await self._delete("step_records", item_id, telegram_id)
+
+    async def list_steps(self, telegram_id: int, start: str, end: str) -> list[StepRecord]:
+        return await self._list_range("step_records", StepRecord, telegram_id, start, end)
+
+    async def add_weight(self, telegram_id: int, kilograms: float, occurred_at: str) -> int:
+        return await self._insert(
+            """
+            INSERT INTO weight_records (telegram_id, kilograms, occurred_at, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (telegram_id, kilograms, occurred_at, to_iso(now_utc())),
+        )
+
+    async def get_weight(self, item_id: int, telegram_id: int) -> WeightRecord | None:
+        return await self._get("weight_records", WeightRecord, item_id, telegram_id)
+
+    async def update_weight(self, item_id: int, telegram_id: int, **fields: Any) -> None:
+        allowed = {"kilograms", "occurred_at"}
+        await self._update_fields("weight_records", allowed, item_id, telegram_id, fields)
+
+    async def delete_weight(self, item_id: int, telegram_id: int) -> bool:
+        return await self._delete("weight_records", item_id, telegram_id)
+
+    async def list_weight(self, telegram_id: int, start: str, end: str) -> list[WeightRecord]:
+        return await self._list_range("weight_records", WeightRecord, telegram_id, start, end)
+
+    async def recent_weights(self, telegram_id: int, limit: int = 3) -> list[float]:
+        rows = await self.fetchall(
+            """
+            SELECT kilograms FROM weight_records
+            WHERE telegram_id = ?
+            ORDER BY occurred_at DESC
+            LIMIT 20
+            """,
+            (telegram_id,),
+        )
+        seen: list[float] = []
+        keys: set[float] = set()
+        for row in rows:
+            kg = float(row["kilograms"])
+            key = round(kg, 2)
+            if key in keys:
+                continue
+            keys.add(key)
+            seen.append(kg)
+            if len(seen) >= limit:
+                break
+        return seen
+
     async def _update_fields(self, table: str, allowed: set[str], item_id: int, telegram_id: int, fields: dict[str, Any]) -> None:
         sets, params = [], []
         for key, value in fields.items():
@@ -1360,13 +1475,15 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
             "SELECT occurred_at AS ts FROM caffeine_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM alcohol_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM activity_records WHERE telegram_id = ?",
+            "SELECT occurred_at AS ts FROM step_records WHERE telegram_id = ?",
+            "SELECT occurred_at AS ts FROM weight_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM custom_metric_values WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM event_markers WHERE telegram_id = ?",
         ]
         sql = " UNION ALL ".join(parts)
         row = await self.fetchone(
             f"SELECT MAX(ts) AS ts FROM ({sql})",
-            tuple([telegram_id] * 8),
+            tuple([telegram_id] * 10),
         )
         return row["ts"] if row and row["ts"] else None
 

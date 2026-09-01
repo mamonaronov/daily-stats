@@ -24,7 +24,9 @@ from handlers import (
     snus,
     start,
     statistics,
+    steps,
     time_pick,
+    weight,
 )
 
 
@@ -45,6 +47,8 @@ def setup_routers() -> Router:
     root.include_router(caffeine.router)
     root.include_router(alcohol.router)
     root.include_router(activity.router)
+    root.include_router(steps.router)
+    root.include_router(weight.router)
     root.include_router(history.router)
     root.include_router(markers.router)
     root.include_router(statistics.router)

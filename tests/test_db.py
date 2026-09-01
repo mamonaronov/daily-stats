@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 10
+    assert version == config.required_db_version == 11
 
 
 @pytest.mark.asyncio

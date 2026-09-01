@@ -39,13 +39,14 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "slw", "slu", "slo", "cmt", "cms", "cme", "mkt")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "wgt", "slw", "slu", "slo", "cmt", "cms", "cme", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
     "caft": "caf",
     "alct": "alc",
     "actt": "act",
+    "wgt": "wgt",
     "slw": "slp_wake",
     "slu": "slp_up",
     "slo": "slp_onset",
@@ -54,7 +55,7 @@ WHEN_TO_PURPOSE = {
     "cme": "cm_end",
     "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|slw|slu|slo|cmt|cms|cme|mkt)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slo|cmt|cms|cme|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -105,6 +106,8 @@ async def _finish(
         item_id, error = await entries.add_activity(
             repo, user, data["activity_type"], data.get("duration"), data.get("comment"), when
         )
+    elif purpose == "wgt":
+        item_id, error = await entries.add_weight(repo, user, float(data["kilograms"]), when)
     elif purpose == "cm":
         item_id, error = await entries.add_custom_value(
             repo,
@@ -177,6 +180,7 @@ async def _finish(
             "caf": "caf",
             "alc": "alc",
             "act": "act",
+            "wgt": "wgt",
             "cm": "cm",
             "mk": "mk",
         }.get(purpose)
@@ -274,6 +278,7 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
         "caf": lambda i, t, v: repo.update_caffeine(i, t, occurred_at=v),
         "alc": lambda i, t, v: repo.update_alcohol(i, t, occurred_at=v),
         "act": lambda i, t, v: repo.update_activity(i, t, occurred_at=v),
+        "wgt": lambda i, t, v: repo.update_weight(i, t, occurred_at=v),
         "mk": lambda i, t, v: repo.update_marker(i, t, occurred_at=v),
     }
     fn = mapping.get(kind)

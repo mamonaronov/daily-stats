@@ -35,6 +35,15 @@ class ActivitySG(StatesGroup):
     comment = State()
 
 
+class StepsSG(StatesGroup):
+    pick_date = State()
+    value = State()
+
+
+class WeightSG(StatesGroup):
+    value = State()
+
+
 class CustomMetricSG(StatesGroup):
     name = State()
     data_type = State()

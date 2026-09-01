@@ -12,6 +12,7 @@ from utils.formatting import (
     ALCOHOL_TYPES,
     CAFFEINE_TYPES,
     duration_human,
+    format_int_spaces,
     score_text,
 )
 from utils.quantity import format_quantity
@@ -91,6 +92,24 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
         extra = duration_human(rec.duration_minutes)
         items.append(TimelineItem("activity", rec.id, dt, f"🏃 {label.capitalize()}", extra, {}))
 
+    for rec in await repo.list_steps(tid, start_iso, end_iso):
+        dt = parse_iso(rec.occurred_at)
+        items.append(
+            TimelineItem(
+                "steps",
+                rec.id,
+                dt,
+                "🚶 Шаги",
+                format_int_spaces(rec.steps),
+                {"all_day": True},
+            )
+        )
+
+    for rec in await repo.list_weight(tid, start_iso, end_iso):
+        dt = parse_iso(rec.occurred_at)
+        kg = f"{rec.kilograms:g}".replace(".", ",")
+        items.append(TimelineItem("weight", rec.id, dt, "⚖️ Вес", f"{kg} кг", {}))
+
     for rec in await repo.list_metric_values(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
         value = format_metric_value(rec, user.timezone)
@@ -130,7 +149,10 @@ def format_timeline(user: User, start: date, items: list[TimelineItem]) -> str:
         lines.append("\nЗаписей нет.")
         return "\n".join(lines)
     for item in items:
-        time_s = format_time(item.occurred_at, user.timezone)
         extra = f" — {item.detail}" if item.detail else ""
+        if item.extra.get("all_day"):
+            lines.append(f"{item.title}{extra}")
+            continue
+        time_s = format_time(item.occurred_at, user.timezone)
         lines.append(f"{time_s} {item.title}{extra}")
     return "\n".join(lines)

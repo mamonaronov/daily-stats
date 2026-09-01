@@ -17,6 +17,8 @@ from utils.callbacks import (
     ENTRY_FOOL,
     ENTRY_SLEEP,
     ENTRY_SNUS,
+    ENTRY_STP,
+    ENTRY_WGT,
     NAV_ADMIN,
     NAV_BACK,
     NAV_BALANCE,
@@ -28,7 +30,7 @@ from utils.callbacks import (
     NAV_SETTINGS,
     NAV_STATS,
 )
-from utils.formatting import SCORE_EMOJI, SCORE_LABELS, truncate
+from utils.formatting import SCORE_EMOJI, SCORE_LABELS, format_int_spaces, format_kg, truncate
 from utils.time import COMMON_TIMEZONES, MONTHS_RU, WEEKDAYS_RU, format_date, format_dt, parse_iso
 
 
@@ -125,10 +127,14 @@ def main_menu(
     extras: list[InlineKeyboardButton] = []
     if "activity" not in hidden:
         extras.append(_btn("🏃 Активность", ENTRY_ACT))
+    if "steps" not in hidden:
+        extras.append(_btn("🚶 Шаги", ENTRY_STP))
+    if "weight" not in hidden:
+        extras.append(_btn("⚖️ Вес", ENTRY_WGT))
     if "custom" not in hidden:
         extras.append(_btn("📌 Кастом", NAV_METRICS))
-    if extras:
-        b.row(*extras)
+    for i in range(0, len(extras), 2):
+        b.row(*extras[i : i + 2])
     if "markers" not in hidden:
         b.row(_btn("🔖 Метки", NAV_MARKERS))
     for metric in (pinned or [])[:3]:
@@ -156,6 +162,7 @@ _WHEN_TITLES = {
     "caft": "Когда это было?",
     "alct": "Когда это было?",
     "actt": "Когда была активность?",
+    "wgt": "Когда взвесились?",
     "slw": "Когда проснулись?",
     "slu": "Когда встали?",
     "slo": "Когда заснули?",
@@ -171,6 +178,7 @@ _WHEN_BACK = {
     "caft": ENTRY_CAF,
     "alct": ENTRY_ALC,
     "actt": ENTRY_ACT,
+    "wgt": ENTRY_WGT,
     "slw": "slp:ql",
     "slu": ENTRY_SLEEP,
     "mkt": NAV_MARKERS,
@@ -334,6 +342,44 @@ def activity_types() -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
+_STEPS_PRESETS = (3000, 5000, 8000, 10000, 12000, 15000)
+
+
+def steps_day_kb(*, today_steps: int | None = None, yesterday_steps: int | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    today_label = "Сегодня" if today_steps is None else f"Сегодня · {format_int_spaces(today_steps)}"
+    yesterday_label = "Вчера" if yesterday_steps is None else f"Вчера · {format_int_spaces(yesterday_steps)}"
+    b.row(_btn(today_label, "stp:today"), _btn(yesterday_label, "stp:yest"))
+    b.row(_btn("📅 Другая дата", "stp:date"))
+    return with_nav(b)
+
+
+def steps_value_kb(back: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for amount in _STEPS_PRESETS:
+        row.append(_btn(format_int_spaces(amount), f"stp:q:{amount}"))
+        if len(row) == 2:
+            b.row(*row)
+            row = []
+    if row:
+        b.row(*row)
+    b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def weight_value_kb(recent: list[float] | None = None, back: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for kg in recent or []:
+        token = f"{kg:g}"
+        b.row(_btn(format_kg(kg), f"wgt:q:{token}"))
+    if back and back != NAV_MAIN:
+        b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
+    else:
+        b.row(*nav_row())
+    return b.as_markup()
+
+
 def timezone_kb(back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for tz, label in COMMON_TIMEZONES:
@@ -458,6 +504,8 @@ def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKe
         ("caffeine", "☕ Кофеин"),
         ("alcohol", "🍺 Алкоголь"),
         ("activity", "🏃 Активность"),
+        ("steps", "🚶 Шаги"),
+        ("weight", "⚖️ Вес"),
     ]
     b = InlineKeyboardBuilder()
     for key, label in options:
@@ -514,7 +562,8 @@ def guide_index_kb() -> InlineKeyboardMarkup:
     b.row(_btn("🚬 Сигарета", "g:cig"), _btn("🟢 Снюс", "g:snus"))
     b.row(_btn("🤌 Валять дурака", "g:fool"), _btn("😴 Сон", "g:sleep"))
     b.row(_btn("☕ Кофеин", "g:caf"), _btn("🍺 Алкоголь", "g:alc"))
-    b.row(_btn("🏃 Активность", "g:act"), _btn("📌 Кастом", "g:cm"))
+    b.row(_btn("🏃 Активность", "g:act"), _btn("🚶 Шаги", "g:stp"))
+    b.row(_btn("⚖️ Вес", "g:wgt"), _btn("📌 Кастом", "g:cm"))
     b.row(_btn("🔖 Метки", "g:mk"))
     b.row(_btn("📊 Статистика", "g:st"), _btn("📅 История", "g:hist"))
     b.row(_btn("⚙️ Настройки", "g:set"), _btn("💰 Баланс", "g:bal"))
@@ -589,7 +638,10 @@ def entry_actions(
     if writable:
         delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
         delete_cb = f"un:{kind}:{item_id}" if undo else f"rm:{kind}:{item_id}"
-        b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
+        if kind == "stp":
+            b.row(_btn("✏️ Изменить", f"stp:e:{item_id}"), _btn(delete_label, delete_cb))
+        else:
+            b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
         if kind == "act":
             b.row(_btn("💬 Коммент", f"act:cmt:{item_id}"))
     hist = _btn("⬅️ Назад", "h:back") if from_history else _btn("📅 История", NAV_HISTORY)

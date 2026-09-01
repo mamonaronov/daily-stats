@@ -9,6 +9,8 @@ from services.metric_types import (
     get_template,
     metric_card_text,
     parse_metric_number,
+    parse_steps,
+    parse_weight_kg,
     types_prompt,
     value_prompt,
 )
@@ -19,6 +21,29 @@ def test_parse_metric_number_accepts_spaces_and_units():
     assert parse_metric_number("1,5 кг", "кг") == 1.5
     assert parse_metric_number("250 мл", "мл") == 250
     assert parse_metric_number("0.5л", "мл") == 500
+
+
+def test_parse_steps_and_weight():
+    assert parse_steps("8 000") == 8000
+    assert parse_steps("12000 шагов") == 12000
+    try:
+        parse_steps("12.5")
+        raise AssertionError("expected error")
+    except ValueError:
+        pass
+    assert parse_weight_kg("72,4") == 72.4
+    assert parse_weight_kg("70 кг") == 70
+    try:
+        parse_weight_kg("0.2")
+        raise AssertionError("expected error")
+    except ValueError:
+        pass
+
+
+def test_steps_and_weight_are_not_custom_templates():
+    assert get_template("steps") is None
+    assert get_template("weight") is None
+    assert get_template("water") is not None
 
 
 def test_types_prompt_explains_each_choice():
