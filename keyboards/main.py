@@ -58,33 +58,37 @@ def back_kb(back: str | None = None, *, menu: bool = True) -> InlineKeyboardMark
     return b.as_markup()
 
 
-def sleep_row(sleep: SleepRecord | None) -> list[InlineKeyboardButton]:
+def sleep_rows(sleep: SleepRecord | None) -> list[list[InlineKeyboardButton]]:
     phase = sleep.phase() if sleep else "idle"
     wake = _btn("Проснулся", "slp:wake")
-    phone = _btn("С телефоном", "slp:phone")
-    nophone = _btn("Без телефона", "slp:nophone")
+    phone = _btn("Лёг с телефоном", "slp:phone")
+    nophone = _btn("Лёг без телефона", "slp:nophone")
+    bed = [phone, nophone]
     if phase == "with_phone":
-        return [wake, _btn("И встал", "slp:wakeup"), _btn("Убрал тел.", "slp:away")]
-    if phase == "no_phone":
-        return [wake, _btn("И встал", "slp:wakeup")]
-    if phase == "awake":
-        buttons = [_btn("Встал", "slp:up"), phone, nophone]
-        if sleep is not None and sleep.sleep_onset_at is None:
-            buttons.insert(0, _btn("Заснул?", "slp:askonset"))
-        return buttons
-    if phase == "need_onset":
         return [
-            _btn("Заснул?", "slp:askonset"),
-            wake,
-            _btn("С тел.", "slp:phone"),
-            _btn("Без тел.", "slp:nophone"),
+            [wake, _btn("И встал", "slp:wakeup")],
+            [_btn("Убрал телефон", "slp:away")],
         ]
-    return [wake, phone, nophone]
+    if phase == "no_phone":
+        return [[wake, _btn("И встал", "slp:wakeup")]]
+    if phase == "awake":
+        top = [_btn("Встал", "slp:up")]
+        if sleep is not None and sleep.sleep_onset_at is None:
+            top.insert(0, _btn("Заснул?", "slp:askonset"))
+        return [top, bed]
+    if phase == "need_onset":
+        return [[_btn("Заснул?", "slp:askonset"), wake], bed]
+    return [[wake], bed]
+
+
+def _add_sleep_rows(builder: InlineKeyboardBuilder, sleep: SleepRecord | None) -> None:
+    for row in sleep_rows(sleep):
+        builder.row(*row)
 
 
 def sleep_actions_kb(sleep: SleepRecord | None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(*sleep_row(sleep))
+    _add_sleep_rows(b, sleep)
     return with_nav(b)
 
 
@@ -110,7 +114,7 @@ def main_menu(
     if phase == "idle":
         b.row(_btn("😴 Сон", ENTRY_SLEEP))
     else:
-        b.row(*sleep_row(sleep))
+        _add_sleep_rows(b, sleep)
     drinks: list[InlineKeyboardButton] = []
     if "caffeine" not in hidden:
         drinks.append(_btn("☕ Кофеин", ENTRY_CAF))

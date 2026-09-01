@@ -28,7 +28,7 @@ from keyboards.main import (
     score_kb,
     settings_kb,
     skip_comment_kb,
-    sleep_row,
+    sleep_rows,
     spam_alert_kb,
     timezone_kb,
     when_kb,
@@ -79,29 +79,55 @@ def test_ago_pick_has_custom_number():
     assert ("⌨️ Ввести число", "cig:agon") in pairs
 
 
+def _sleep_callbacks(rows) -> list[str]:
+    return [btn.callback_data for row in rows for btn in row]
+
+
+def _sleep_texts(rows) -> list[str]:
+    return [btn.text for row in rows for btn in row]
+
+
 def test_sleep_row_changes_with_phase():
-    idle = [btn.callback_data for btn in sleep_row(None)]
-    assert idle == ["slp:wake", "slp:phone", "slp:nophone"]
+    idle = sleep_rows(None)
+    assert [[btn.callback_data for btn in row] for row in idle] == [
+        ["slp:wake"],
+        ["slp:phone", "slp:nophone"],
+    ]
+    assert _sleep_texts(idle) == ["Проснулся", "Лёг с телефоном", "Лёг без телефона"]
     with_phone = SimpleNamespace(
         phase=lambda: "with_phone",
     )
-    assert [btn.callback_data for btn in sleep_row(with_phone)] == [
+    phone_rows = sleep_rows(with_phone)
+    assert _sleep_callbacks(phone_rows) == [
         "slp:wake",
         "slp:wakeup",
         "slp:away",
     ]
+    assert _sleep_texts(phone_rows) == ["Проснулся", "И встал", "Убрал телефон"]
     awake = SimpleNamespace(phase=lambda: "awake", sleep_onset_at=None)
-    assert [btn.callback_data for btn in sleep_row(awake)] == [
+    assert _sleep_callbacks(sleep_rows(awake)) == [
         "slp:askonset",
         "slp:up",
         "slp:phone",
         "slp:nophone",
     ]
     awake_done = SimpleNamespace(phase=lambda: "awake", sleep_onset_at="2026-08-16T21:00:00+00:00")
-    assert [btn.callback_data for btn in sleep_row(awake_done)] == [
+    assert _sleep_callbacks(sleep_rows(awake_done)) == [
         "slp:up",
         "slp:phone",
         "slp:nophone",
+    ]
+    need_onset = SimpleNamespace(phase=lambda: "need_onset")
+    onset_rows = sleep_rows(need_onset)
+    assert [[btn.callback_data for btn in row] for row in onset_rows] == [
+        ["slp:askonset", "slp:wake"],
+        ["slp:phone", "slp:nophone"],
+    ]
+    assert _sleep_texts(onset_rows) == [
+        "Заснул?",
+        "Проснулся",
+        "Лёг с телефоном",
+        "Лёг без телефона",
     ]
 
 
@@ -392,6 +418,13 @@ def test_main_menu_collapses_idle_sleep_and_hides_types():
     assert "🟢 Снюс" not in texts
     assert "🚬 Сигарета" in texts
     assert "😴 Сон" in texts
+
+
+def test_main_menu_sleep_actions_use_two_rows():
+    sleep = SimpleNamespace(phase=lambda: "need_onset")
+    rows = [[btn.text for btn in row] for row in main_menu(SimpleNamespace(), False, sleep).inline_keyboard]
+    assert ["Заснул?", "Проснулся"] in rows
+    assert ["Лёг с телефоном", "Лёг без телефона"] in rows
 
 
 def test_main_menu_shows_pinned_metric():
