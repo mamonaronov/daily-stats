@@ -41,8 +41,9 @@ HOW_TO = (
     "📓 <b>Для чего этот бот</b>\n\n"
     f"{BOT_PURPOSE}\n\n"
     "Как писать день:\n"
+    "• в Настройках галочками отметьте, какие метрики вести\n"
     "• отметьте привычку, когда случилась\n"
-    "• вечером закройте сон\n"
+    "• вечером закройте сон, если ведёте его\n"
     "• статистика копится сама\n\n"
     "Подробности — кнопка «Гайд» в меню."
 )
@@ -71,7 +72,11 @@ def start_payload(
     if user and user.is_banned:
         return BANNED_TEXT, None
     if user and user.is_active:
-        return menu_text(user, config), main_menu(user, is_owner, sleep)
+        from services.ui_prefs import prefs_of
+
+        return menu_text(user, config), main_menu(
+            user, is_owner, sleep, tracked=prefs_of(user).tracked
+        )
     if user and user.is_deleted:
         return TZ_RESTORE_PROMPT, timezone_kb()
     return LEGAL_PROMPT, legal_consent_kb()
@@ -91,21 +96,23 @@ async def show_main(
         await state.clear()
     sleep = await repo.latest_sleep(user.telegram_id) if repo is not None else None
     today_block = None
-    hidden: set[str] = set()
+    tracked: set[str] = set()
     pinned: list = []
     open_metric_ids: set[int] = set()
     if repo is not None:
         from services.today import today_block as today_text
         from services.ui_prefs import MAX_PINS, prefs_of
 
+        prefs = prefs_of(user)
+        tracked = prefs.tracked
         today_block = await today_text(repo, user)
-        hidden = prefs_of(user).hidden
-        metrics = await repo.list_metrics(user.telegram_id, enabled_only=True)
-        pinned = [item for item in metrics if item.pinned][:MAX_PINS]
-        open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
+        if "custom" in tracked:
+            metrics = await repo.list_metrics(user.telegram_id, enabled_only=True)
+            pinned = [item for item in metrics if item.pinned][:MAX_PINS]
+            open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
     text = menu_text(user, config, today_block)
     markup = main_menu(
-        user, is_owner, sleep, hidden=hidden, pinned=pinned, open_metric_ids=open_metric_ids
+        user, is_owner, sleep, tracked=tracked, pinned=pinned, open_metric_ids=open_metric_ids
     )
     if hide_reply:
         source = target.message if isinstance(target, CallbackQuery) else target
@@ -144,7 +151,9 @@ async def require_writable(event: CallbackQuery | Message, user: User | None) ->
     if blocked:
         if isinstance(event, CallbackQuery):
             await event.answer()
-            await safe_edit(event.message, blocked, main_menu(user, False))
+            from services.ui_prefs import prefs_of
+
+            await safe_edit(event.message, blocked, main_menu(user, False, tracked=prefs_of(user).tracked))
         else:
             await event.answer(blocked)
         return None

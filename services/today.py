@@ -21,18 +21,24 @@ class DaySnapshot:
     steps: int | None = None
     weight_kg: float | None = None
 
-    def as_text(self) -> str:
-        lines = [
-            "<b>Сегодня</b>",
-            f"🚬 {self.cigarettes}",
-            f"🟢 {self.snus_line}",
-            f"😴 {self.sleep_line}",
-        ]
-        if self.steps is not None:
+    def as_text(self, tracked: set[str] | None = None) -> str:
+        def show(key: str) -> bool:
+            return tracked is None or key in tracked
+
+        lines: list[str] = []
+        if show("cigarettes"):
+            lines.append(f"🚬 {self.cigarettes}")
+        if show("snus"):
+            lines.append(f"🟢 {self.snus_line}")
+        if show("sleep"):
+            lines.append(f"😴 {self.sleep_line}")
+        if show("steps") and self.steps is not None:
             lines.append(f"🚶 {format_int_spaces(self.steps)}")
-        if self.weight_kg is not None:
+        if show("weight") and self.weight_kg is not None:
             lines.append(f"⚖️ {format_kg(self.weight_kg)}")
-        return "\n".join(lines)
+        if not lines:
+            return ""
+        return "\n".join(["<b>Сегодня</b>", *lines])
 
 
 def sleep_status_line(sleep: SleepRecord | None) -> str:
@@ -70,5 +76,16 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
     )
 
 
+EMPTY_TRACKED_HINT = "Пока нет выбранных метрик — отметьте их в Настройках."
+
+
 async def today_block(repo: Repo, user: User) -> str:
-    return (await day_snapshot(repo, user)).as_text()
+    from services.ui_prefs import prefs_of
+
+    prefs = prefs_of(user)
+    text = (await day_snapshot(repo, user)).as_text(prefs.tracked)
+    if text:
+        return text
+    if not prefs.tracked:
+        return EMPTY_TRACKED_HINT
+    return ""

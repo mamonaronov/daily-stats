@@ -94,51 +94,57 @@ def sleep_actions_kb(sleep: SleepRecord | None) -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
+def _pair_rows(builder: InlineKeyboardBuilder, buttons: list[InlineKeyboardButton]) -> None:
+    for i in range(0, len(buttons), 2):
+        builder.row(*buttons[i : i + 2])
+
+
 def main_menu(
     user: User,
     is_owner: bool,
     sleep: SleepRecord | None = None,
     *,
-    hidden: set[str] | None = None,
+    tracked: set[str] | None = None,
     pinned: list | None = None,
     open_metric_ids: set[int] | None = None,
 ) -> InlineKeyboardMarkup:
-    hidden = hidden or set()
+    tracked = tracked or set()
     b = InlineKeyboardBuilder()
-    cig = _btn("🚬 Сигарета", ENTRY_CIG)
-    if "snus" in hidden:
-        b.row(cig)
-    else:
-        b.row(cig, _btn("🟢 Снюс", ENTRY_SNUS))
-    if "fooling" not in hidden:
+    smokes: list[InlineKeyboardButton] = []
+    if "cigarettes" in tracked:
+        smokes.append(_btn("🚬 Сигарета", ENTRY_CIG))
+    if "snus" in tracked:
+        smokes.append(_btn("🟢 Снюс", ENTRY_SNUS))
+    _pair_rows(b, smokes)
+    if "fooling" in tracked:
         b.row(_btn("🤌 Валять дурака", ENTRY_FOOL))
     phase = sleep.phase() if sleep else "idle"
-    if phase == "idle":
-        b.row(_btn("😴 Сон", ENTRY_SLEEP))
-    else:
-        _add_sleep_rows(b, sleep)
+    if "sleep" in tracked or phase != "idle":
+        if phase == "idle":
+            b.row(_btn("😴 Сон", ENTRY_SLEEP))
+        else:
+            _add_sleep_rows(b, sleep)
     drinks: list[InlineKeyboardButton] = []
-    if "caffeine" not in hidden:
+    if "caffeine" in tracked:
         drinks.append(_btn("☕ Кофеин", ENTRY_CAF))
-    if "alcohol" not in hidden:
+    if "alcohol" in tracked:
         drinks.append(_btn("🍺 Алкоголь", ENTRY_ALC))
-    if drinks:
-        b.row(*drinks)
+    _pair_rows(b, drinks)
     extras: list[InlineKeyboardButton] = []
-    if "activity" not in hidden:
+    if "activity" in tracked:
         extras.append(_btn("🏃 Активность", ENTRY_ACT))
-    if "steps" not in hidden:
+    if "steps" in tracked:
         extras.append(_btn("🚶 Шаги", ENTRY_STP))
-    if "weight" not in hidden:
+    if "weight" in tracked:
         extras.append(_btn("⚖️ Вес", ENTRY_WGT))
-    if "custom" not in hidden:
+    if "custom" in tracked:
         extras.append(_btn("📌 Кастом", NAV_METRICS))
-    for i in range(0, len(extras), 2):
-        b.row(*extras[i : i + 2])
-    if "markers" not in hidden:
+    _pair_rows(b, extras)
+    if "markers" in tracked:
         b.row(_btn("🔖 Метки", NAV_MARKERS))
-    for metric in (pinned or [])[:3]:
-        b.row(*_metric_quick_row(metric, open_metric_ids))
+    if "custom" in tracked:
+        for metric in (pinned or [])[:3]:
+            b.row(*_metric_quick_row(metric, open_metric_ids))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     b.row(_btn("📖 Гайд", NAV_GUIDE))
@@ -523,7 +529,7 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
-    b.row(_btn("📋 Кнопки меню", "set:vis"))
+    b.row(_btn("📋 Метрики", "set:trk"))
     b.row(_btn("📤 Выгрузить CSV", "set:exp"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
     b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:s"))
@@ -532,13 +538,13 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
-def menu_types_kb(hidden: set[str]) -> InlineKeyboardMarkup:
-    from services.ui_prefs import HIDEABLE_LABELS, HIDEABLE_TYPES
+def track_metrics_kb(tracked: set[str]) -> InlineKeyboardMarkup:
+    from services.ui_prefs import TRACKABLE_LABELS, TRACKABLE_TYPES
 
     b = InlineKeyboardBuilder()
-    for key in HIDEABLE_TYPES:
-        mark = "☐" if key in hidden else "☑"
-        b.row(_btn(f"{mark} {HIDEABLE_LABELS[key]}", f"set:vis:{key}"))
+    for key in TRACKABLE_TYPES:
+        mark = "☑" if key in tracked else "☐"
+        b.row(_btn(f"{mark} {TRACKABLE_LABELS[key]}", f"set:trk:{key}"))
     return with_nav(b, NAV_SETTINGS)
 
 

@@ -8,47 +8,66 @@ from dataclasses import dataclass, field
 from database.models import User
 from database.queries import Repo
 
-HIDEABLE_TYPES = (
-    "snus",
+TRACKABLE_TYPES = (
+    "cigarettes",
     "fooling",
+    "snus",
+    "sleep",
     "caffeine",
     "alcohol",
     "activity",
-    "custom",
-    "markers",
     "steps",
     "weight",
+    "custom",
+    "markers",
 )
 
-HIDEABLE_LABELS = {
-    "snus": "🟢 Снюс",
+TRACKABLE_LABELS = {
+    "cigarettes": "🚬 Сигареты",
     "fooling": "🤌 Валять дурака",
+    "snus": "🟢 Снюс",
+    "sleep": "😴 Сон",
     "caffeine": "☕ Кофеин",
     "alcohol": "🍺 Алкоголь",
     "activity": "🏃 Активность",
-    "custom": "📌 Кастом",
-    "markers": "🔖 Метки",
     "steps": "🚶 Шаги",
     "weight": "⚖️ Вес",
+    "custom": "📌 Кастом",
+    "markers": "🔖 Метки",
 }
+
+# Old "hide buttons" list — used only to migrate prefs that still store `hidden`.
+_LEGACY_HIDEABLE = frozenset(
+    {
+        "snus",
+        "fooling",
+        "caffeine",
+        "alcohol",
+        "activity",
+        "custom",
+        "markers",
+        "steps",
+        "weight",
+    }
+)
 
 MAX_PINS = 3
 
 
 @dataclass(slots=True)
 class UiPrefs:
-    hidden: set[str] = field(default_factory=set)
+    tracked: set[str] = field(default_factory=set)
     onboarded: bool = False
     low_balance_notice_on: str | None = None
     owner_digest_on: str | None = None
 
-    def is_hidden(self, key: str) -> bool:
-        return key in self.hidden
+    def is_tracked(self, key: str) -> bool:
+        return key in self.tracked
 
     def to_json(self) -> str:
         return json.dumps(
             {
-                "hidden": sorted(self.hidden),
+                "tracked": sorted(self.tracked),
                 "onboarded": self.onboarded,
                 "low_balance_notice_on": self.low_balance_notice_on,
                 "owner_digest_on": self.owner_digest_on,
@@ -57,16 +76,24 @@ class UiPrefs:
         )
 
 
+def _legacy_tracked(hidden: set[str]) -> set[str]:
+    return set(TRACKABLE_TYPES) - hidden
+
+
 def parse_ui_prefs(raw: str | None) -> UiPrefs:
     if not raw:
-        return UiPrefs()
+        return UiPrefs(tracked=_legacy_tracked(set()))
     try:
         data = json.loads(raw)
     except (TypeError, ValueError, json.JSONDecodeError):
-        return UiPrefs()
-    hidden = {item for item in data.get("hidden") or [] if item in HIDEABLE_TYPES}
+        return UiPrefs(tracked=_legacy_tracked(set()))
+    if "tracked" in data:
+        tracked = {item for item in data.get("tracked") or [] if item in TRACKABLE_TYPES}
+    else:
+        hidden = {item for item in data.get("hidden") or [] if item in _LEGACY_HIDEABLE}
+        tracked = _legacy_tracked(hidden)
     return UiPrefs(
-        hidden=hidden,
+        tracked=tracked,
         onboarded=bool(data.get("onboarded")),
         low_balance_notice_on=data.get("low_balance_notice_on"),
         owner_digest_on=data.get("owner_digest_on"),
@@ -84,13 +111,13 @@ async def save_prefs(repo: Repo, user: User, prefs: UiPrefs) -> User:
     return updated
 
 
-def toggle_hidden(prefs: UiPrefs, key: str) -> UiPrefs:
-    if key not in HIDEABLE_TYPES:
+def toggle_tracked(prefs: UiPrefs, key: str) -> UiPrefs:
+    if key not in TRACKABLE_TYPES:
         return prefs
-    hidden = set(prefs.hidden)
-    if key in hidden:
-        hidden.remove(key)
+    tracked = set(prefs.tracked)
+    if key in tracked:
+        tracked.remove(key)
     else:
-        hidden.add(key)
-    prefs.hidden = hidden
+        tracked.add(key)
+    prefs.tracked = tracked
     return prefs

@@ -227,8 +227,8 @@ class Repo:
             )
             await self.conn.execute(
                 """
-                INSERT INTO user_settings (telegram_id, default_sleep_time)
-                VALUES (?, ?)
+                INSERT INTO user_settings (telegram_id, default_sleep_time, ui_prefs_json)
+                VALUES (?, ?, '{"tracked": []}')
                 """,
                 (telegram_id, default_sleep_time),
             )

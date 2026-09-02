@@ -33,9 +33,11 @@ from keyboards.main import (
     steps_day_kb,
     steps_value_kb,
     timezone_kb,
+    track_metrics_kb,
     when_kb,
 )
 from handlers.time_pick import time_pick_back_action
+from services.ui_prefs import TRACKABLE_TYPES
 from states.diary import TimePickSG
 from utils.callbacks import (
     ENTRY_ACT,
@@ -183,9 +185,11 @@ def test_legal_page_kb_paginates_and_returns():
 def test_settings_kb_includes_legal_docs():
     user = SimpleNamespace(timezone="Europe/Moscow", default_sleep_time="23:00")
     pairs = _pairs(settings_kb(user))
+    assert ("📋 Метрики", "set:trk") in pairs
     assert ("📄 Политика конфиденциальности", "lg:p:0:s") in pairs
     assert ("📜 Пользовательское соглашение", "lg:t:0:s") in pairs
     assert ("🗑 Удалить аккаунт", "set:del") in pairs
+    assert all(text != "📋 Кнопки меню" for text, _ in pairs)
 
 
 def test_timezone_registration_has_no_menu_cancel():
@@ -260,7 +264,8 @@ def test_steps_day_and_value_keyboards():
 
 
 def test_main_menu_custom_metrics_button():
-    pairs = _pairs(main_menu(SimpleNamespace(), False))
+    tracked = {"custom", "steps", "weight", "markers"}
+    pairs = _pairs(main_menu(SimpleNamespace(), False, tracked=tracked))
     assert ("📌 Кастом", "n:cm") in pairs
     assert ("🚶 Шаги", "e:stp") in pairs
     assert ("⚖️ Вес", "e:wgt") in pairs
@@ -271,6 +276,13 @@ def test_main_menu_custom_metrics_button():
     assert all("Самочувствие" not in text for text, _ in pairs)
     assert all("Заметка" not in text for text, _ in pairs)
     assert all("Оценить день" not in text for text, _ in pairs)
+    empty = {t for t, _ in _pairs(main_menu(SimpleNamespace(), False))}
+    assert "📌 Кастом" not in empty
+    assert "🚶 Шаги" not in empty
+    assert "🚬 Сигарета" not in empty
+    assert "😴 Сон" not in empty
+    assert "📊 Статистика" in empty
+    assert "⚙️ Настройки" in empty
 
 
 def test_custom_metrics_list_has_quick_add():
@@ -418,11 +430,13 @@ def test_score_kb_is_one_row():
 def test_main_menu_collapses_idle_sleep_and_hides_types():
     from utils.callbacks import ENTRY_SLEEP
 
-    pairs = _pairs(main_menu(SimpleNamespace(), False))
+    pairs = _pairs(main_menu(SimpleNamespace(), False, tracked={"sleep", "cigarettes"}))
     assert ("😴 Сон", ENTRY_SLEEP) in pairs
     assert "slp:wake" not in {cb for _, cb in pairs}
-    hidden = _pairs(main_menu(SimpleNamespace(), False, hidden={"caffeine", "alcohol", "fooling", "snus", "steps", "weight"}))
-    texts = {t for t, _ in hidden}
+    selected = _pairs(
+        main_menu(SimpleNamespace(), False, tracked={"cigarettes", "sleep"})
+    )
+    texts = {t for t, _ in selected}
     assert "☕ Кофеин" not in texts
     assert "🍺 Алкоголь" not in texts
     assert "🤌 Валять дурака" not in texts
@@ -435,16 +449,28 @@ def test_main_menu_collapses_idle_sleep_and_hides_types():
 
 def test_main_menu_sleep_actions_use_two_rows():
     sleep = SimpleNamespace(phase=lambda: "need_onset")
-    rows = [[btn.text for btn in row] for row in main_menu(SimpleNamespace(), False, sleep).inline_keyboard]
+    rows = [
+        [btn.text for btn in row]
+        for row in main_menu(SimpleNamespace(), False, sleep, tracked={"sleep"}).inline_keyboard
+    ]
     assert ["Заснул?", "Проснулся"] in rows
     assert ["Лёг с телефоном", "Лёг без телефона"] in rows
 
 
+def test_main_menu_keeps_open_sleep_without_tracking():
+    sleep = SimpleNamespace(phase=lambda: "need_onset")
+    pairs = _pairs(main_menu(SimpleNamespace(), False, sleep))
+    assert "slp:askonset" in {cb for _, cb in pairs}
+    assert "🚬 Сигарета" not in {t for t, _ in pairs}
+
+
 def test_main_menu_shows_pinned_metric():
     metric = SimpleNamespace(id=9, name="Вода")
-    pairs = _pairs(main_menu(SimpleNamespace(), False, pinned=[metric]))
+    pairs = _pairs(main_menu(SimpleNamespace(), False, tracked={"custom"}, pinned=[metric]))
     assert ("Вода", "cm:o:9") in pairs
     assert ("➕", "cm:add:9") in pairs
+    hidden_pins = _pairs(main_menu(SimpleNamespace(), False, pinned=[metric]))
+    assert ("Вода", "cm:o:9") not in hidden_pins
 
 
 def test_period_metric_uses_start_end_buttons():
@@ -466,7 +492,11 @@ def test_period_metric_uses_start_end_buttons():
 
 def test_main_menu_shows_pinned_period_metric():
     metric = SimpleNamespace(id=9, name="Ванная", data_type="period")
-    pairs = _pairs(main_menu(SimpleNamespace(), False, pinned=[metric], open_metric_ids={9}))
+    pairs = _pairs(
+        main_menu(
+            SimpleNamespace(), False, tracked={"custom"}, pinned=[metric], open_metric_ids={9}
+        )
+    )
     assert ("Ванная · идёт", "cm:o:9") in pairs
     assert ("▶️", "cm:st:9") in pairs
     assert ("⏹", "cm:en:9") in pairs
@@ -512,6 +542,19 @@ def test_history_day_kb_paginates_and_neighbors():
     assert pairs["«"] == "h:p:0"
     assert pairs["2/3"] == "noop"
     assert pairs["»"] == "h:p:2"
+
+
+def test_track_metrics_kb_toggles_like_stats():
+    pairs = dict(_pairs(track_metrics_kb({"cigarettes", "sleep"})))
+    assert pairs["☑ 🚬 Сигареты"] == "set:trk:cigarettes"
+    assert pairs["☑ 😴 Сон"] == "set:trk:sleep"
+    assert pairs["☐ 🚶 Шаги"] == "set:trk:steps"
+    assert pairs["☐ 📌 Кастом"] == "set:trk:custom"
+    assert {cb for cb in pairs.values() if cb.startswith("set:trk:")} == {
+        f"set:trk:{key}" for key in TRACKABLE_TYPES
+    }
+    empty = dict(_pairs(track_metrics_kb(set())))
+    assert all(text.startswith("☐ ") for text in empty if text not in {"⬅️ Назад", "🏠 Меню"})
 
 
 def test_stats_metrics_kb_includes_custom():

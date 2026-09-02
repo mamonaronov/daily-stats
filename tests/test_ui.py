@@ -13,8 +13,8 @@ from services.history import PAGE_SIZE, build_timeline, paginate
 from services.notices import send_coverage_notices
 from services.paid import report_payment
 from services.statistics import render_stats
-from services.today import day_snapshot, sleep_status_line
-from services.ui_prefs import MAX_PINS, prefs_of, save_prefs, toggle_hidden
+from services.today import EMPTY_TRACKED_HINT, day_snapshot, sleep_status_line, today_block
+from services.ui_prefs import MAX_PINS, TRACKABLE_TYPES, parse_ui_prefs, prefs_of, save_prefs, toggle_tracked
 from tests.conftest import make_config
 from utils.time import now_utc, to_iso, user_today
 
@@ -48,6 +48,9 @@ async def test_today_snapshot_and_menu_text(repo):
     assert "Сегодня" in text
     assert "🚬 2" in text
     assert "лёг" in text
+    assert "🟢" not in snap.as_text({"cigarettes", "sleep"})
+    assert snap.as_text(set()) == ""
+    assert await today_block(repo, user) == EMPTY_TRACKED_HINT
 
 
 def test_tz_prompt_does_not_promise_reminders():
@@ -68,6 +71,8 @@ def test_first_start_explains_purpose_and_capabilities():
     assert "напомним" not in text
     assert HOW_TO.startswith("📓")
     assert "для чего" in HOW_TO.lower()
+    assert "настройк" in HOW_TO.lower()
+    assert "галочк" in HOW_TO.lower()
 
 
 def test_bot_commands_exist():
@@ -151,13 +156,16 @@ async def test_report_payment_notifies_owner_without_changing_balance(repo, tmp_
 
 
 @pytest.mark.asyncio
-async def test_hidden_types_and_pin_limit(repo):
+async def test_tracked_metrics_default_empty_and_pin_limit(repo):
     user = await repo.create_user(30, "d", "Дима", None, "UTC", 10, "23:00")
     prefs = prefs_of(user)
-    assert prefs.hidden == set()
-    prefs = toggle_hidden(prefs, "caffeine")
+    assert prefs.tracked == set()
+    prefs = toggle_tracked(prefs, "caffeine")
     user = await save_prefs(repo, user, prefs)
-    assert "caffeine" in prefs_of(user).hidden
+    assert prefs_of(user).tracked == {"caffeine"}
+    prefs = toggle_tracked(prefs_of(user), "caffeine")
+    user = await save_prefs(repo, user, prefs)
+    assert prefs_of(user).tracked == set()
 
     ids = []
     for name in ("Вода", "Шаги", "Вес"):
@@ -168,6 +176,21 @@ async def test_hidden_types_and_pin_limit(repo):
     pinned = [item for item in metrics if item.pinned]
     assert len(pinned) == 3
     assert MAX_PINS == 3
+
+
+def test_parse_ui_prefs_migrates_hidden_and_keeps_legacy_all_on():
+    legacy = parse_ui_prefs(None)
+    assert legacy.tracked == set(TRACKABLE_TYPES)
+    hidden = parse_ui_prefs('{"hidden": ["caffeine", "snus"], "onboarded": true}')
+    assert "caffeine" not in hidden.tracked
+    assert "snus" not in hidden.tracked
+    assert "cigarettes" in hidden.tracked
+    assert "sleep" in hidden.tracked
+    assert hidden.onboarded is True
+    empty = parse_ui_prefs('{"tracked": []}')
+    assert empty.tracked == set()
+    picked = parse_ui_prefs('{"tracked": ["sleep", "nope"]}')
+    assert picked.tracked == {"sleep"}
 
 
 @pytest.mark.asyncio

@@ -15,9 +15,9 @@ from keyboards.main import (
     cancel_kb,
     confirm_delete_kb,
     export_period_kb,
-    menu_types_kb,
     settings_kb,
     timezone_kb,
+    track_metrics_kb,
 )
 from states.diary import SettingsSG
 from utils.callbacks import NAV_SETTINGS
@@ -178,29 +178,29 @@ async def delete_yes(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
     )
 
 
-@router.callback_query(F.data == "set:vis")
-async def vis_root(cb: CallbackQuery, db_user: User | None) -> None:
+@router.callback_query(F.data == "set:trk")
+async def track_root(cb: CallbackQuery, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
     from services.ui_prefs import prefs_of
 
     await cb.answer()
-    await safe_edit(cb.message, "Что показывать в главном меню:", menu_types_kb(prefs_of(user).hidden))
+    await safe_edit(cb.message, "Какие метрики вести:", track_metrics_kb(prefs_of(user).tracked))
 
 
-@router.callback_query(F.data.startswith("set:vis:"))
-async def vis_toggle(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+@router.callback_query(F.data.startswith("set:trk:"))
+async def track_toggle(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
-    from services.ui_prefs import prefs_of, save_prefs, toggle_hidden
+    from services.ui_prefs import prefs_of, save_prefs, toggle_tracked
 
     key = cb.data.split(":")[2]
-    prefs = toggle_hidden(prefs_of(user), key)
+    prefs = toggle_tracked(prefs_of(user), key)
     user = await save_prefs(repo, user, prefs)
     await cb.answer("Сохранено")
-    await safe_edit(cb.message, "Что показывать в главном меню:", menu_types_kb(prefs.hidden))
+    await safe_edit(cb.message, "Какие метрики вести:", track_metrics_kb(prefs.tracked))
 
 
 @router.callback_query(F.data == "set:exp")
