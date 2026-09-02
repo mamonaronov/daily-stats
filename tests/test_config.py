@@ -55,6 +55,16 @@ def test_spam_alert_defaults_and_env(monkeypatch):
     assert cfg.spam_button_count == 12
 
 
+def test_clicks_db_path_from_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "database.sqlite3"))
+    monkeypatch.setenv("CLICKS_DB_PATH", str(tmp_path / "analytics.sqlite3"))
+    monkeypatch.setattr("config.load_dotenv", lambda: None)
+    cfg = load_config()
+    assert cfg.clicks_db_path == tmp_path / "analytics.sqlite3"
+
+
 def test_bot_session_without_proxy():
     from bot import _bot_session
     from utils.telegram_session import AbandonableAiohttpSession

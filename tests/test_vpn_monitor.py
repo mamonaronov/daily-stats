@@ -427,6 +427,7 @@ def test_vpn_monitor_config_from_env(monkeypatch):
     monkeypatch.setenv("MIHOMO_API_SECRET", "not-a-real-secret")
     monkeypatch.setenv("VPN_MONITOR_INTERVAL_SECONDS", "10")
     monkeypatch.delenv("VPN_DB_PATH", raising=False)
+    monkeypatch.delenv("CLICKS_DB_PATH", raising=False)
     monkeypatch.delenv("VPN_LOG_KEEP_DAYS", raising=False)
     monkeypatch.setattr("config.load_dotenv", lambda: None)
     from config import load_config
@@ -437,6 +438,7 @@ def test_vpn_monitor_config_from_env(monkeypatch):
     assert cfg.mihomo_proxy_group == "AUTO"
     assert cfg.vpn_log_keep_days == 31
     assert cfg.vpn_db_path.name == "vpn.sqlite3"
+    assert cfg.clicks_db_path.name == "clicks.sqlite3"
 
 
 def test_vpn_monitor_job_is_not_scheduled_immediately(tmp_path):

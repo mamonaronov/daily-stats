@@ -153,3 +153,25 @@ class SpamWatchMiddleware(BaseMiddleware):
             except Exception:
                 logger.exception("Spam watch button observe failed")
         return await handler(event, data)
+
+
+class ClickStatsMiddleware(BaseMiddleware):
+    """Persist every real button tap in the separate clicks database."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, CallbackQuery) and event.from_user is not None:
+            try:
+                from services.click_stats import record_callback_click
+
+                repo: Repo | None = data.get("repo")
+                config: Config | None = data.get("config")
+                if repo is not None and config is not None:
+                    await record_callback_click(repo, config, event)
+            except Exception:
+                logger.exception("Click stats record failed")
+        return await handler(event, data)

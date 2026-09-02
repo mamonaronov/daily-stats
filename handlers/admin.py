@@ -38,6 +38,7 @@ from services.broadcast import (
     normalize_audience,
     send_broadcast,
 )
+from services.click_stats import admin_click_summary_lines
 from services.statistics import render_stats
 from services.telegram_backup import (
     backup_interval_caption,
@@ -126,6 +127,8 @@ async def admin_root(cb: CallbackQuery, state: FSMContext, config: Config, repo:
     await state.clear()
     counts = await repo.user_stats_counts()
     extra = await _admin_status_lines(repo, config)
+    tz_name = await _owner_timezone(repo, config)
+    click_lines = await admin_click_summary_lines(repo, tz_name)
     text = (
         "🛠 <b>Админ-панель</b>\n\n"
         f"Всего пользователей: {counts.get('total', 0)}\n"
@@ -136,6 +139,8 @@ async def admin_root(cb: CallbackQuery, state: FSMContext, config: Config, repo:
         f"{extra[0]}\n"
         f"{extra[1]}"
     )
+    if click_lines:
+        text = text + "\n\n" + "\n".join(click_lines)
     await cb.answer()
     await safe_edit(cb.message, text, admin_root_kb())
 

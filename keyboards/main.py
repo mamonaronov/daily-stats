@@ -844,8 +844,9 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.row(_btn("👥 Пользователи", "ad:users"), _btn("🔎 Поиск", "ad:search"))
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
     b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🖴 Аптайм", "ad:vpn"))
-    b.row(_btn("⚙️ Настройки", "ad:cfg"), _btn("🗄 База данных", "ad:dbe"))
-    b.row(_btn("📦 Бэкапы", "ad:bk"), _btn("📢 Рассылка", "ad:bc"))
+    b.row(_btn("🖱 Нажатия", "ad:clk"), _btn("⚙️ Настройки", "ad:cfg"))
+    b.row(_btn("🗄 База данных", "ad:dbe"), _btn("📦 Бэкапы", "ad:bk"))
+    b.row(_btn("📢 Рассылка", "ad:bc"))
     return with_nav(b)
 
 
@@ -910,6 +911,24 @@ def admin_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "ads:today"), _btn("7 дней", "ads:7"), _btn("30 дней", "ads:30"))
     b.row(_btn("Всё время", "ads:all"))
+    b.row(_btn("🛠 Админка", NAV_ADMIN))
+    return b.as_markup()
+
+
+def admin_clicks_kb(period: str = "today") -> InlineKeyboardMarkup:
+    if period not in {"today", "7", "30", "all"}:
+        period = "today"
+    b = InlineKeyboardBuilder()
+    b.row(
+        _btn(("• " if period == "today" else "") + "Сегодня", "adclk:today"),
+        _btn(("• " if period == "7" else "") + "7 дней", "adclk:7"),
+    )
+    b.row(
+        _btn(("• " if period == "30" else "") + "30 дней", "adclk:30"),
+        _btn(("• " if period == "all" else "") + "Всё время", "adclk:all"),
+    )
+    span = {"today": "сегодня", "7": "7 дней", "30": "30 дней", "all": "всё время"}[period]
+    b.row(_btn(f"📈 Графики за {span}", f"adclkc:{period}"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 

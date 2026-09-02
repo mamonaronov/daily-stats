@@ -70,6 +70,7 @@ class Config:
     default_sleep_time: str
     db_path: Path
     vpn_db_path: Path
+    clicks_db_path: Path
     backup_path: Path
     backup_interval_hours: int
     backup_keep: int
@@ -113,6 +114,9 @@ def load_config() -> Config:
         default_sleep_time=os.getenv("DEFAULT_SLEEP_TIME", "23:00").strip(),
         db_path=db_path,
         vpn_db_path=Path(os.getenv("VPN_DB_PATH", "").strip() or str(db_path.with_name("vpn.sqlite3"))),
+        clicks_db_path=Path(
+            os.getenv("CLICKS_DB_PATH", "").strip() or str(db_path.with_name("clicks.sqlite3"))
+        ),
         backup_path=backup_path,
         backup_interval_hours=_int("BACKUP_INTERVAL_HOURS", 6),
         backup_keep=_int("BACKUP_KEEP", 14),

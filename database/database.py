@@ -11,6 +11,7 @@ from pathlib import Path
 import aiosqlite
 
 from config import Config
+from database.clicks_database import ClicksDatabase
 from database.vpn_database import (
     VpnDatabase,
     diary_vpn_rowcount,
@@ -47,12 +48,13 @@ _SKIP_BACKUP_PREFIXES = (
     "rejected-restore",
     "incoming-restore",
 )
+_SKIP_BACKUP_NAMES = frozenset({"vpn.sqlite3", "clicks.sqlite3"})
 
 
 def is_managed_sqlite_backup(path: Path) -> bool:
     if not path.is_file() or not path.name.endswith(".sqlite3"):
         return False
-    if path.name == "vpn.sqlite3":
+    if path.name in _SKIP_BACKUP_NAMES:
         return False
     return not path.name.startswith(_SKIP_BACKUP_PREFIXES)
 
@@ -102,6 +104,7 @@ class Database:
         self.backup_dir = config.backup_path
         self._conn: aiosqlite.Connection | None = None
         self.vpn_db: VpnDatabase | None = None
+        self.clicks_db: ClicksDatabase | None = None
         self._vacuum_diary_after_vpn_move = False
 
     @property
@@ -125,6 +128,12 @@ class Database:
             except Exception:
                 logger.exception("VPN database close failed")
             self.vpn_db = None
+        if self.clicks_db is not None:
+            try:
+                await self.clicks_db.close()
+            except Exception:
+                logger.exception("Clicks database close failed")
+            self.clicks_db = None
         if self._conn is not None:
             try:
                 await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -226,6 +235,11 @@ class Database:
             self.conn, self.vpn_db, self.config.vpn_log_keep_days
         )
         self._vacuum_diary_after_vpn_move = legacy_rows > 0
+
+    async def _init_clicks_database(self) -> None:
+        if self.clicks_db is None:
+            self.clicks_db = ClicksDatabase(self.config)
+            await self.clicks_db.initialize()
 
     async def _finish_vpn_move(self) -> None:
         if self._vacuum_diary_after_vpn_move:
@@ -370,6 +384,7 @@ class Database:
                     )
                 await self.restore_from(backup)
         await self._init_vpn_database()
+        await self._init_clicks_database()
         await self.migrate()
         if not await self.integrity_ok():
             raise DatabaseUnrecoverableError("Database failed integrity_check after migrate")

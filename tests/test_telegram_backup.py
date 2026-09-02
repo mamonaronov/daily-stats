@@ -297,6 +297,7 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
             tar.extract(db_member, path=tmp_path / "extracted")
         assert any(name.endswith("database.sqlite3") or name == "./database.sqlite3" for name in names)
         assert not any("vpn.sqlite3" in name for name in names)
+        assert not any("clicks.sqlite3" in name for name in names)
         extracted = next((tmp_path / "extracted").rglob("database.sqlite3"))
         import sqlite3
 

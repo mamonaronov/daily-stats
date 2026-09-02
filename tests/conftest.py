@@ -19,6 +19,7 @@ def make_config(tmp_path: Path) -> Config:
         default_sleep_time="23:00",
         db_path=tmp_path / "database.sqlite3",
         vpn_db_path=tmp_path / "vpn.sqlite3",
+        clicks_db_path=tmp_path / "clicks.sqlite3",
         backup_path=tmp_path / "backups",
         backup_interval_hours=6,
         backup_keep=5,

@@ -21,6 +21,7 @@ from database.queries import Repo
 from handlers import setup_routers
 from middlewares import (
     CallbackIdempotencyMiddleware,
+    ClickStatsMiddleware,
     ContextMiddleware,
     ErrorIsolationMiddleware,
     SpamWatchMiddleware,
@@ -275,6 +276,7 @@ async def run() -> None:
     dp.update.outer_middleware(UserMiddleware())
     dp.callback_query.outer_middleware(CallbackIdempotencyMiddleware())
     dp.callback_query.outer_middleware(SpamWatchMiddleware())
+    dp.callback_query.outer_middleware(ClickStatsMiddleware())
     dp.include_router(setup_routers())
 
     @dp.error()

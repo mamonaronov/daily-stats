@@ -306,6 +306,7 @@ def test_admin_restore_keyboards_callback_limit():
     root = [btn.callback_data for row in admin_root_kb().inline_keyboard for btn in row]
     assert "ad:bk" in root
     assert "ad:bc" in root
+    assert "ad:clk" in root
     assert "ad:upd" not in root
     assert "ad:rst" not in root
     backups = [btn.callback_data for row in admin_backups_kb().inline_keyboard for btn in row]

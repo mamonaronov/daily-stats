@@ -51,6 +51,7 @@ def test_privacy_covers_actual_processing():
         "идентификатор аккаунта Telegram",
         "дневник",
         "резервн",
+        "нажат",
         "физически не стираются",
         "152-ФЗ",
         "@owner",
