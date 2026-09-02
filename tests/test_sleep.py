@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from handlers.common import prompt_with_hint
+from handlers.sleep import bed_times_hint, onset_prompt_text
 from services.entries import (
     add_sleep_onset,
     add_sleep_phone_away,
@@ -237,3 +240,55 @@ async def test_undo_snus_finish_reopens_pack(repo):
     assert rec is not None
     assert rec.finished_at is None
     assert rec.duration_minutes is None
+
+
+def _user_tz(name: str = "UTC"):
+    return SimpleNamespace(timezone=name)
+
+
+def test_onset_prompt_shows_phone_in_and_away():
+    rec = SimpleNamespace(
+        phone_in_bed_at="2026-08-16T20:00:00+00:00",
+        phone_away_at="2026-08-16T20:40:00+00:00",
+        bedtime="2026-08-16T20:00:00+00:00",
+    )
+    text = onset_prompt_text(_user_tz(), rec)
+    assert text.startswith("Когда заснули?")
+    assert "Лёг с телефоном: 16 августа 20:00" in text
+    assert "Без телефона: 16 августа 20:40" in text
+    assert "Лёг без телефона" not in text
+
+
+def test_onset_prompt_nophone_only():
+    rec = SimpleNamespace(
+        phone_in_bed_at=None,
+        phone_away_at="2026-08-16T21:15:00+00:00",
+        bedtime="2026-08-16T21:15:00+00:00",
+    )
+    hint = bed_times_hint(_user_tz(), rec)
+    assert hint == "Лёг без телефона: 16 августа 21:15"
+    assert "Лёг с телефоном" not in onset_prompt_text(_user_tz(), rec)
+
+
+def test_onset_prompt_phone_only_and_empty():
+    rec = SimpleNamespace(
+        phone_in_bed_at="2026-08-16T22:00:00+00:00",
+        phone_away_at=None,
+        bedtime="2026-08-16T22:00:00+00:00",
+    )
+    assert bed_times_hint(_user_tz(), rec) == "Лёг с телефоном: 16 августа 22:00"
+    assert onset_prompt_text(_user_tz(), None) == "Когда заснули?"
+    assert bed_times_hint(_user_tz(), None) == ""
+
+
+def test_onset_prompt_legacy_bedtime():
+    rec = SimpleNamespace(phone_in_bed_at=None, phone_away_at=None, bedtime="2026-08-16T23:00:00+00:00")
+    assert bed_times_hint(_user_tz(), rec) == "Лёг спать: 16 августа 23:00"
+
+
+def test_prompt_with_hint_appends_bed_times():
+    hint = "Лёг с телефоном: 16 августа 20:00\nБез телефона: 16 августа 20:40"
+    text = prompt_with_hint("Выберите час — можно уже прошедший:", {"time_hint": hint})
+    assert text.startswith("Выберите час")
+    assert "Лёг с телефоном: 16 августа 20:00" in text
+    assert prompt_with_hint("Когда заснули?", {}) == "Когда заснули?"

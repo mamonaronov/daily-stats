@@ -160,6 +160,13 @@ async def require_writable(event: CallbackQuery | Message, user: User | None) ->
     return user
 
 
+def prompt_with_hint(text: str, data: dict | None = None) -> str:
+    hint = str((data or {}).get("time_hint") or "").strip()
+    if not hint:
+        return text
+    return f"{text}\n\n{hint}"
+
+
 async def ask_when_after_amount(event: CallbackQuery | Message, state: FSMContext) -> None:
     data = await state.get_data()
     prefix = "caft" if data.get("amount_kind") == "caf" else "alct"
@@ -218,11 +225,18 @@ async def start_time_pick(
         await cb.answer()
         await safe_edit(
             cb.message,
-            f"Дата: {today.isoformat()} (сегодня)\nВыберите час — можно уже прошедший:",
+            prompt_with_hint(
+                f"Дата: {today.isoformat()} (сегодня)\nВыберите час — можно уже прошедший:",
+                payload,
+            ),
             hours_kb(date_shortcuts=True, back=NAV_BACK),
         )
         return
     await state.set_state(TimePickSG.date)
     await state.update_data(**payload)
     await cb.answer()
-    await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month, back=NAV_BACK))
+    await safe_edit(
+        cb.message,
+        prompt_with_hint("Выберите дату:", payload),
+        calendar_kb(today.year, today.month, back=NAV_BACK),
+    )

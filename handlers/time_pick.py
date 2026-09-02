@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable, show_main
+from handlers.common import prompt_with_hint, require_writable, show_main
 from keyboards.main import (
     ago_pick_kb,
     back_kb,
@@ -323,13 +323,17 @@ def _onset_undo(data: dict) -> tuple[str | None, int | None]:
     return kind, int(raw_id) if raw_id is not None else None
 
 
+def _onset_screen_text(data: dict) -> str:
+    return data.get("onset_prompt") or prompt_with_hint("Когда заснули?", data)
+
+
 async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) -> None:
     prefix = data.get("when_prefix") or "cig"
     await cb.answer()
     if prefix == "slo":
         undo_kind, undo_id = _onset_undo(data)
         await state.set_state(None)
-        await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
+        await safe_edit(cb.message, _onset_screen_text(data), sleep_onset_kb(undo_kind, undo_id))
         return
     if prefix in {"slw", "slu", "slb", "sln"}:
         await state.set_state(SleepSG.when)
@@ -379,7 +383,11 @@ async def when_ago_ask(cb: CallbackQuery, state: FSMContext, db_user: User | Non
     await _prepare_when_purpose(state, prefix, user)
     await state.set_state(TimePickSG.ago_pick)
     await cb.answer()
-    await safe_edit(cb.message, "Сколько времени назад это было?", ago_pick_kb(prefix))
+    await safe_edit(
+        cb.message,
+        prompt_with_hint("Сколько времени назад это было?", await state.get_data()),
+        ago_pick_kb(prefix),
+    )
 
 
 @router.callback_query(F.data.regexp(_WHEN_RE + r":agon$"), TimePickSG.ago_pick)
@@ -388,7 +396,11 @@ async def when_ago_number(cb: CallbackQuery, state: FSMContext, db_user: User | 
         return
     await state.set_state(TimePickSG.ago_minutes)
     await cb.answer()
-    await safe_edit(cb.message, AGO_MINUTES_PROMPT, back_kb(NAV_BACK))
+    await safe_edit(
+        cb.message,
+        prompt_with_hint(AGO_MINUTES_PROMPT, await state.get_data()),
+        back_kb(NAV_BACK),
+    )
 
 
 @router.callback_query(F.data.regexp(_WHEN_RE + r":txt$"))
@@ -400,7 +412,11 @@ async def when_text_ask(cb: CallbackQuery, state: FSMContext, db_user: User | No
     await _prepare_when_purpose(state, prefix, user)
     await state.set_state(TimePickSG.when_text)
     await cb.answer()
-    await safe_edit(cb.message, WHEN_TEXT_PROMPT, back_kb(NAV_BACK))
+    await safe_edit(
+        cb.message,
+        prompt_with_hint(WHEN_TEXT_PROMPT, await state.get_data()),
+        back_kb(NAV_BACK),
+    )
 
 
 @router.message(TimePickSG.ago_minutes)
@@ -468,9 +484,12 @@ async def pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     data = await state.get_data()
     await safe_edit(
         cb.message,
-        f"Дата: {day.isoformat()}\nВыберите час — можно уже прошедший:"
-        if data.get("time_date_shortcuts")
-        else f"Дата: {day.isoformat()}\nВыберите час:",
+        prompt_with_hint(
+            f"Дата: {day.isoformat()}\nВыберите час — можно уже прошедший:"
+            if data.get("time_date_shortcuts")
+            else f"Дата: {day.isoformat()}\nВыберите час:",
+            data,
+        ),
         hours_kb(date_shortcuts=bool(data.get("time_date_shortcuts"))),
     )
 
@@ -504,7 +523,7 @@ async def _restore_before_time_pick(
         if prefix == "slo":
             undo_kind, undo_id = _onset_undo(data)
             await cb.answer()
-            await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
+            await safe_edit(cb.message, _onset_screen_text(data), sleep_onset_kb(undo_kind, undo_id))
             return
         if prefix in {"slw", "slu", "slb", "sln"}:
             await state.set_state(SleepSG.when)
@@ -514,7 +533,7 @@ async def _restore_before_time_pick(
     if exit_to in {"sleep", "slp_onset"}:
         undo_kind, undo_id = _onset_undo(data)
         await cb.answer()
-        await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
+        await safe_edit(cb.message, _onset_screen_text(data), sleep_onset_kb(undo_kind, undo_id))
         return
     if exit_to == "snus":
         from handlers.snus import show_snus_menu
@@ -576,21 +595,32 @@ async def time_pick_back(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
         prefix = data.get("when_prefix") or "cig"
         await state.set_state(TimePickSG.ago_pick)
         await cb.answer()
-        await safe_edit(cb.message, "Сколько времени назад это было?", ago_pick_kb(prefix))
+        await safe_edit(
+            cb.message,
+            prompt_with_hint("Сколько времени назад это было?", data),
+            ago_pick_kb(prefix),
+        )
         return
     today = user_today(data.get("tz") or user.timezone)
     if action == "date":
         day = date.fromisoformat(data.get("picked_date") or today.isoformat())
         await state.set_state(TimePickSG.date)
         await cb.answer()
-        await safe_edit(cb.message, "Выберите дату:", calendar_kb(day.year, day.month, back=NAV_BACK))
+        await safe_edit(
+            cb.message,
+            prompt_with_hint("Выберите дату:", data),
+            calendar_kb(day.year, day.month, back=NAV_BACK),
+        )
         return
     day = date.fromisoformat(data.get("picked_date") or today.isoformat())
     await state.set_state(TimePickSG.hour)
     await cb.answer()
     await safe_edit(
         cb.message,
-        _hours_prompt(day, today) if data.get("time_date_shortcuts") else f"Дата: {day.isoformat()}\nВыберите час:",
+        prompt_with_hint(
+            _hours_prompt(day, today) if data.get("time_date_shortcuts") else f"Дата: {day.isoformat()}\nВыберите час:",
+            data,
+        ),
         hours_kb(date_shortcuts=bool(data.get("time_date_shortcuts"))),
     )
 
@@ -629,7 +659,11 @@ async def hour_date_shortcut(cb: CallbackQuery, state: FSMContext, db_user: User
     if token == "calendar":
         await state.set_state(TimePickSG.date)
         await cb.answer()
-        await safe_edit(cb.message, "Выберите дату:", calendar_kb(today.year, today.month, back=NAV_BACK))
+        await safe_edit(
+            cb.message,
+            prompt_with_hint("Выберите дату:", data),
+            calendar_kb(today.year, today.month, back=NAV_BACK),
+        )
         return
     try:
         day = parse_calendar_token(token, today)
@@ -638,7 +672,11 @@ async def hour_date_shortcut(cb: CallbackQuery, state: FSMContext, db_user: User
         return
     await state.update_data(picked_date=day.isoformat())
     await cb.answer()
-    await safe_edit(cb.message, _hours_prompt(day, today), hours_kb(date_shortcuts=True))
+    await safe_edit(
+        cb.message,
+        prompt_with_hint(_hours_prompt(day, today), data),
+        hours_kb(date_shortcuts=True),
+    )
 
 
 @router.callback_query(F.data.startswith("hr:"), TimePickSG.hour)
@@ -646,15 +684,20 @@ async def pick_hour(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     if await require_writable(cb, db_user) is None:
         return
     token = cb.data.split(":", 1)[1]
+    data = await state.get_data()
     if token == "manual":
         await state.set_state(TimePickSG.manual)
         await cb.answer()
-        await safe_edit(cb.message, MANUAL_TIME_PROMPT, back_kb(NAV_BACK))
+        await safe_edit(cb.message, prompt_with_hint(MANUAL_TIME_PROMPT, data), back_kb(NAV_BACK))
         return
     await state.update_data(picked_hour=int(token))
     await state.set_state(TimePickSG.minute)
     await cb.answer()
-    await safe_edit(cb.message, f"Час: {int(token):02d}\nВыберите минуты:", minutes_kb())
+    await safe_edit(
+        cb.message,
+        prompt_with_hint(f"Час: {int(token):02d}\nВыберите минуты:", data),
+        minutes_kb(),
+    )
 
 
 @router.callback_query(F.data.startswith("mn:"), TimePickSG.minute)

@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from config import Config
-from database.models import User
+from database.models import SleepRecord, User
 from database.queries import Repo
 from handlers.common import require_writable, start_time_pick
 from handlers.history import show_saved_entry
@@ -18,9 +18,31 @@ from services import entries
 from states.diary import SleepSG
 from utils.callbacks import NAV_MAIN
 from utils.telegram import safe_edit
-from utils.time import user_now
+from utils.time import format_dt, parse_iso, user_now
 
 router = Router(name="sleep")
+
+
+def bed_times_hint(user: User, rec: SleepRecord | None) -> str:
+    if rec is None:
+        return ""
+    lines: list[str] = []
+    tz = user.timezone
+    if rec.phone_in_bed_at:
+        lines.append(f"Лёг с телефоном: {format_dt(parse_iso(rec.phone_in_bed_at), tz)}")
+    if rec.phone_away_at:
+        label = "Без телефона" if rec.phone_in_bed_at else "Лёг без телефона"
+        lines.append(f"{label}: {format_dt(parse_iso(rec.phone_away_at), tz)}")
+    elif rec.bedtime and not rec.phone_in_bed_at:
+        lines.append(f"Лёг спать: {format_dt(parse_iso(rec.bedtime), tz)}")
+    return "\n".join(lines)
+
+
+def onset_prompt_text(user: User, rec: SleepRecord | None) -> str:
+    hint = bed_times_hint(user, rec)
+    if not hint:
+        return "Когда заснули?"
+    return f"Когда заснули?\n\n{hint}"
 
 
 def _onset_extra(user: User, data: dict) -> dict:
@@ -28,7 +50,38 @@ def _onset_extra(user: User, data: dict) -> dict:
     if data.get("onset_undo_kind") is not None and data.get("onset_undo_id") is not None:
         extra["onset_undo_kind"] = data["onset_undo_kind"]
         extra["onset_undo_id"] = data["onset_undo_id"]
+    if data.get("time_hint"):
+        extra["time_hint"] = data["time_hint"]
+    if data.get("onset_prompt"):
+        extra["onset_prompt"] = data["onset_prompt"]
     return extra
+
+
+async def _onset_record(repo: Repo, user: User, data: dict) -> SleepRecord | None:
+    undo_id = data.get("onset_undo_id")
+    if undo_id is not None:
+        rec = await repo.get_sleep(int(undo_id), user.telegram_id)
+        if rec is not None:
+            return rec
+    return await repo.latest_sleep(user.telegram_id)
+
+
+async def _store_onset_prompt(
+    state: FSMContext,
+    user: User,
+    rec: SleepRecord | None,
+    *,
+    undo_kind: str | None,
+    undo_id: int | None,
+) -> str:
+    text = onset_prompt_text(user, rec)
+    await state.update_data(
+        onset_undo_kind=undo_kind,
+        onset_undo_id=undo_id,
+        onset_prompt=text,
+        time_hint=bed_times_hint(user, rec),
+    )
+    return text
 
 
 async def _prompt_onset(
@@ -36,10 +89,11 @@ async def _prompt_onset(
     state: FSMContext,
     undo_kind: str,
     undo_id: int,
+    user: User,
+    rec: SleepRecord | None,
 ) -> None:
     await state.clear()
-    await state.update_data(onset_undo_kind=undo_kind, onset_undo_id=undo_id)
-    text = "Когда заснули?"
+    text = await _store_onset_prompt(state, user, rec, undo_kind=undo_kind, undo_id=undo_id)
     markup = sleep_onset_kb(undo_kind, undo_id)
     if isinstance(event, CallbackQuery):
         await safe_edit(event.message, text, markup)
@@ -81,7 +135,7 @@ async def _maybe_prompt_onset(
     if rec is not None and rec.sleep_onset_at is None:
         if isinstance(event, CallbackQuery):
             await event.answer(toast)
-        await _prompt_onset(event, state, undo_kind, rec.id)
+        await _prompt_onset(event, state, undo_kind, rec.id, user, rec)
         return
     await show_saved_entry(event, repo, user, undo_kind, item_id, state, toast=toast)
 
@@ -344,16 +398,22 @@ async def sleep_up_time(cb: CallbackQuery, state: FSMContext, db_user: User | No
 
 
 @router.callback_query(F.data == "slp:askonset")
-async def sleep_ask_onset(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(cb, db_user) is None:
+async def sleep_ask_onset(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
         return
     data = await state.get_data()
+    undo_kind = data.get("onset_undo_kind")
+    undo_id = data.get("onset_undo_id")
+    rec = await _onset_record(repo, user, data)
+    text = await _store_onset_prompt(state, user, rec, undo_kind=undo_kind, undo_id=undo_id)
     await cb.answer()
-    await safe_edit(
-        cb.message,
-        "Когда заснули?",
-        sleep_onset_kb(data.get("onset_undo_kind"), data.get("onset_undo_id")),
-    )
+    await safe_edit(cb.message, text, sleep_onset_kb(undo_kind, undo_id))
 
 
 @router.callback_query(F.data.startswith("slp:later"))
@@ -387,11 +447,20 @@ async def sleep_onset_later(
 
 
 @router.callback_query(F.data.in_({"slp:onset", "slo:time"}))
-async def sleep_onset_pick(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def sleep_onset_pick(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    await start_time_pick(cb, state, "slp_onset", _onset_extra(user, await state.get_data()), skip_date=True)
+    extra = _onset_extra(user, await state.get_data())
+    rec = await _onset_record(repo, user, extra)
+    extra["time_hint"] = bed_times_hint(user, rec)
+    extra["onset_prompt"] = onset_prompt_text(user, rec)
+    await start_time_pick(cb, state, "slp_onset", extra, skip_date=True)
 
 
 @router.callback_query(F.data == "slo:now")
