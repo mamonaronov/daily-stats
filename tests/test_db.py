@@ -300,6 +300,20 @@ async def test_service_started_at_is_earliest_registration(repo):
 
 
 @pytest.mark.asyncio
+async def test_first_entry_at_is_earliest_record_not_registration(repo):
+    user = await repo.create_user(1, "a", "A", None, "UTC", 10, "23:00")
+    await repo.execute(
+        "UPDATE users SET registered_at = ? WHERE telegram_id = ?",
+        ("2026-08-01T00:00:00+00:00", user.telegram_id),
+    )
+    await repo.conn.commit()
+    assert await repo.first_entry_at(user.telegram_id) is None
+    await repo.add_cigarette(user.telegram_id, "2026-08-15T12:00:00+00:00")
+    await repo.add_snus_pack(user.telegram_id, "2026-08-10T08:00:00+00:00", None, None)
+    assert await repo.first_entry_at(user.telegram_id) == "2026-08-10T08:00:00+00:00"
+
+
+@pytest.mark.asyncio
 async def test_earliest_vpn_measured_at(repo):
     assert await repo.earliest_vpn_measured_at() is None
     await repo.insert_vpn_sample("2026-08-10T00:00:00+00:00", True, 20, "n", "s", None)

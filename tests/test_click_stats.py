@@ -28,6 +28,7 @@ def test_classify_button_kinds():
     assert classify_button("ad:clk") == "admin"
     assert classify_button("adclk:7") == "admin"
     assert classify_button("stp:yesterday") == "stats"
+    assert classify_button("stp:all") == "stats"
     assert classify_button("stp:q:10000") == "steps"
     assert classify_button("slp:wake") == "sleep"
     assert classify_button("cm:add:3") == "custom"

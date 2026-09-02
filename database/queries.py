@@ -1504,6 +1504,18 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         )
         return row["ts"] if row and row["ts"] else None
 
+    async def first_entry_at(self, telegram_id: int) -> str | None:
+        parts = [
+            f"SELECT {col} AS ts FROM {table} WHERE telegram_id = ?"
+            for table, col in _DIARY_COUNT_SPECS
+        ]
+        sql = " UNION ALL ".join(parts)
+        row = await self.fetchone(
+            f"SELECT MIN(ts) AS ts FROM ({sql})",
+            tuple(telegram_id for _ in _DIARY_COUNT_SPECS),
+        )
+        return str(row["ts"]) if row and row["ts"] else None
+
     async def count_entries_between(self, start: str, end: str) -> int:
         total = 0
         for table, col in _DIARY_COUNT_SPECS:

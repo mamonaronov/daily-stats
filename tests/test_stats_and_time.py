@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import pytest
+
 from services.statistics import cigarette_stats, pearson
 from utils.time import circular_mean_minutes, combine_local, day_bounds_utc
 
@@ -319,3 +321,30 @@ def test_alcohol_stats_include_volume():
     assert "Объём: 0,65 л" in text
     assert "пиво — 0,5 л" in text
     assert "вино — 150 мл" in text
+
+
+@pytest.mark.asyncio
+async def test_all_time_period_starts_at_first_entry_not_registration(repo, monkeypatch):
+    from handlers.statistics import _period
+
+    user = await repo.create_user(61, "u", "U", None, "UTC", 10, "23:00")
+    await repo.execute(
+        "UPDATE users SET registered_at = ? WHERE telegram_id = ?",
+        ("2026-08-01T00:00:00+00:00", user.telegram_id),
+    )
+    await repo.conn.commit()
+    monkeypatch.setattr("handlers.statistics.user_today", lambda _tz: date(2026, 8, 20))
+    empty_start, empty_end = await _period(repo, user, "all", {})
+    assert (empty_start, empty_end) == (date(2026, 8, 20), date(2026, 8, 20))
+
+    await repo.add_cigarette(user.telegram_id, "2026-08-15T12:00:00+00:00")
+    await repo.add_cigarette(user.telegram_id, "2026-08-10T08:00:00+00:00")
+    start, end = await _period(repo, user, "all", {})
+    assert start == date(2026, 8, 10)
+    assert end == date(2026, 8, 20)
+
+    msk = await repo.create_user(62, "m", "M", None, "Europe/Moscow", 10, "23:00")
+    await repo.add_cigarette(msk.telegram_id, "2026-08-09T22:00:00+00:00")
+    msk_start, msk_end = await _period(repo, msk, "all", {})
+    assert msk_start == date(2026, 8, 10)
+    assert msk_end == date(2026, 8, 20)

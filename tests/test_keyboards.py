@@ -418,6 +418,14 @@ def test_admin_period_kb_has_all_time():
     assert ("Сегодня", "ads:today") in pairs
     assert ("Всё время", "ads:all") in pairs
 
+
+def test_stats_period_kb_has_all_time():
+    from keyboards.main import stats_period_kb
+
+    pairs = _pairs(stats_period_kb())
+    assert ("Всё время", "stp:all") in pairs
+    assert ("30 дней", "stp:30") in pairs
+
 def test_score_kb_is_one_row():
     from utils.formatting import SCORE_EMOJI
 

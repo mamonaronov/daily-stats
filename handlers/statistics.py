@@ -18,7 +18,7 @@ from services.statistics import render_stats
 from states.diary import StatsSG
 from utils.callbacks import NAV_STATS
 from utils.telegram import png_file, safe_edit
-from utils.time import add_days, parse_calendar_token, user_today
+from utils.time import add_days, parse_calendar_token, parse_iso, to_user, user_today
 
 router = Router(name="statistics")
 
@@ -30,7 +30,7 @@ async def _metrics_kb(repo: Repo, user: User, selected: set[str]):
     return stats_metrics_kb(selected, custom)
 
 
-def _period(user: User, token: str, data: dict) -> tuple[date, date] | None:
+async def _period(repo: Repo, user: User, token: str, data: dict) -> tuple[date, date] | None:
     today = user_today(user.timezone)
     if token == "today":
         return today, today
@@ -40,6 +40,14 @@ def _period(user: User, token: str, data: dict) -> tuple[date, date] | None:
     if token in {"7", "14", "30"}:
         days = int(token)
         return add_days(today, -(days - 1)), today
+    if token == "all":
+        first = await repo.first_entry_at(user.telegram_id)
+        if not first:
+            return today, today
+        start = to_user(parse_iso(first), user.timezone).date()
+        if start > today:
+            start = today
+        return start, today
     if token == "custom":
         start = date.fromisoformat(data["range_start"])
         end = date.fromisoformat(data["range_end"])
@@ -155,7 +163,7 @@ async def stats_view(
     if not period:
         await cb.answer("Сначала выберите период", show_alert=True)
         return
-    bounds = _period(user, period, data)
+    bounds = await _period(repo, user, period, data)
     if bounds is None:
         await cb.answer("Период не выбран", show_alert=True)
         return

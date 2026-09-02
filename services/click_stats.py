@@ -85,6 +85,7 @@ _EXACT_KIND: dict[str, str] = {
     "stp:7": "stats",
     "stp:14": "stats",
     "stp:30": "stats",
+    "stp:all": "stats",
     "stp:range": "stats",
 }
 

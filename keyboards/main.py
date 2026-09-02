@@ -497,7 +497,8 @@ def stats_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "stp:today"), _btn("Вчера", "stp:yesterday"))
     b.row(_btn("7 дней", "stp:7"), _btn("14 дней", "stp:14"))
-    b.row(_btn("30 дней", "stp:30"), _btn("📆 Период", "stp:range"))
+    b.row(_btn("30 дней", "stp:30"), _btn("Всё время", "stp:all"))
+    b.row(_btn("📆 Период", "stp:range"))
     return with_nav(b)
 
 
