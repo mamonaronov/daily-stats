@@ -376,11 +376,27 @@ def test_when_kb_sleep_up_goes_back_to_sleep():
     assert pairs["⬅️ Назад"] == ENTRY_SLEEP
 
 
+def test_when_kb_sleep_bed_asks_time():
+    from utils.callbacks import ENTRY_SLEEP
+
+    phone = dict(_pairs(when_kb("slb")))
+    assert phone["Сейчас"] == "slb:now"
+    assert phone["🕐 Указать время"] == "slb:time"
+    assert phone["5 мин назад"] == "slb:ago:5"
+    assert phone["⬅️ Назад"] == ENTRY_SLEEP
+    nophone = dict(_pairs(when_kb("sln")))
+    assert nophone["Сейчас"] == "sln:now"
+    assert nophone["🕐 Указать время"] == "sln:time"
+    assert nophone["⬅️ Назад"] == ENTRY_SLEEP
+
+
 def test_sleep_when_prefixes_map_to_purposes():
     from handlers.time_pick import WHEN_TO_PURPOSE
 
     assert WHEN_TO_PURPOSE["slw"] == "slp_wake"
     assert WHEN_TO_PURPOSE["slu"] == "slp_up"
+    assert WHEN_TO_PURPOSE["slb"] == "slp_bed"
+    assert WHEN_TO_PURPOSE["sln"] == "slp_bed"
     assert WHEN_TO_PURPOSE["slo"] == "slp_onset"
     assert WHEN_TO_PURPOSE["cms"] == "cm_start"
     assert WHEN_TO_PURPOSE["cme"] == "cm_end"

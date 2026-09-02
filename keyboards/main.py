@@ -175,6 +175,8 @@ _WHEN_TITLES = {
     "wgt": "Когда взвесились?",
     "slw": "Когда проснулись?",
     "slu": "Когда встали?",
+    "slb": "Когда легли с телефоном?",
+    "sln": "Когда легли без телефона?",
     "slo": "Когда заснули?",
     "cmt": "Когда зафиксировать?",
     "cms": "Когда начали?",
@@ -191,6 +193,8 @@ _WHEN_BACK = {
     "wgt": ENTRY_WGT,
     "slw": "slp:ql",
     "slu": ENTRY_SLEEP,
+    "slb": ENTRY_SLEEP,
+    "sln": ENTRY_SLEEP,
     "mkt": NAV_MARKERS,
 }
 

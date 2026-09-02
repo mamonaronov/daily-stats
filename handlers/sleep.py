@@ -125,33 +125,69 @@ async def complete_sleep_up(
     await _maybe_prompt_onset(event, state, repo, user, item_id, "su", toast="Встали")
 
 
-@router.callback_query(F.data == "slp:phone")
-async def sleep_phone_in(
-    cb: CallbackQuery,
+def _bed_prefix(action: str | None) -> str:
+    return "sln" if action == "nophone" else "slb"
+
+
+async def _ask_bed_when(cb: CallbackQuery, state: FSMContext, action: str) -> None:
+    await state.set_state(SleepSG.when)
+    await state.update_data(sleep_action=action)
+    prefix = _bed_prefix(action)
+    await cb.answer()
+    await safe_edit(cb.message, when_title(prefix), when_kb(prefix))
+
+
+async def complete_sleep_bed(
+    event: CallbackQuery | Message,
     state: FSMContext,
     repo: Repo,
-    config: Config,
-    db_user: User | None,
-    is_owner: bool,
+    user: User,
+    when: datetime,
 ) -> None:
+    data = await state.get_data()
+    action = data.get("sleep_action")
+    if action is None and data.get("when_prefix") == "sln":
+        action = "nophone"
+    if action == "nophone":
+        item_id, error = await entries.add_sleep_phone_away(repo, user, when)
+        kind, toast = "sa", "Спокойной ночи"
+    else:
+        item_id, error = await entries.add_sleep_phone_in(repo, user, when)
+        kind, toast = "sp", "Спокойной ночи"
+    if error:
+        await _fail(event, error)
+        return
+    rec = await repo.get_sleep(item_id, user.telegram_id) if item_id else None
+    if rec is not None and rec.wake_time is not None:
+        await _maybe_prompt_onset(event, state, repo, user, item_id, kind, toast=toast)
+        return
+    await show_saved_entry(event, repo, user, kind, item_id, state, toast=toast)
+
+
+@router.callback_query(F.data == "slp:phone")
+async def sleep_phone_when(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    item_id, error = await entries.add_sleep_phone_in(repo, user, user_now(user.timezone))
-    if error:
-        await cb.answer(error, show_alert=True)
+    await state.clear()
+    await _ask_bed_when(cb, state, "phone")
+
+
+@router.callback_query(F.data == "slp:nophone")
+async def sleep_nophone_when(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
         return
-    await show_saved_entry(cb, repo, user, "sp", item_id, state, toast="Спокойной ночи")
+    await state.clear()
+    await _ask_bed_when(cb, state, "nophone")
 
 
-@router.callback_query(F.data.in_({"slp:nophone", "slp:away"}))
+@router.callback_query(F.data == "slp:away")
 async def sleep_phone_away(
     cb: CallbackQuery,
     state: FSMContext,
     repo: Repo,
-    config: Config,
     db_user: User | None,
-    is_owner: bool,
 ) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
@@ -161,6 +197,43 @@ async def sleep_phone_away(
         await cb.answer(error, show_alert=True)
         return
     await show_saved_entry(cb, repo, user, "sa", item_id, state, toast="Телефон убран")
+
+
+@router.callback_query(F.data.in_({"slb:now", "sln:now"}))
+async def sleep_bed_now(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    prefix = cb.data.split(":", 1)[0]
+    await state.update_data(when_prefix=prefix, sleep_action="nophone" if prefix == "sln" else "phone")
+    await complete_sleep_bed(cb, state, repo, user, user_now(user.timezone))
+
+
+@router.callback_query(F.data.in_({"slb:time", "sln:time"}))
+async def sleep_bed_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    prefix = cb.data.split(":", 1)[0]
+    data = await state.get_data()
+    action = data.get("sleep_action") or ("nophone" if prefix == "sln" else "phone")
+    await start_time_pick(
+        cb,
+        state,
+        "slp_bed",
+        {
+            "tz": user.timezone,
+            "sleep_action": action,
+            "when_prefix": prefix,
+            "time_exit": f"when:{prefix}",
+        },
+        skip_date=True,
+    )
 
 
 @router.callback_query(F.data == "slp:wake")

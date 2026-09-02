@@ -109,6 +109,8 @@ _PREFIX_KIND: tuple[tuple[str, str], ...] = tuple(
             ("slo:", "sleep"),
             ("slw:", "sleep"),
             ("slu:", "sleep"),
+            ("slb:", "sleep"),
+            ("sln:", "sleep"),
             ("caft:", "caffeine"),
             ("caf:", "caffeine"),
             ("alct:", "alcohol"),

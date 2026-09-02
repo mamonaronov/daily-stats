@@ -194,7 +194,7 @@ async def start_time_pick(
                 "cig": "when:cig",
                 "fool": "when:fool",
                 "slp_onset": "slp_onset",
-                "slp_bed": "sleep",
+                "slp_bed": "when:slb",
                 "slp_wake": "when:slw",
                 "slp_up": "when:slu",
                 "snus_buy": "snus",

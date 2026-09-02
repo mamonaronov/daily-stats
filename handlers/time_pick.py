@@ -39,7 +39,7 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "wgt", "slw", "slu", "slo", "cmt", "cms", "cme", "mkt")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "wgt", "slw", "slu", "slb", "sln", "slo", "cmt", "cms", "cme", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
@@ -49,13 +49,15 @@ WHEN_TO_PURPOSE = {
     "wgt": "wgt",
     "slw": "slp_wake",
     "slu": "slp_up",
+    "slb": "slp_bed",
+    "sln": "slp_bed",
     "slo": "slp_onset",
     "cmt": "cm",
     "cms": "cm_start",
     "cme": "cm_end",
     "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slo|cmt|cms|cme|mkt)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slb|sln|slo|cmt|cms|cme|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -81,6 +83,11 @@ async def _finish(
         from handlers.sleep import complete_sleep_up
 
         await complete_sleep_up(event, state, repo, user, when)
+        return
+    if purpose == "slp_bed":
+        from handlers.sleep import complete_sleep_bed
+
+        await complete_sleep_bed(event, state, repo, user, when)
         return
     item_id = None
     error = None
@@ -300,6 +307,10 @@ async def _prepare_when_purpose(state: FSMContext, prefix: str, user: User) -> N
     purpose = WHEN_TO_PURPOSE.get(prefix)
     if purpose:
         payload["time_purpose"] = purpose
+    if prefix == "sln":
+        payload["sleep_action"] = "nophone"
+    elif prefix == "slb":
+        payload["sleep_action"] = "phone"
     data = await state.get_data()
     if "time_exit" not in data:
         payload["time_exit"] = f"when:{prefix}"
@@ -320,7 +331,7 @@ async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) ->
         await state.set_state(None)
         await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
         return
-    if prefix in {"slw", "slu"}:
+    if prefix in {"slw", "slu", "slb", "sln"}:
         await state.set_state(SleepSG.when)
     else:
         await state.set_state(None)
@@ -495,7 +506,7 @@ async def _restore_before_time_pick(
             await cb.answer()
             await safe_edit(cb.message, "Когда заснули?", sleep_onset_kb(undo_kind, undo_id))
             return
-        if prefix in {"slw", "slu"}:
+        if prefix in {"slw", "slu", "slb", "sln"}:
             await state.set_state(SleepSG.when)
         await cb.answer()
         await safe_edit(cb.message, when_title(prefix), when_kb(prefix, metric_id=metric_id))

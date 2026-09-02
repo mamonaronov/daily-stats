@@ -61,11 +61,30 @@ def _sync_bedtime(phone_in: str | None, phone_away: str | None) -> str | None:
     return phone_in or phone_away
 
 
+def _has_sleep_night(rec) -> bool:
+    return bool(rec.phone_in_bed_at or rec.phone_away_at or rec.bedtime)
+
+
+def _attach_bed_to_wake(rec, iso: str) -> bool:
+    if rec is None or rec.wake_time is None or _has_sleep_night(rec):
+        return False
+    return _elapsed_minutes(iso, rec.wake_time) is not None
+
+
 async def add_sleep_phone_in(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
     iso = to_iso(when)
+    rec = await repo.latest_sleep(user.telegram_id)
+    if _attach_bed_to_wake(rec, iso):
+        await repo.update_sleep(
+            rec.id,
+            user.telegram_id,
+            phone_in_bed_at=iso,
+            bedtime=iso,
+        )
+        return _saved(user, "сон (с телефоном)", when, rec.id)
     item_id = await repo.add_sleep(
         user.telegram_id,
         bedtime=iso,
@@ -88,6 +107,14 @@ async def add_sleep_phone_away(repo: Repo, user: User, when: datetime) -> tuple[
             bedtime=_sync_bedtime(rec.phone_in_bed_at, iso),
         )
         return _saved(user, "сон (убрал телефон)", when, rec.id)
+    if _attach_bed_to_wake(rec, iso):
+        await repo.update_sleep(
+            rec.id,
+            user.telegram_id,
+            phone_away_at=iso,
+            bedtime=iso,
+        )
+        return _saved(user, "сон (без телефона)", when, rec.id)
     item_id = await repo.add_sleep(
         user.telegram_id,
         bedtime=iso,
@@ -363,10 +390,6 @@ async def end_metric_period(
     return _saved(user, "кастомный интервал", when, open_rec.id)
 
 
-def _has_sleep_night(rec) -> bool:
-    return bool(rec.phone_in_bed_at or rec.phone_away_at or rec.bedtime)
-
-
 async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | None:
     """Undo a just-saved action. None means success."""
     blocked = await require_write(user)
@@ -387,10 +410,21 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
             item_id, tid, value_number=None, value_text=None, value_bool=1
         )
         return None
-    if kind in {"sa", "sw", "su", "so", "wu", "slp"}:
+    if kind in {"sa", "sw", "su", "so", "wu", "slp", "sp"}:
         rec = await repo.get_sleep(item_id, tid)
         if rec is None:
             return "Запись не найдена."
+        if kind == "sp":
+            if rec.wake_time or rec.out_of_bed_at or rec.sleep_onset_at or rec.phone_away_at:
+                await repo.update_sleep(
+                    item_id,
+                    tid,
+                    phone_in_bed_at=None,
+                    bedtime=rec.phone_away_at,
+                )
+                return None
+            await repo.delete_sleep(item_id, tid)
+            return None
         if kind == "sa":
             if rec.phone_in_bed_at:
                 await repo.update_sleep(
@@ -399,6 +433,9 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
                     phone_away_at=None,
                     bedtime=rec.phone_in_bed_at,
                 )
+                return None
+            if rec.wake_time or rec.out_of_bed_at or rec.sleep_onset_at:
+                await repo.update_sleep(item_id, tid, phone_away_at=None, bedtime=None)
                 return None
             await repo.delete_sleep(item_id, tid)
             return None
@@ -440,7 +477,6 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
         "fool": repo.delete_fooling,
         "snb": repo.delete_snus_pack,
         "sb": repo.delete_sleep,
-        "sp": repo.delete_sleep,
         "caf": repo.delete_caffeine,
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
