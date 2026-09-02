@@ -87,27 +87,6 @@ METRIC_TYPES: dict[str, MetricType] = {
 }
 
 
-@dataclass(frozen=True, slots=True)
-class MetricTemplate:
-    key: str
-    button: str
-    name: str
-    data_type: str
-    unit: str | None = None
-    choices: tuple[str, ...] | None = None
-
-
-METRIC_TEMPLATES: tuple[MetricTemplate, ...] = (
-    MetricTemplate("water", "💧 Вода · мл", "Вода", "number", "мл"),
-    MetricTemplate("pages", "📖 Страницы", "Страницы", "number", "стр"),
-    MetricTemplate("meds", "💊 Лекарства · да/нет", "Лекарства", "boolean"),
-    MetricTemplate("energy", "⚡️ Энергия · выбор", "Энергия", "choice", None, ("низкая", "средняя", "высокая")),
-    MetricTemplate("focus", "⏱ Фокус · минуты", "Фокус", "duration"),
-    MetricTemplate("bath", "🛁 Ванная · интервал", "Ванная", "period"),
-)
-
-TEMPLATE_BY_KEY = {item.key: item for item in METRIC_TEMPLATES}
-
 UNIT_PRESETS: tuple[tuple[str, str], ...] = (
     ("ml", "мл"),
     ("l", "л"),
@@ -128,10 +107,6 @@ def get_type(key: str) -> MetricType:
     if key not in METRIC_TYPES:
         raise KeyError(key)
     return METRIC_TYPES[key]
-
-
-def get_template(key: str) -> MetricTemplate | None:
-    return TEMPLATE_BY_KEY.get(key)
 
 
 def types_prompt(name: str) -> str:

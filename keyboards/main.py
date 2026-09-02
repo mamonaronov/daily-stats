@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import SleepRecord, User
-from services.metric_types import METRIC_TEMPLATES, METRIC_TYPES, UNIT_PRESETS
+from services.metric_types import METRIC_TYPES, UNIT_PRESETS
 from utils.callbacks import (
     ENTRY_ACT,
     ENTRY_ALC,
@@ -695,15 +695,6 @@ def custom_metrics_kb(
     if writable:
         b.row(_btn("➕ Создать метрику", "cm:new"))
     return with_nav(b)
-
-
-def metric_templates_kb() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    for item in METRIC_TEMPLATES:
-        b.row(_btn(item.button, f"cm:tpl:{item.key}"))
-    b.row(_btn("✏️ Своя метрика", "cm:own"))
-    b.row(_btn("✖️ Отмена", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
-    return b.as_markup()
 
 
 def metric_types_kb() -> InlineKeyboardMarkup:

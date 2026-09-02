@@ -19,7 +19,6 @@ from keyboards.main import (
     markers_root_kb,
     metric_duration_kb,
     metric_number_kb,
-    metric_templates_kb,
     metric_time_kb,
     metric_types_kb,
     metric_units_kb,
@@ -289,20 +288,12 @@ def test_custom_metrics_disabled_has_no_quick_add():
     assert ("➕", "cm:add:3") not in pairs
 
 
-def test_metric_templates_and_types_explain_choice():
-    templates = _pairs(metric_templates_kb())
-    assert ("💧 Вода · мл", "cm:tpl:water") in templates
-    assert ("✏️ Своя метрика", "cm:own") in templates
-    assert all("cm:tpl:steps" not in data for _, data in templates)
-    assert all("cm:tpl:weight" not in data for _, data in templates)
-    assert all("Шаги" not in text for text, _ in templates)
-    assert all(not text.startswith("⚖️ Вес") for text, _ in templates)
+def test_metric_types_explain_choice():
     types = dict(_pairs(metric_types_kb()))
     assert types["🔢 Число"] == "cm:t:number"
     assert types["📋 Выбор"] == "cm:t:choice"
     assert types["🕐 Время суток"] == "cm:t:time"
     assert types["▶️ Интервал"] == "cm:t:period"
-    assert ("🛁 Ванная · интервал", "cm:tpl:bath") in templates
 
 
 def test_metric_units_and_value_presets():

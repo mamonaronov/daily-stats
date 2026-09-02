@@ -6,7 +6,6 @@ from services.metric_types import (
     created_metric_text,
     format_clock,
     format_period_value,
-    get_template,
     metric_card_text,
     parse_metric_number,
     parse_steps,
@@ -40,12 +39,6 @@ def test_parse_steps_and_weight():
         pass
 
 
-def test_steps_and_weight_are_not_custom_templates():
-    assert get_template("steps") is None
-    assert get_template("weight") is None
-    assert get_template("water") is not None
-
-
 def test_types_prompt_explains_each_choice():
     text = types_prompt("Вода")
     assert "Как будете записывать «Вода»?" in text
@@ -63,11 +56,7 @@ def test_value_prompt_mentions_unit_and_examples():
     assert "не момент записи" in value_prompt("Подъём", "time")
 
 
-def test_water_template_and_card_text():
-    template = get_template("water")
-    assert template is not None
-    assert template.data_type == "number"
-    assert template.unit == "мл"
+def test_number_metric_card_text():
     metric = SimpleNamespace(
         name="Вода",
         data_type="number",
@@ -89,9 +78,6 @@ def test_format_clock():
 
 
 def test_period_card_explains_start_and_end():
-    template = get_template("bath")
-    assert template is not None
-    assert template.data_type == "period"
     metric = SimpleNamespace(
         name="Ванная",
         data_type="period",

@@ -21,7 +21,6 @@ from keyboards.main import (
     metric_card_kb,
     metric_duration_kb,
     metric_number_kb,
-    metric_templates_kb,
     metric_time_kb,
     metric_types_kb,
     metric_units_kb,
@@ -32,7 +31,6 @@ from services.metric_types import (
     UNIT_BY_KEY,
     created_metric_text,
     format_clock,
-    get_template,
     get_type,
     metric_card_text,
     parse_metric_number,
@@ -56,11 +54,6 @@ METRICS_EMPTY = (
 METRICS_LIST = (
     "📌 <b>Кастомные метрики</b>\n\n"
     "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. Название — открыть метрику."
-)
-CREATE_INTRO = (
-    "Новая кастомная метрика\n\n"
-    "Шаблон сразу задаёт тип и единицы.\n"
-    "Своя — вы сами выберете, как вводить значения."
 )
 NAME_PROMPT = "Как назвать метрику? Например: вода, страницы, пульс."
 UNIT_PROMPT = (
@@ -135,19 +128,6 @@ def _value_markup(data_type: str, unit: str | None, metric_id: int) -> InlineKey
     if data_type == "time":
         return metric_time_kb(back)
     return cancel_kb(back)
-
-
-async def _unique_name(repo: Repo, telegram_id: int, base: str) -> str:
-    existing = {item.name.casefold() for item in await repo.list_metrics(telegram_id)}
-    if base.casefold() not in existing:
-        return base
-    for index in range(2, 50):
-        candidate = f"{base} {index}"
-        if len(candidate) > 40:
-            candidate = f"{base[: max(1, 40 - 1 - len(str(index)))]} {index}"
-        if candidate.casefold() not in existing:
-            return candidate
-    return base[:40]
 
 
 async def _finish_create(
@@ -382,40 +362,15 @@ async def metrics_root(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
 
 
 @router.callback_query(F.data == "cm:new")
+@router.callback_query(F.data == "cm:own")
+@router.callback_query(F.data.startswith("cm:tpl:"))
 async def metric_new(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     if await require_writable(cb, db_user) is None:
         return
     await state.clear()
-    await cb.answer()
-    await safe_edit(cb.message, CREATE_INTRO, metric_templates_kb())
-
-
-@router.callback_query(F.data == "cm:own")
-async def metric_own(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(cb, db_user) is None:
-        return
     await state.set_state(CustomMetricSG.name)
     await cb.answer()
-    await safe_edit(cb.message, NAME_PROMPT, back_kb("cm:new"))
-
-
-@router.callback_query(F.data.startswith("cm:tpl:"))
-async def metric_template(
-    cb: CallbackQuery,
-    state: FSMContext,
-    repo: Repo,
-    db_user: User | None,
-) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    template = get_template(cb.data.split(":")[2])
-    if template is None:
-        await cb.answer("Нет такого шаблона", show_alert=True)
-        return
-    name = await _unique_name(repo, user.telegram_id, template.name)
-    choices = list(template.choices) if template.choices else None
-    await _finish_create(cb, state, repo, user, name, template.data_type, template.unit, choices)
+    await safe_edit(cb.message, NAME_PROMPT, back_kb(NAV_METRICS))
 
 
 @router.message(CustomMetricSG.name)
@@ -424,7 +379,7 @@ async def metric_name(message: Message, state: FSMContext, db_user: User | None)
         return
     name = (message.text or "").strip()
     if not name or len(name) > 40:
-        await message.answer("Имя 1–40 символов.", reply_markup=back_kb("cm:new"))
+        await message.answer("Имя 1–40 символов.", reply_markup=back_kb(NAV_METRICS))
         return
     await state.update_data(metric_name=name)
     await state.set_state(CustomMetricSG.data_type)
