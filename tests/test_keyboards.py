@@ -263,6 +263,24 @@ def test_steps_day_and_value_keyboards():
     assert values["✖️ Отмена"] == "e:stp"
 
 
+def test_daily_scores_day_and_value_keyboards():
+    from keyboards.main import daily_scores_day_kb, daily_scores_value_kb
+    from services.daily_scores import spec_of
+
+    pairs = dict(_pairs(daily_scores_day_kb(today_filled="2/5")))
+    assert pairs["Сегодня · 2/5"] == "ds:today"
+    assert pairs["Вчера"] == "ds:yest"
+    assert pairs["📅 Другая дата"] == "ds:date"
+    specs = [spec_of("mood"), spec_of("energy")]
+    pairs = _pairs(daily_scores_value_kb(specs, {"mood": 4}))
+    assert ("😊", "noop") in pairs
+    assert ("·🙂", "ds:q:md:4") in pairs
+    assert ("🤩", "ds:q:md:5") in pairs
+    assert ("⚡", "noop") in pairs
+    assert ("😢", "ds:q:md:1") in pairs
+    assert ("😢", "ds:q:en:1") in pairs
+
+
 def test_main_menu_custom_metrics_button():
     tracked = {"custom", "steps", "weight", "markers"}
     pairs = _pairs(main_menu(SimpleNamespace(), False, tracked=tracked))
@@ -276,6 +294,9 @@ def test_main_menu_custom_metrics_button():
     assert all("Самочувствие" not in text for text, _ in pairs)
     assert all("Заметка" not in text for text, _ in pairs)
     assert all("Оценить день" not in text for text, _ in pairs)
+    assert all("Оценки дня" not in text for text, _ in pairs)
+    scored = {t for t, _ in _pairs(main_menu(SimpleNamespace(), False, tracked={"mood", "energy"}))}
+    assert "🙂 Оценки дня" in scored
     empty = {t for t, _ in _pairs(main_menu(SimpleNamespace(), False))}
     assert "📌 Кастом" not in empty
     assert "🚶 Шаги" not in empty
@@ -527,6 +548,9 @@ def test_entry_actions_repeat_and_history_back():
     steps = dict(_pairs(entry_actions("stp", 8, True, undo=True)))
     assert steps["✏️ Изменить"] == "stp:e:8"
     assert steps["🗑 Отменить"] == "un:stp:8"
+    scores = dict(_pairs(entry_actions("dsc", 4, True, undo=True)))
+    assert scores["✏️ Изменить"] == "ds:e:4"
+    assert scores["🗑 Отменить"] == "un:dsc:4"
 
 
 def test_history_day_kb_paginates_and_neighbors():
@@ -574,6 +598,8 @@ def test_stats_metrics_kb_includes_custom():
     assert "☐ 🚶 Шаги" in all_pairs
     assert all_pairs["☐ 🚶 Шаги"] == "stm:steps"
     assert all_pairs["☐ ⚖️ Вес"] == "stm:weight"
+    assert all_pairs["☐ 💚 Самочувствие"] == "stm:wellbeing"
+    assert all_pairs["☐ 🌟 Оценка дня"] == "stm:day_rating"
 
 
 def test_followup_keyboards():

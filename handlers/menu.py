@@ -16,6 +16,7 @@ from utils.callbacks import (
     ENTRY_ALC,
     ENTRY_CAF,
     ENTRY_CIG,
+    ENTRY_DS,
     ENTRY_FOOL,
     ENTRY_SLEEP,
     ENTRY_SNUS,
@@ -192,6 +193,17 @@ async def weight_entry(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
     if user is None:
         return
     await show_weight_prompt(cb, state, repo, user)
+
+
+@router.callback_query(F.data == ENTRY_DS)
+async def daily_scores_entry(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    from handlers.common import require_writable
+    from handlers.daily_scores import show_daily_scores_menu
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await show_daily_scores_menu(cb, repo, user, state)
 
 
 @router.callback_query(F.data == "bal:paid")

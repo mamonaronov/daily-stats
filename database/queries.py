@@ -21,6 +21,7 @@ from database.models import (
     Cigarette,
     CustomMetric,
     CustomValue,
+    DailyScore,
     EventMarker,
     EventPeriod,
     Fooling,
@@ -53,6 +54,7 @@ _DIARY_COUNT_SPECS: tuple[tuple[str, str], ...] = (
     ("activity_records", "occurred_at"),
     ("step_records", "occurred_at"),
     ("weight_records", "occurred_at"),
+    ("daily_scores", "occurred_at"),
     ("custom_metric_values", "occurred_at"),
     ("event_markers", "occurred_at"),
 )
@@ -1118,6 +1120,69 @@ class Repo:
     async def list_steps(self, telegram_id: int, start: str, end: str) -> list[StepRecord]:
         return await self._list_range("step_records", StepRecord, telegram_id, start, end)
 
+    # daily 1–5 scores
+    async def upsert_daily_score(
+        self,
+        telegram_id: int,
+        day: str,
+        kind: str,
+        score: int,
+        occurred_at: str,
+    ) -> tuple[int, bool]:
+        existing = await self.get_daily_score_by_day(telegram_id, day, kind)
+        ts = to_iso(now_utc())
+        if existing is not None:
+            await self.conn.execute(
+                """
+                UPDATE daily_scores
+                SET score = ?, updated_at = ?
+                WHERE id = ? AND telegram_id = ?
+                """,
+                (score, ts, existing.id, telegram_id),
+            )
+            await self.conn.commit()
+            return existing.id, True
+        item_id = await self._insert(
+            """
+            INSERT INTO daily_scores (
+                telegram_id, day, kind, score, occurred_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (telegram_id, day, kind, score, occurred_at, ts, ts),
+        )
+        return item_id, False
+
+    async def get_daily_score(self, item_id: int, telegram_id: int) -> DailyScore | None:
+        return await self._get("daily_scores", DailyScore, item_id, telegram_id)
+
+    async def get_daily_score_by_day(self, telegram_id: int, day: str, kind: str) -> DailyScore | None:
+        row = await self.fetchone(
+            "SELECT * FROM daily_scores WHERE telegram_id = ? AND day = ? AND kind = ?",
+            (telegram_id, day, kind),
+        )
+        return _opt(DailyScore, row)
+
+    async def list_daily_scores_for_day(self, telegram_id: int, day: str) -> list[DailyScore]:
+        rows = await self.fetchall(
+            """
+            SELECT * FROM daily_scores
+            WHERE telegram_id = ? AND day = ?
+            ORDER BY id ASC
+            """,
+            (telegram_id, day),
+        )
+        return [DailyScore(**dict(row)) for row in rows]
+
+    async def update_daily_score(self, item_id: int, telegram_id: int, **fields: Any) -> None:
+        allowed = {"day", "kind", "score", "occurred_at"}
+        await self._update_fields("daily_scores", allowed, item_id, telegram_id, fields)
+
+    async def delete_daily_score(self, item_id: int, telegram_id: int) -> bool:
+        return await self._delete("daily_scores", item_id, telegram_id)
+
+    async def list_daily_scores(self, telegram_id: int, start: str, end: str) -> list[DailyScore]:
+        return await self._list_range("daily_scores", DailyScore, telegram_id, start, end)
+
     async def add_weight(self, telegram_id: int, kilograms: float, occurred_at: str) -> int:
         return await self._insert(
             """
@@ -1494,13 +1559,14 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
             "SELECT occurred_at AS ts FROM activity_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM step_records WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM weight_records WHERE telegram_id = ?",
+            "SELECT occurred_at AS ts FROM daily_scores WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM custom_metric_values WHERE telegram_id = ?",
             "SELECT occurred_at AS ts FROM event_markers WHERE telegram_id = ?",
         ]
         sql = " UNION ALL ".join(parts)
         row = await self.fetchone(
             f"SELECT MAX(ts) AS ts FROM ({sql})",
-            tuple([telegram_id] * 10),
+            tuple([telegram_id] * 11),
         )
         return row["ts"] if row and row["ts"] else None
 

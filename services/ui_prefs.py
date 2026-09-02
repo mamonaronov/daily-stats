@@ -18,6 +18,11 @@ TRACKABLE_TYPES = (
     "activity",
     "steps",
     "weight",
+    "wellbeing",
+    "energy",
+    "productivity",
+    "mood",
+    "day_rating",
     "custom",
     "markers",
 )
@@ -32,6 +37,11 @@ TRACKABLE_LABELS = {
     "activity": "🏃 Активность",
     "steps": "🚶 Шаги",
     "weight": "⚖️ Вес",
+    "wellbeing": "💚 Самочувствие",
+    "energy": "⚡ Энергия",
+    "productivity": "📈 Продуктивность",
+    "mood": "😊 Настроение",
+    "day_rating": "🌟 Оценка дня",
     "custom": "📌 Кастом",
     "markers": "🔖 Метки",
 }
@@ -48,6 +58,11 @@ _LEGACY_HIDEABLE = frozenset(
         "markers",
         "steps",
         "weight",
+        "wellbeing",
+        "energy",
+        "productivity",
+        "mood",
+        "day_rating",
     }
 )
 

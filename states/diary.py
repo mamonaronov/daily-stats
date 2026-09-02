@@ -44,6 +44,11 @@ class WeightSG(StatesGroup):
     value = State()
 
 
+class DailyScoreSG(StatesGroup):
+    pick_date = State()
+    value = State()
+
+
 class CustomMetricSG(StatesGroup):
     name = State()
     data_type = State()

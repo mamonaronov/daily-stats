@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from database.models import EventMarker, EventPeriod, User
 from database.queries import Repo
+from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from services.markers import period_title
 from services.statistics import daily_event_counts, daily_volume_ml, load_period
 from utils.quantity import milliliters_of
@@ -297,6 +298,23 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             (
                 "Вес",
                 _line("Вес, кг", labels, [series[d] for d in days], "кг", **overlay),
+            )
+        )
+    for key in DAILY_SCORE_KEYS:
+        if key not in selected:
+            continue
+        series = {d: float("nan") for d in days}
+        for item in data["daily_scores"]:
+            if item.kind != key:
+                continue
+            day = date.fromisoformat(item.day)
+            if day in series:
+                series[day] = item.score
+        spec = spec_of(key)
+        charts.append(
+            (
+                spec.label,
+                _line(f"{spec.label}, 1–5", labels, [series[d] for d in days], "оценка", **overlay),
             )
         )
     if "caffeine" in selected:

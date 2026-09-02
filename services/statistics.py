@@ -9,6 +9,7 @@ from statistics import mean
 
 from database.models import User
 from database.queries import Repo
+from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from utils.formatting import (
     ACTIVITY_TYPES,
     ALCOHOL_TYPES,
@@ -42,6 +43,7 @@ METRIC_KEYS = [
     "activity",
     "steps",
     "weight",
+    *DAILY_SCORE_KEYS,
 ]
 
 
@@ -68,7 +70,8 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
     start_utc, end_utc = range_bounds_utc(user.timezone, start, end)
     a, b = to_iso(start_utc), to_iso(end_utc)
     tid = user.telegram_id
-    return {
+    scores = await repo.list_daily_scores(tid, a, b)
+    data = {
         "start": start,
         "end": end,
         "cigarettes": await repo.list_cigarettes(tid, a, b),
@@ -80,10 +83,14 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "activity": await repo.list_activity(tid, a, b),
         "steps": await repo.list_steps(tid, a, b),
         "weight": await repo.list_weight(tid, a, b),
+        "daily_scores": scores,
         "custom": await repo.list_metric_values(tid, a, b),
         "markers": await repo.list_markers(tid, a, b),
         "periods": await repo.list_periods_overlapping(tid, a, b),
     }
+    for key in DAILY_SCORE_KEYS:
+        data[key] = [row for row in scores if row.kind == key]
+    return data
 
 
 def daily_event_counts(user: User, items, start: date, end: date) -> dict[date, int]:
@@ -378,6 +385,24 @@ def steps_stats(user: User, items, start: date, end: date) -> str:
     return "\n".join(lines)
 
 
+def daily_score_stats(user: User, kind: str, items, start: date, end: date) -> str:
+    spec = spec_of(kind)
+    rows = [item for item in items if item.kind == kind]
+    title = f"{spec.emoji} <b>{spec.label}</b>"
+    if not rows:
+        return f"{title}\nНет записей за период."
+    values = [int(item.score) for item in rows]
+    dist = Counter(values)
+    lines = [
+        title,
+        f"Дней с записью: {len(values)}",
+        f"Среднее: {mean(values):.1f} · {score_text(int(round(mean(values))))}",
+        f"Минимум: {score_text(min(values))} · Максимум: {score_text(max(values))}",
+        "Оценки: " + ", ".join(f"{score_text(k)} — {dist[k]}" for k in sorted(dist)),
+    ]
+    return "\n".join(lines)
+
+
 def weight_stats(user: User, items, start: date, end: date) -> str:
     if not items:
         return "⚖️ <b>Вес</b>\nНет записей за период."
@@ -420,6 +445,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "sleep": lambda items: _sleep_series(user, items, start, end),
         "activity": lambda items: daily_series(user, items, start, end, lambda xs: float(sum(i.duration_minutes or 0 for i in xs))),
         "steps": lambda items: daily_series(user, items, start, end, lambda xs: float(xs[0].steps if xs else 0)),
+        **{key: (lambda items: _daily_score_series(items, start, end)) for key in DAILY_SCORE_KEYS},
     }
     if left not in builders or right not in builders:
         return None
@@ -440,6 +466,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "alcohol": "алкоголь",
         "activity": "активность",
         "steps": "шаги",
+        **{key: spec_of(key).label.lower() for key in DAILY_SCORE_KEYS},
     }
     return (
         f"Связь {names[left]} ↔ {names[right]}: корреляция Пирсона {corr:.2f}.\n"
@@ -454,6 +481,15 @@ def _sleep_series(user: User, items, start: date, end: date) -> dict[date, float
             day = to_user(parse_iso(item.wake_time), user.timezone).date()
             if day in series:
                 series[day] = float(item.duration_minutes)
+    return series
+
+
+def _daily_score_series(items, start: date, end: date) -> dict[date, float]:
+    series = {day: 0.0 for day in daterange(start, end)}
+    for item in items:
+        day = date.fromisoformat(item.day)
+        if day in series:
+            series[day] = float(item.score)
     return series
 
 
@@ -475,6 +511,12 @@ PAIRS = [
     ("caffeine", "sleep"),
     ("alcohol", "sleep"),
     ("sleep", "steps"),
+    ("sleep", "mood"),
+    ("sleep", "energy"),
+    ("sleep", "wellbeing"),
+    ("mood", "productivity"),
+    ("energy", "productivity"),
+    ("mood", "day_rating"),
 ]
 
 
@@ -561,6 +603,9 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         parts.append(steps_stats(user, data["steps"], start, end))
     if "weight" in selected:
         parts.append(weight_stats(user, data["weight"], start, end))
+    for key in DAILY_SCORE_KEYS:
+        if key in selected:
+            parts.append(daily_score_stats(user, key, data["daily_scores"], start, end))
     custom_ids = [int(key[1:]) for key in selected if key.startswith("m") and key[1:].isdigit()]
     if custom_ids:
         from collections import defaultdict as _dd

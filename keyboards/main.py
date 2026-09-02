@@ -8,12 +8,14 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import SleepRecord, User
+from services.daily_scores import HUB_LABEL, tracked_score_keys
 from services.metric_types import METRIC_TYPES, UNIT_PRESETS
 from utils.callbacks import (
     ENTRY_ACT,
     ENTRY_ALC,
     ENTRY_CAF,
     ENTRY_CIG,
+    ENTRY_DS,
     ENTRY_FOOL,
     ENTRY_SLEEP,
     ENTRY_SNUS,
@@ -140,6 +142,8 @@ def main_menu(
     if "custom" in tracked:
         extras.append(_btn("📌 Кастом", NAV_METRICS))
     _pair_rows(b, extras)
+    if tracked_score_keys(tracked):
+        b.row(_btn(HUB_LABEL, ENTRY_DS))
     if "markers" in tracked:
         b.row(_btn("🔖 Метки", NAV_MARKERS))
     if "custom" in tracked:
@@ -374,6 +378,33 @@ def steps_value_kb(back: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def daily_scores_day_kb(*, today_filled: str | None = None, yesterday_filled: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    today_label = "Сегодня" if not today_filled else f"Сегодня · {today_filled}"
+    yesterday_label = "Вчера" if not yesterday_filled else f"Вчера · {yesterday_filled}"
+    b.row(_btn(today_label, "ds:today"), _btn(yesterday_label, "ds:yest"))
+    b.row(_btn("📅 Другая дата", "ds:date"))
+    return with_nav(b)
+
+
+def daily_scores_value_kb(
+    specs: list,
+    current: dict[str, int],
+    *,
+    back: str = ENTRY_DS,
+) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for spec in specs:
+        row = [_btn(spec.emoji, "noop")]
+        chosen = current.get(spec.key)
+        for score in range(1, 6):
+            mark = "·" if chosen == score else ""
+            row.append(_btn(f"{mark}{SCORE_EMOJI[score]}", f"ds:q:{spec.code}:{score}"))
+        b.row(*row)
+    b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
 def weight_value_kb(recent: list[float] | None = None, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for kg in recent or []:
@@ -513,6 +544,11 @@ def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKe
         ("activity", "🏃 Активность"),
         ("steps", "🚶 Шаги"),
         ("weight", "⚖️ Вес"),
+        ("wellbeing", "💚 Самочувствие"),
+        ("energy", "⚡ Энергия"),
+        ("productivity", "📈 Продуктивность"),
+        ("mood", "😊 Настроение"),
+        ("day_rating", "🌟 Оценка дня"),
     ]
     b = InlineKeyboardBuilder()
     for key, label in options:
@@ -570,8 +606,8 @@ def guide_index_kb() -> InlineKeyboardMarkup:
     b.row(_btn("🤌 Валять дурака", "g:fool"), _btn("😴 Сон", "g:sleep"))
     b.row(_btn("☕ Кофеин", "g:caf"), _btn("🍺 Алкоголь", "g:alc"))
     b.row(_btn("🏃 Активность", "g:act"), _btn("🚶 Шаги", "g:stp"))
-    b.row(_btn("⚖️ Вес", "g:wgt"), _btn("📌 Кастом", "g:cm"))
-    b.row(_btn("🔖 Метки", "g:mk"))
+    b.row(_btn("⚖️ Вес", "g:wgt"), _btn("🙂 Оценки дня", "g:ds"))
+    b.row(_btn("📌 Кастом", "g:cm"), _btn("🔖 Метки", "g:mk"))
     b.row(_btn("📊 Статистика", "g:st"), _btn("📅 История", "g:hist"))
     b.row(_btn("⚙️ Настройки", "g:set"), _btn("💰 Баланс", "g:bal"))
     return with_nav(b)
@@ -647,6 +683,8 @@ def entry_actions(
         delete_cb = f"un:{kind}:{item_id}" if undo else f"rm:{kind}:{item_id}"
         if kind == "stp":
             b.row(_btn("✏️ Изменить", f"stp:e:{item_id}"), _btn(delete_label, delete_cb))
+        elif kind == "dsc":
+            b.row(_btn("✏️ Изменить", f"ds:e:{item_id}"), _btn(delete_label, delete_cb))
         else:
             b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
         if kind == "act":

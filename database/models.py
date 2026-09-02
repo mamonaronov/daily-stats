@@ -176,6 +176,18 @@ class WeightRecord:
 
 
 @dataclass(slots=True)
+class DailyScore:
+    id: int
+    telegram_id: int
+    day: str
+    kind: str
+    score: int
+    occurred_at: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
 class CustomMetric:
     id: int
     telegram_id: int

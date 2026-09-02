@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from database.models import SleepRecord, SnusPack, User
 from database.queries import Repo
+from services.daily_scores import DAILY_SCORE_SPECS, format_score_compact
 from utils.formatting import format_int_spaces, format_kg
 from utils.time import day_bounds_utc, format_time, parse_iso, to_iso, user_today
 
@@ -20,6 +21,7 @@ class DaySnapshot:
     sleep_line: str
     steps: int | None = None
     weight_kg: float | None = None
+    scores: dict[str, int] | None = None
 
     def as_text(self, tracked: set[str] | None = None) -> str:
         def show(key: str) -> bool:
@@ -36,6 +38,10 @@ class DaySnapshot:
             lines.append(f"🚶 {format_int_spaces(self.steps)}")
         if show("weight") and self.weight_kg is not None:
             lines.append(f"⚖️ {format_kg(self.weight_kg)}")
+        recorded = self.scores or {}
+        for spec in DAILY_SCORE_SPECS:
+            if show(spec.key) and spec.key in recorded:
+                lines.append(format_score_compact(spec, recorded[spec.key]))
         if not lines:
             return ""
         return "\n".join(["<b>Сегодня</b>", *lines])
@@ -67,12 +73,14 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
     steps_rec = await repo.get_steps_by_day(user.telegram_id, today.isoformat())
     weights = await repo.list_weight(user.telegram_id, to_iso(start), to_iso(end))
     latest_kg = weights[-1].kilograms if weights else None
+    score_rows = await repo.list_daily_scores_for_day(user.telegram_id, today.isoformat())
     return DaySnapshot(
         cigarettes=len(cigarettes),
         snus_line=snus_status_line(pack, user.timezone),
         sleep_line=sleep_status_line(sleep),
         steps=steps_rec.steps if steps_rec else None,
         weight_kg=latest_kg,
+        scores={row.kind: row.score for row in score_rows},
     )
 
 

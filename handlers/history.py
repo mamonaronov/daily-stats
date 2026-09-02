@@ -45,6 +45,7 @@ KIND_MAP = {
     "activity": "act",
     "steps": "stp",
     "weight": "wgt",
+    "daily_score": "dsc",
     "custom": "cm",
     "marker": "mk",
 }
@@ -345,6 +346,7 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         "act": repo.get_activity,
         "stp": repo.get_steps,
         "wgt": repo.get_weight,
+        "dsc": repo.get_daily_score,
         "cm": repo.get_metric_value,
         "cme": repo.get_metric_value,
         "mk": repo.get_marker,
@@ -425,6 +427,20 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
 
         day = date_type.fromisoformat(rec.day)
         body = f"🚶 Шаги\nДень: {format_date_long(day)}\nШагов: {format_int_spaces(rec.steps)}"
+    elif kind == "dsc":
+        from datetime import date as date_type
+
+        from services.daily_scores import spec_of
+        from utils.formatting import score_text
+        from utils.time import format_date_long
+
+        spec = spec_of(rec.kind)
+        day = date_type.fromisoformat(rec.day)
+        body = (
+            f"{spec.emoji} {spec.label}\n"
+            f"День: {format_date_long(day)}\n"
+            f"Оценка: {score_text(rec.score)}"
+        )
     elif kind == "wgt":
         from utils.formatting import format_kg
 
@@ -489,6 +505,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "act": repo.delete_activity,
         "stp": repo.delete_steps,
         "wgt": repo.delete_weight,
+        "dsc": repo.delete_daily_score,
         "cm": repo.delete_metric_value,
         "cme": repo.delete_metric_value,
         "mk": repo.delete_marker,

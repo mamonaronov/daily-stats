@@ -259,6 +259,33 @@ async def upsert_steps(
     return item_id, None, updated
 
 
+async def upsert_daily_score(
+    repo: Repo, user: User, day, kind: str, score: int
+) -> tuple[int | None, str | None, bool]:
+    from datetime import date as date_type
+
+    from services.daily_scores import SCORE_BY_KEY, spec_of
+    from utils.time import combine_local
+
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked, False
+    if kind not in SCORE_BY_KEY:
+        return None, "Неизвестная оценка.", False
+    if score < 1 or score > 5:
+        return None, "Оценка от 1 до 5.", False
+    if not isinstance(day, date_type):
+        day = date_type.fromisoformat(str(day))
+    when = combine_local(user.timezone, day, 0, 0)
+    item_id, updated = await repo.upsert_daily_score(
+        user.telegram_id, day.isoformat(), kind, score, to_iso(when)
+    )
+    label = spec_of(kind).label.lower()
+    action = f"{label} (обновление)" if updated else label
+    note_write(user, action, when)
+    return item_id, None, updated
+
+
 async def add_weight(repo: Repo, user: User, kilograms: float, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
@@ -419,6 +446,7 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
         "act": repo.delete_activity,
         "stp": repo.delete_steps,
         "wgt": repo.delete_weight,
+        "dsc": repo.delete_daily_score,
         "cm": repo.delete_metric_value,
         "mk": repo.delete_marker,
     }

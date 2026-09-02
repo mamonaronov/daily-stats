@@ -6,6 +6,7 @@ from datetime import date
 
 from database.models import TimelineItem, User
 from database.queries import Repo
+from services.daily_scores import spec_of
 from services.metric_types import format_metric_value
 from utils.formatting import (
     ACTIVITY_TYPES,
@@ -109,6 +110,20 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
         dt = parse_iso(rec.occurred_at)
         kg = f"{rec.kilograms:g}".replace(".", ",")
         items.append(TimelineItem("weight", rec.id, dt, "⚖️ Вес", f"{kg} кг", {}))
+
+    for rec in await repo.list_daily_scores(tid, start_iso, end_iso):
+        dt = parse_iso(rec.occurred_at)
+        spec = spec_of(rec.kind)
+        items.append(
+            TimelineItem(
+                "daily_score",
+                rec.id,
+                dt,
+                f"{spec.emoji} {spec.label}",
+                score_text(rec.score),
+                {"all_day": True},
+            )
+        )
 
     for rec in await repo.list_metric_values(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
