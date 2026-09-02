@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-REQUIRED_DB_VERSION = 11
+REQUIRED_DB_VERSION = 12
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -69,6 +69,7 @@ class Config:
     default_daily_price: float
     default_sleep_time: str
     db_path: Path
+    vpn_db_path: Path
     backup_path: Path
     backup_interval_hours: int
     backup_keep: int
@@ -82,7 +83,6 @@ class Config:
     mihomo_api_url: str = "http://127.0.0.1:19090"
     mihomo_api_secret: str | None = None
     mihomo_proxy_group: str = "AUTO"
-    vpn_log_dir: Path | None = None
     vpn_log_keep_days: int = 31
     telegram_backup_interval_minutes: int = 30
     telegram_backup_root: Path = PROJECT_ROOT
@@ -112,6 +112,7 @@ def load_config() -> Config:
         default_daily_price=_float("DEFAULT_DAILY_PRICE", 10.0),
         default_sleep_time=os.getenv("DEFAULT_SLEEP_TIME", "23:00").strip(),
         db_path=db_path,
+        vpn_db_path=Path(os.getenv("VPN_DB_PATH", "").strip() or str(db_path.with_name("vpn.sqlite3"))),
         backup_path=backup_path,
         backup_interval_hours=_int("BACKUP_INTERVAL_HOURS", 6),
         backup_keep=_int("BACKUP_KEEP", 14),
@@ -125,7 +126,6 @@ def load_config() -> Config:
         or "http://127.0.0.1:19090",
         mihomo_api_secret=_optional("MIHOMO_API_SECRET"),
         mihomo_proxy_group=os.getenv("MIHOMO_PROXY_GROUP", "AUTO").strip() or "AUTO",
-        vpn_log_dir=Path(os.getenv("VPN_LOG_DIR", str(db_path.parent / "vpn"))),
         vpn_log_keep_days=_int("VPN_LOG_KEEP_DAYS", 31),
         telegram_backup_interval_minutes=_telegram_backup_interval_minutes(),
         telegram_backup_root=Path(os.getenv("TELEGRAM_BACKUP_ROOT", "").strip() or str(PROJECT_ROOT)),

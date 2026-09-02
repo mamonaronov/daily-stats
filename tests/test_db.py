@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 11
+    assert version == config.required_db_version == 12
 
 
 @pytest.mark.asyncio
@@ -265,14 +265,12 @@ async def test_purge_content_keeps_only_bot_runtime_rows(repo):
     await repo.apply_balance_change(owner.telegram_id, "credit", delta=100, comment="pay", performed_by=1)
     await repo.add_cigarette(owner.telegram_id, to_iso(now_utc()))
     await repo.add_cigarette(other.telegram_id, to_iso(now_utc()))
-    await repo.insert_vpn_sample(to_iso(now_utc()), True, 42, "node", "sub", None)
     await repo.db._set_system("marker", "keep-me")
 
     deleted = await repo.purge_content(owner.telegram_id)
     assert deleted["users"] == 1
     assert deleted["cigarettes"] >= 2
     assert deleted["balance_operations"] >= 1
-    assert deleted["vpn_latency_samples"] >= 1
 
     kept = await repo.get_user(owner.telegram_id)
     assert kept is not None

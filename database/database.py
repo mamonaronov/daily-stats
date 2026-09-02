@@ -11,6 +11,12 @@ from pathlib import Path
 import aiosqlite
 
 from config import Config
+from database.vpn_database import (
+    VpnDatabase,
+    diary_vpn_rowcount,
+    export_legacy_vpn_samples,
+    vacuum_sqlite,
+)
 from utils.time import now_utc, to_iso
 
 logger = logging.getLogger(__name__)
@@ -45,6 +51,8 @@ _SKIP_BACKUP_PREFIXES = (
 
 def is_managed_sqlite_backup(path: Path) -> bool:
     if not path.is_file() or not path.name.endswith(".sqlite3"):
+        return False
+    if path.name == "vpn.sqlite3":
         return False
     return not path.name.startswith(_SKIP_BACKUP_PREFIXES)
 
@@ -93,6 +101,8 @@ class Database:
         self.path = config.db_path
         self.backup_dir = config.backup_path
         self._conn: aiosqlite.Connection | None = None
+        self.vpn_db: VpnDatabase | None = None
+        self._vacuum_diary_after_vpn_move = False
 
     @property
     def conn(self) -> aiosqlite.Connection:
@@ -109,6 +119,12 @@ class Database:
         await self._assert_wal()
 
     async def close(self) -> None:
+        if self.vpn_db is not None:
+            try:
+                await self.vpn_db.close()
+            except Exception:
+                logger.exception("VPN database close failed")
+            self.vpn_db = None
         if self._conn is not None:
             try:
                 await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -116,6 +132,9 @@ class Database:
                 logger.exception("WAL checkpoint failed during close")
             await self._conn.close()
             self._conn = None
+
+    async def vacuum(self) -> None:
+        await vacuum_sqlite(self.conn)
 
     async def _apply_pragmas(self, conn: aiosqlite.Connection) -> None:
         await conn.execute("PRAGMA journal_mode=WAL")
@@ -172,6 +191,7 @@ class Database:
                 f"Database version {current} is newer than application {required}"
             )
         if current == required:
+            await self._finish_vpn_move()
             return
 
         files = [(ver, path) for ver, path in self._migration_files() if ver > current]
@@ -192,6 +212,28 @@ class Database:
         if final < required:
             raise DatabaseError(f"Migrations finished at {final}, required {required}")
         logger.info("Migrations complete, version=%s", final)
+        await self._finish_vpn_move()
+
+    async def _init_vpn_database(self) -> None:
+        if self.vpn_db is None:
+            self.vpn_db = VpnDatabase(self.config)
+            await self.vpn_db.initialize()
+        current = await self.user_version()
+        if current >= 12:
+            return
+        legacy_rows = await diary_vpn_rowcount(self.conn)
+        await export_legacy_vpn_samples(
+            self.conn, self.vpn_db, self.config.vpn_log_keep_days
+        )
+        self._vacuum_diary_after_vpn_move = legacy_rows > 0
+
+    async def _finish_vpn_move(self) -> None:
+        if self._vacuum_diary_after_vpn_move:
+            logger.info("Vacuuming diary database after removing VPN samples")
+            await self.vacuum()
+            self._vacuum_diary_after_vpn_move = False
+        if self.vpn_db is not None:
+            await self.vpn_db.prune_retained(self.config.vpn_log_keep_days)
 
     async def _close_backup_conn(self, conn: aiosqlite.Connection | None) -> None:
         if conn is None:
@@ -327,6 +369,7 @@ class Database:
                         "Database damaged and no backup is available"
                     )
                 await self.restore_from(backup)
+        await self._init_vpn_database()
         await self.migrate()
         if not await self.integrity_ok():
             raise DatabaseUnrecoverableError("Database failed integrity_check after migrate")

@@ -157,6 +157,15 @@ class Repo:
     def conn(self) -> aiosqlite.Connection:
         return self.db.conn
 
+    @property
+    def vpn_conn(self) -> aiosqlite.Connection:
+        vpn_db = self.db.vpn_db
+        if vpn_db is None:
+            from database.database import DatabaseError
+
+            raise DatabaseError("VPN database is not connected")
+        return vpn_db.conn
+
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
         return await self.conn.execute(sql, tuple(params))
 
@@ -166,6 +175,14 @@ class Repo:
 
     async def fetchall(self, sql: str, params: Iterable[Any] = ()) -> list[aiosqlite.Row]:
         async with self.conn.execute(sql, tuple(params)) as cur:
+            return await cur.fetchall()
+
+    async def vpn_fetchone(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Row | None:
+        async with self.vpn_conn.execute(sql, tuple(params)) as cur:
+            return await cur.fetchone()
+
+    async def vpn_fetchall(self, sql: str, params: Iterable[Any] = ()) -> list[aiosqlite.Row]:
+        async with self.vpn_conn.execute(sql, tuple(params)) as cur:
             return await cur.fetchall()
 
     # --- users ---
@@ -1509,7 +1526,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         error: str | None,
         host_uptime_s: float | None = None,
     ) -> int:
-        cur = await self.conn.execute(
+        cur = await self.vpn_conn.execute(
             """
             INSERT INTO vpn_latency_samples
                 (measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s)
@@ -1517,11 +1534,18 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
             """,
             (measured_at, 1 if ok else 0, latency_ms, node_name, subscription, error, host_uptime_s),
         )
-        await self.conn.commit()
+        await self.vpn_conn.commit()
         return int(cur.lastrowid)
 
+    async def prune_vpn_samples(self, keep_days: int | None = None) -> int:
+        vpn_db = self.db.vpn_db
+        if vpn_db is None:
+            return 0
+        days = self.db.config.vpn_log_keep_days if keep_days is None else keep_days
+        return await vpn_db.prune_retained(days)
+
     async def list_vpn_samples(self, start: str, end: str) -> list[VpnLatencySample]:
-        rows = await self.fetchall(
+        rows = await self.vpn_fetchall(
             f"""
             SELECT {_VPN_SAMPLE_COLS}
             FROM vpn_latency_samples
@@ -1533,7 +1557,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         return [VpnLatencySample(**dict(row)) for row in rows]
 
     async def list_vpn_heartbeats(self, start: str, end: str) -> list[tuple[str, float | None]]:
-        rows = await self.fetchall(
+        rows = await self.vpn_fetchall(
             """
             SELECT measured_at, host_uptime_s
             FROM vpn_latency_samples
@@ -1550,11 +1574,11 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         return out
 
     async def earliest_vpn_measured_at(self) -> str | None:
-        row = await self.fetchone("SELECT MIN(measured_at) AS ts FROM vpn_latency_samples")
+        row = await self.vpn_fetchone("SELECT MIN(measured_at) AS ts FROM vpn_latency_samples")
         return str(row["ts"]) if row and row["ts"] else None
 
     async def latest_vpn_sample(self) -> VpnLatencySample | None:
-        row = await self.fetchone(
+        row = await self.vpn_fetchone(
             f"""
             SELECT {_VPN_SAMPLE_COLS}
             FROM vpn_latency_samples
@@ -1565,7 +1589,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         return VpnLatencySample(**dict(row)) if row else None
 
     async def vpn_latency_summary(self, start: str, end: str) -> dict[str, Any]:
-        row = await self.fetchone(
+        row = await self.vpn_fetchone(
             f"""
             SELECT
                 COUNT(*) AS total,
@@ -1594,7 +1618,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         p99_count = 0
         p99_9_count = 0
         if measured > 0:
-            p95_row = await self.fetchone(
+            p95_row = await self.vpn_fetchone(
                 """
                 SELECT latency_ms FROM vpn_latency_samples
                 WHERE latency_ms IS NOT NULL
@@ -1612,7 +1636,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
             p95_ms = p95_row["latency_ms"] if p95_row else None
             p99_ms = await self._vpn_latency_percentile(start, end, 0.99, measured)
             p99_9_ms = await self._vpn_latency_percentile(start, end, 0.999, measured)
-            counts = await self.fetchone(
+            counts = await self.vpn_fetchone(
                 """
                 SELECT
                     COALESCE(SUM(CASE WHEN latency_ms >= ? THEN 1 ELSE 0 END), 0) AS p95_count,
@@ -1653,7 +1677,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         self, start: str, end: str, p: float, measured: int
     ) -> int | None:
         offset = min(measured - 1, max(0, math.ceil(p * measured) - 1))
-        row = await self.fetchone(
+        row = await self.vpn_fetchone(
             """
             SELECT latency_ms FROM vpn_latency_samples
             WHERE latency_ms IS NOT NULL
@@ -1666,7 +1690,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         return row["latency_ms"] if row else None
 
     async def vpn_top_nodes(self, start: str, end: str, limit: int = 5) -> list[dict[str, Any]]:
-        rows = await self.fetchall(
+        rows = await self.vpn_fetchall(
             """
             SELECT
                 node_name,
@@ -1693,7 +1717,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         for item in result:
             clauses.append("(node_name IS ? AND subscription IS ?)")
             params.extend([item["node_name"], item["subscription"]])
-        lat_rows = await self.fetchall(
+        lat_rows = await self.vpn_fetchall(
             f"""
             SELECT node_name, subscription, latency_ms
             FROM vpn_latency_samples
@@ -1710,7 +1734,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         return result
 
     async def vpn_top_subscriptions(self, start: str, end: str, limit: int = 5) -> list[dict[str, Any]]:
-        rows = await self.fetchall(
+        rows = await self.vpn_fetchall(
             """
             SELECT
                 subscription,
@@ -1733,7 +1757,7 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
 
         clauses = ["(subscription IS ?)"] * len(result)
         params: list[Any] = [start, end, *[item["subscription"] for item in result]]
-        lat_rows = await self.fetchall(
+        lat_rows = await self.vpn_fetchall(
             f"""
             SELECT subscription, latency_ms
             FROM vpn_latency_samples

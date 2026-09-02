@@ -284,13 +284,30 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
         lambda: ("abc1234", "add telegram backup"),
     )
     try:
+        await Repo(db).insert_vpn_sample("2026-08-20T12:00:00+00:00", True, 40, "n", "s", None)
         archive = await create_telegram_archive(db, config)
         assert archive.exists()
         assert f"_abc1234_add-telegram-backup_db{config.required_db_version}.tgz" in archive.name
         assert archive.name.startswith("daily-stats-backup_")
         with tarfile.open(archive, "r:gz") as tar:
             names = set(tar.getnames())
+            db_member = next(
+                name for name in names if name.endswith("database.sqlite3") or name == "./database.sqlite3"
+            )
+            tar.extract(db_member, path=tmp_path / "extracted")
         assert any(name.endswith("database.sqlite3") or name == "./database.sqlite3" for name in names)
+        assert not any("vpn.sqlite3" in name for name in names)
+        extracted = next((tmp_path / "extracted").rglob("database.sqlite3"))
+        import sqlite3
+
+        conn = sqlite3.connect(extracted)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='vpn_latency_samples'"
+            ).fetchone()
+            assert row is None
+        finally:
+            conn.close()
         assert any(name.endswith(".env") or name == "./.env" for name in names)
         assert any("docker-compose.yml" in name for name in names)
     finally:

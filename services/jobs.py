@@ -229,6 +229,12 @@ async def cleanup_job(repo: Repo) -> None:
         await repo.cleanup_callbacks(to_iso(threshold))
     except Exception:
         logger.exception("Callback cleanup failed")
+    try:
+        deleted = await repo.prune_vpn_samples()
+        if deleted:
+            logger.info("VPN samples pruned: %s", deleted)
+    except Exception:
+        logger.exception("VPN sample prune failed")
 
 
 async def notices_job(repo: Repo, bot: Bot, config: Config) -> None:

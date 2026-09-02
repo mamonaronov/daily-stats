@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 import time
-from datetime import date, datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from urllib.parse import quote
 
 import aiohttp
@@ -60,59 +58,6 @@ def subscription_label(subscription: str | None) -> str:
 def sanitize_error(exc: BaseException) -> str:
     text = TOKEN_RE.sub("***", f"{type(exc).__name__}: {exc}")
     return text[:300]
-
-
-def append_vpn_log(log_dir: Path, payload: dict) -> None:
-    log_dir.mkdir(parents=True, exist_ok=True)
-    day = str(payload.get("measured_at") or "")[:10]
-    if len(day) != 10:
-        day = date.today().isoformat()
-    path = log_dir / f"{day}.ndjson"
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-
-
-def _iso_in_window(value: str | None, start: str, end: str) -> bool:
-    if not value:
-        return False
-    return start <= value < end
-
-
-def collect_vpn_log_entries(log_dir: Path | None, start: str, end: str) -> list[dict]:
-    """Load ndjson samples whose measured_at is in [start, end)."""
-    if log_dir is None or not log_dir.exists():
-        return []
-    start_day = start[:10] if len(start) >= 10 else ""
-    end_day = end[:10] if len(end) >= 10 else ""
-    if start_day > end_day:
-        start_day, end_day = end_day, start_day
-    entries: list[dict] = []
-    for path in sorted(log_dir.glob("*.ndjson")):
-        day = path.stem
-        if len(day) != 10:
-            continue
-        if start_day and day < start_day:
-            continue
-        if end_day and day > end_day:
-            continue
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except OSError:
-            logger.exception("VPN log read failed: %s", path)
-            continue
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            if _iso_in_window(str(payload.get("measured_at") or ""), start, end):
-                entries.append(payload)
-    return entries
 
 
 def _iso_to_dt(value: str | None) -> datetime | None:
@@ -184,22 +129,6 @@ def vpn_samples_as_dicts(samples: list[VpnLatencySample]) -> list[dict]:
     return result
 
 
-def prune_vpn_logs(log_dir: Path, keep_days: int) -> int:
-    if not log_dir.exists():
-        return 0
-    cutoff = date.today() - timedelta(days=keep_days)
-    removed = 0
-    for path in log_dir.glob("*.ndjson"):
-        try:
-            file_date = date.fromisoformat(path.stem)
-        except ValueError:
-            continue
-        if file_date < cutoff:
-            path.unlink(missing_ok=True)
-            removed += 1
-    return removed
-
-
 async def fetch_auto_now(config: Config) -> tuple[str | None, str | None]:
     """Current AUTO node from mihomo. Second value is an error, not a subscription."""
     if not config.mihomo_api_secret:
@@ -261,7 +190,6 @@ class VpnMonitor:
         self._ok = 0
         self._fail = 0
         self._latencies: list[int] = []
-        self._last_prune_day: date | None = None
 
     def _probe(self, bot: Bot) -> Bot:
         return self._probe_bot if self._probe_bot is not None else bot
@@ -272,18 +200,6 @@ class VpnMonitor:
         self._probe_bot = make_probe_bot(self.config)
         if old is not None:
             await reset_bot_session(old)
-
-    def _maybe_prune(self) -> None:
-        log_dir = self.config.vpn_log_dir
-        if log_dir is None:
-            return
-        today = date.today()
-        if self._last_prune_day == today:
-            return
-        removed = prune_vpn_logs(log_dir, self.config.vpn_log_keep_days)
-        self._last_prune_day = today
-        if removed:
-            logger.info("VPN log files pruned: %s", removed)
 
     def _flush_summary(self) -> None:
         if self._ticks % _SUMMARY_EVERY != 0:
@@ -303,7 +219,6 @@ class VpnMonitor:
         self._latencies = []
 
     async def tick(self, bot: Bot, repo: Repo) -> dict:
-        self._maybe_prune()
         measured_at = to_iso(now_utc())
         node_raw, mihomo_error = await fetch_auto_now(self.config)
         node_name, subscription = parse_node(node_raw)
@@ -323,11 +238,6 @@ class VpnMonitor:
         await repo.insert_vpn_sample(
             measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_seconds()
         )
-        if self.config.vpn_log_dir is not None:
-            try:
-                append_vpn_log(self.config.vpn_log_dir, sample)
-            except Exception:
-                logger.exception("VPN ndjson append failed")
         self._ticks += 1
         if ok:
             self._ok += 1

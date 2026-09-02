@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import date, timedelta
 from types import SimpleNamespace
 
 from services.vpn_monitor import (
-    append_vpn_log,
-    collect_vpn_log_entries,
     format_vpn_log,
     parse_node,
-    prune_vpn_logs,
     sanitize_error,
     subscription_label,
     vpn_samples_as_dicts,
@@ -41,50 +37,9 @@ def test_sanitize_error_strips_bot_token():
     assert "***" in text
 
 
-def test_vpn_log_append_and_prune(tmp_path):
-    log_dir = tmp_path / "vpn"
-    append_vpn_log(
-        log_dir,
-        {
-            "measured_at": "2026-08-19T10:00:00+00:00",
-            "ok": True,
-            "latency_ms": 120,
-            "node_name": "s3 | Cyprus",
-            "subscription": "sub3",
-            "error": None,
-        },
-    )
-    today = log_dir / "2026-08-19.ndjson"
-    assert today.exists()
-    line = today.read_text(encoding="utf-8")
-    assert "sub3" in line
-    assert "120" in line
-
-    old = log_dir / f"{(date.today() - timedelta(days=40)).isoformat()}.ndjson"
-    old.write_text("{}\n", encoding="utf-8")
-    recent = log_dir / f"{date.today().isoformat()}.ndjson"
-    recent.write_text("{}\n", encoding="utf-8")
-    removed = prune_vpn_logs(log_dir, keep_days=31)
-    assert removed == 1
-    assert not old.exists()
-    assert recent.exists()
-
-
-def test_collect_vpn_log_entries_filters_last_day(tmp_path):
-    log_dir = tmp_path / "vpn"
-    append_vpn_log(
-        log_dir,
-        {
-            "measured_at": "2026-08-18T19:00:00+00:00",
-            "ok": True,
-            "latency_ms": 90,
-            "node_name": "old",
-            "subscription": "sub1",
-            "error": None,
-        },
-    )
-    append_vpn_log(
-        log_dir,
+def test_format_vpn_log_from_samples():
+    start, end = "2026-08-18T20:06:00+00:00", "2026-08-19T20:06:00+00:00"
+    entries = [
         {
             "measured_at": "2026-08-18T20:10:00+00:00",
             "ok": True,
@@ -93,9 +48,6 @@ def test_collect_vpn_log_entries_filters_last_day(tmp_path):
             "subscription": "sub3",
             "error": None,
         },
-    )
-    append_vpn_log(
-        log_dir,
         {
             "measured_at": "2026-08-19T10:00:00+00:00",
             "ok": False,
@@ -104,21 +56,7 @@ def test_collect_vpn_log_entries_filters_last_day(tmp_path):
             "subscription": "sub1",
             "error": "timeout",
         },
-    )
-    append_vpn_log(
-        log_dir,
-        {
-            "measured_at": "2026-08-19T20:10:00+00:00",
-            "ok": True,
-            "latency_ms": 80,
-            "node_name": "too-new",
-            "subscription": "sub2",
-            "error": None,
-        },
-    )
-    start, end = "2026-08-18T20:06:00+00:00", "2026-08-19T20:06:00+00:00"
-    entries = collect_vpn_log_entries(log_dir, start, end)
-    assert [row["node_name"] for row in entries] == ["s3 | Cyprus", "s1 | NL"]
+    ]
     text = format_vpn_log(entries, start, end)
     assert "samples: 2  ok: 1  fail: 1" in text
     assert "FAIL" in text
@@ -355,9 +293,7 @@ async def test_vpn_top_nodes_limit_five(repo):
     assert len(top) == 5
 
 
-async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):
-    from dataclasses import replace
-
+async def test_vpn_monitor_tick_writes_db(repo, monkeypatch):
     from services.vpn_monitor import VpnMonitor
 
     async def fake_now(config):
@@ -370,8 +306,7 @@ async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):
             await asyncio.sleep(0.01)
             return SimpleNamespace(id=1, username="bot")
 
-    config = replace(repo.db.config, vpn_log_dir=tmp_path / "vpn")
-    monitor = VpnMonitor(config)
+    monitor = VpnMonitor(repo.db.config)
     sample = await monitor.tick(FakeBot(), repo)
     assert sample["ok"] is True
     assert sample["subscription"] == "sub3"
@@ -379,8 +314,10 @@ async def test_vpn_monitor_tick_writes_db_and_file(repo, tmp_path, monkeypatch):
     stored = await repo.latest_vpn_sample()
     assert stored is not None
     assert stored.node_name.startswith("s3 |")
-    files = list((tmp_path / "vpn").glob("*.ndjson"))
-    assert len(files) == 1
+    names = await repo.list_table_names()
+    assert "vpn_latency_samples" not in names
+    assert repo.db.vpn_db is not None
+    assert repo.db.vpn_db.path.exists()
 
 
 def test_make_probe_bot_is_not_the_polling_session(tmp_path):
@@ -420,8 +357,6 @@ async def test_reset_probe_replaces_hung_bot(tmp_path):
 
 
 async def test_vpn_monitor_tick_uses_probe_bot_not_polling_bot(repo, monkeypatch):
-    from dataclasses import replace
-
     from services.vpn_monitor import VpnMonitor
 
     async def fake_now(config):
@@ -437,7 +372,7 @@ async def test_vpn_monitor_tick_uses_probe_bot_not_polling_bot(repo, monkeypatch
         async def get_me(self):
             raise AssertionError("VPN probe must not use the polling Bot")
 
-    monitor = VpnMonitor(replace(repo.db.config, vpn_log_dir=None), probe_bot=ProbeBot())
+    monitor = VpnMonitor(repo.db.config, probe_bot=ProbeBot())
     sample = await monitor.tick(PollingBot(), repo)
     assert sample["ok"] is True
 
@@ -491,6 +426,8 @@ def test_vpn_monitor_config_from_env(monkeypatch):
     monkeypatch.setenv("VPN_MONITOR_ENABLED", "0")
     monkeypatch.setenv("MIHOMO_API_SECRET", "not-a-real-secret")
     monkeypatch.setenv("VPN_MONITOR_INTERVAL_SECONDS", "10")
+    monkeypatch.delenv("VPN_DB_PATH", raising=False)
+    monkeypatch.delenv("VPN_LOG_KEEP_DAYS", raising=False)
     monkeypatch.setattr("config.load_dotenv", lambda: None)
     from config import load_config
 
@@ -499,6 +436,7 @@ def test_vpn_monitor_config_from_env(monkeypatch):
     assert cfg.mihomo_api_secret == "not-a-real-secret"
     assert cfg.mihomo_proxy_group == "AUTO"
     assert cfg.vpn_log_keep_days == 31
+    assert cfg.vpn_db_path.name == "vpn.sqlite3"
 
 
 def test_vpn_monitor_job_is_not_scheduled_immediately(tmp_path):
@@ -1110,7 +1048,7 @@ def test_vpn_bucket_lines_use_expected_period_ticks():
 
 
 def test_expected_vpn_ticks_matches_period():
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from services.vpn_charts import expected_vpn_ticks
 
@@ -1377,3 +1315,73 @@ def test_vpn_chart_time_formatter_uses_local_tz():
     assert utc_fmt(x) == "12:00"
     half_hour = _time_formatter(30 * 60, zone("Europe/Moscow"))
     assert half_hour(x) == "15:00:00"
+
+
+async def test_prune_vpn_samples_drops_old_rows(repo):
+    from utils.time import now_utc, to_iso
+
+    await repo.insert_vpn_sample("2020-01-01T00:00:00+00:00", True, 1, "old", "s", None)
+    await repo.insert_vpn_sample(to_iso(now_utc()), True, 2, "new", "s", None)
+    deleted = await repo.prune_vpn_samples(keep_days=31)
+    assert deleted == 1
+    rows = await repo.list_vpn_samples("2000-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00")
+    assert [row.node_name for row in rows] == ["new"]
+
+
+async def test_export_legacy_vpn_samples_keeps_retention_window(repo):
+    from database.vpn_database import export_legacy_vpn_samples
+    from utils.time import now_utc, to_iso
+
+    await repo.db.conn.executescript(
+        """
+        CREATE TABLE vpn_latency_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            measured_at TEXT NOT NULL,
+            ok INTEGER NOT NULL,
+            latency_ms INTEGER,
+            node_name TEXT,
+            subscription TEXT,
+            error TEXT,
+            host_uptime_s REAL
+        );
+        """
+    )
+    await repo.db.conn.execute(
+        """
+        INSERT INTO vpn_latency_samples
+            (measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s)
+        VALUES (?, 1, 10, 'old', 's', NULL, 1)
+        """,
+        ("2020-01-01T00:00:00+00:00",),
+    )
+    await repo.db.conn.execute(
+        """
+        INSERT INTO vpn_latency_samples
+            (measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s)
+        VALUES (?, 1, 20, 'keep', 's', NULL, 1)
+        """,
+        (to_iso(now_utc()),),
+    )
+    await repo.db.conn.commit()
+    copied = await export_legacy_vpn_samples(repo.db.conn, repo.db.vpn_db, 31)
+    assert copied == 1
+    await repo.db.conn.execute("DROP TABLE vpn_latency_samples")
+    await repo.db.conn.commit()
+    rows = await repo.list_vpn_samples("2000-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00")
+    assert [row.node_name for row in rows] == ["keep"]
+
+
+async def test_diary_backup_does_not_contain_vpn_table(repo):
+    import aiosqlite
+
+    from utils.time import now_utc, to_iso
+
+    await repo.insert_vpn_sample(to_iso(now_utc()), True, 42, "node", "sub", None)
+    path = await repo.db.backup(prefix="vpn-check")
+    async with aiosqlite.connect(path) as conn:
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vpn_latency_samples'"
+        ) as cur:
+            assert await cur.fetchone() is None
+    assert await repo.latest_vpn_sample() is not None
+    assert "vpn_latency_samples" not in await repo.list_table_names()

@@ -70,7 +70,7 @@ Telegram  →  aiogram Dispatcher  →  handlers  →  services  →  SQLite (ai
                                APScheduler (списания, backup, бэкап в Telegram)
 ```
 
-- Слой БД: `database/` — подключение, WAL, миграции, backup/restore, параметризованные запросы
+- Слой БД: `database/` — подключение, WAL, миграции, backup/restore, параметризованные запросы. Пинги VPN — отдельный `vpn.sqlite3`, не в бэкапах
 - Бизнес-логика: `services/` — баланс, биллинг, статистика, графики
 - Telegram: `handlers/` + `keyboards/` + `states/`
 - Пользователи изолированы: все выборки и изменения идут с `telegram_id` текущего пользователя
@@ -210,7 +210,9 @@ docker compose logs -f | grep telegram_proxy
 | `DEFAULT_TIMEZONE` | нет | `Europe/Moscow` | Пояс при регистрации, пока пользователь не выбрал свой |
 | `DEFAULT_DAILY_PRICE` | нет | `10` | Цена ₽/день для новых пользователей |
 | `DEFAULT_SLEEP_TIME` | нет | `23:00` | Запасное время сна в настройках |
-| `DB_PATH` | нет | `/app/data/database.sqlite3` | Путь к БД **внутри контейнера** |
+| `DB_PATH` | нет | `/app/data/database.sqlite3` | Путь к БД дневника **внутри контейнера** |
+| `VPN_DB_PATH` | нет | рядом с `DB_PATH`, файл `vpn.sqlite3` | Отдельная БД пингов VPN-монитора. В бэкапы не входит |
+| `VPN_LOG_KEEP_DAYS` | нет | `31` | Сколько дней сырых пингов хранить; старше удаляются, затем `VACUUM` |
 | `BACKUP_PATH` | нет | `/app/backups` | Каталог backup внутри контейнера |
 | `BACKUP_INTERVAL_HOURS` | нет | `6` | Период автоматического backup на диск |
 | `BACKUP_KEEP` | нет | `14` | Сколько копий на диске хранить |
@@ -245,7 +247,7 @@ SQLite + aiosqlite, режим **WAL**, `foreign_keys=ON`, `busy_timeout=5000`, 
 
 Все SQL-запросы параметризованы. Пользовательские данные не конкатенируются в текст запроса.
 
-Версия схемы хранится в `PRAGMA user_version`. Требуемая версия приложения — константа `REQUIRED_DB_VERSION` в `config.py` (сейчас `11`).
+Версия схемы хранится в `PRAGMA user_version`. Требуемая версия приложения — константа `REQUIRED_DB_VERSION` в `config.py` (сейчас `12`).
 
 При старте:
 
@@ -279,7 +281,7 @@ Backup идёт через SQLite Online Backup API: в копию попада�
 - при graceful shutdown (`SIGTERM` / `docker compose stop`) — `shutdown_...`. По умолчанию Docker ждёт 30s (`stop_grace_period`), затем SIGKILL. Чтобы ждать бэкап сколько угодно: `docker compose stop -t -1 bot` или `docker compose down -t -1`
 - при ошибке старта, если возможно — `crash_...`
 
-Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются.
+Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются. Пинги VPN живут в отдельном `vpn.sqlite3` (по умолчанию в `./data`) и **не входят** ни в копии на диск, ни в архив в Telegram.
 
 Отдельно в привязанную группу уходит архив `.tgz` (gzip-tar, сжатие **pigz**; расширение одно, чтобы Telegram/Ark не принимали файл за «просто .gz»): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.override.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10-10-10_{short-hash}_{тема-коммита}_db{версия}.tgz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_MINUTES`, по умолчанию **30 минут**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает автоотправку. Пока группа не привязана, задание пропускается. Владелец добавляет бота в группу (или пишет там `/backup_here`) — архивы начинают уходить туда. В личку владельцу архив приходит только по кнопке **📤 Сделать бэкап сейчас**. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
 

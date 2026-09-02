@@ -51,7 +51,6 @@ from services.vpn_charts import (
     expected_vpn_ticks,
 )
 from services.vpn_monitor import (
-    collect_vpn_log_entries,
     format_vpn_log,
     subscription_label,
     vpn_samples_as_dicts,
@@ -914,8 +913,6 @@ async def admin_vpn_log(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     start_iso, end_iso = to_iso(start), to_iso(end)
     db_samples = await repo.list_vpn_samples(start_iso, end_iso)
     payload = vpn_samples_as_dicts(db_samples)
-    if not payload:
-        payload = collect_vpn_log_entries(config.vpn_log_dir, start_iso, end_iso)
     if not payload:
         await cb.answer(f"За {title} логов нет", show_alert=True)
         return
