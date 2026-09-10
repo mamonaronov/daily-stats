@@ -73,19 +73,30 @@ def next_telegram_backup_at(
     return now if now >= due_at else due_at
 
 
-def next_backup_caption(
+def next_backup_value(
     last_sent: datetime | None,
     interval_minutes: int,
     now: datetime | None = None,
 ) -> str:
     now = now or now_utc()
     if interval_minutes <= 0:
-        return "Следующий бекап: выкл"
+        return "выкл"
     when = next_telegram_backup_at(last_sent, interval_minutes, now)
     remaining = (when - now).total_seconds()
     if remaining <= 0:
-        return "Следующий бекап: сейчас"
-    return f"Следующий бекап через {seconds_human(remaining)}"
+        return "сейчас"
+    return f"через {seconds_human(remaining)}"
+
+
+def next_backup_caption(
+    last_sent: datetime | None,
+    interval_minutes: int,
+    now: datetime | None = None,
+) -> str:
+    value = next_backup_value(last_sent, interval_minutes, now)
+    if value.startswith("через "):
+        return f"Следующий бекап {value}"
+    return f"Следующий бекап: {value}"
 
 
 def backup_interval_caption(interval_minutes: int) -> str:

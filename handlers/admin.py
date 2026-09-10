@@ -43,7 +43,7 @@ from services.statistics import render_stats
 from services.telegram_backup import (
     backup_interval_caption,
     last_telegram_backup_at,
-    next_backup_caption,
+    next_backup_value,
 )
 from services.vpn_charts import (
     build_vpn_availability_charts,
@@ -58,7 +58,7 @@ from services.vpn_monitor import (
 )
 from states.diary import AdminSG
 from utils.callbacks import NAV_ADMIN
-from utils.formatting import balance_coverage_block, money, seconds_human
+from utils.formatting import balance_coverage_block, colon_block, money, pre_html, seconds_human
 from utils.telegram import png_file, safe_edit, safe_send, text_file
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
 from utils.uptime import host_uptime_seconds, uptime_report_lines
@@ -110,14 +110,30 @@ def _service_age_seconds(started_iso: str | None, now: datetime | None = None) -
     return max(0.0, ((now or now_utc()) - started).total_seconds())
 
 
-async def _admin_status_lines(repo: Repo, config: Config, now: datetime | None = None) -> list[str]:
+async def _admin_status_pairs(
+    repo: Repo, config: Config, now: datetime | None = None
+) -> list[tuple[str, str]]:
     now = now or now_utc()
     started = await repo.service_started_at()
     last_backup = await last_telegram_backup_at(repo.db)
     return [
-        f"Возраст сервиса: {seconds_human(_service_age_seconds(started, now))}",
-        next_backup_caption(last_backup, config.telegram_backup_interval_minutes, now),
+        ("Возраст сервиса", seconds_human(_service_age_seconds(started, now))),
+        (
+            "Следующий бекап",
+            next_backup_value(last_backup, config.telegram_backup_interval_minutes, now),
+        ),
     ]
+
+
+async def _admin_status_lines(repo: Repo, config: Config, now: datetime | None = None) -> list[str]:
+    pairs = await _admin_status_pairs(repo, config, now)
+    lines: list[str] = []
+    for label, value in pairs:
+        if label == "Следующий бекап" and value.startswith("через "):
+            lines.append(f"{label} {value}")
+        else:
+            lines.append(f"{label}: {value}")
+    return lines
 
 
 @router.callback_query(F.data == NAV_ADMIN)
@@ -688,25 +704,21 @@ def _ms(value) -> str:
     return str(int(round(value)))
 
 
-def _pct_line(label: str, value, count: int) -> str:
-    return f"{label}: {_ms(value)} мс ({count} зам.)"
-
-
 def _pct(count: int, total: int) -> str:
     if total <= 0:
         return "—"
     return f"{(count / total * 100):.1f}%".replace(".", ",")
 
 
-def _bucket_line(label: str, count: int, total: int, interval: int) -> str:
-    return f"{label}: {seconds_human(count * interval)} ({_pct(count, total)})"
+def _kv_pre(rows: list[tuple[str, str]]) -> str:
+    return pre_html(colon_block(rows))
 
 
 _VPN_BUCKET_KEYS = (
     ("0–100 мс", "bucket_0_100"),
     ("100–500 мс", "bucket_100_500"),
     ("500–1000 мс", "bucket_500_1000"),
-    ("&gt; 1000 мс", "bucket_1000"),
+    ("> 1000 мс", "bucket_1000"),
     ("Нет пинга/соединения", "no_ping"),
     ("сервис не запущен", "service_down"),
     ("сервер выключен", "server_off"),
@@ -717,9 +729,14 @@ def _vpn_bucket_lines(summary: dict, interval: int, expected: int = 0) -> list[s
     rows = [(label, int(summary.get(key, 0))) for label, key in _VPN_BUCKET_KEYS]
     observed = sum(count for _, count in rows)
     total = max(expected, observed) if expected else observed
-    lines = [f"Время в диапазонах (тик {interval} с, должно быть {expected or total} зам.):"]
-    lines.extend(_bucket_line(label, count, total, interval) for label, count in rows)
-    return lines
+    table = [
+        (label, f"{seconds_human(count * interval)} ({_pct(count, total)})")
+        for label, count in rows
+    ]
+    return [
+        f"Время в диапазонах (тик {interval} с, должно быть {expected or total} зам.):",
+        _kv_pre(table),
+    ]
 
 
 def _vpn_top_item_lines(row: dict, title_html: str) -> list[str]:
@@ -769,11 +786,10 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
     )
     summary["service_down"] = service_down
     summary["server_off"] = server_off
-    extra = await _admin_status_lines(repo, config, end)
+    extra = await _admin_status_pairs(repo, config, end)
 
     lines = ["🛡 <b>VPN / задержка бота</b>", ""]
-    lines.extend(uptime_report_lines())
-    lines.extend(extra)
+    lines.extend(uptime_report_lines(extra))
 
     total = summary["total"]
     fail = summary["fail_count"]
@@ -787,12 +803,16 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
             "",
             f"<b>За {title}</b>",
             samples_line,
-            f"Средняя: {_ms(summary['avg_ms'])} мс",
-            f"Минимум: {_ms(summary['min_ms'])} мс",
-            f"Максимум: {_ms(summary['max_ms'])} мс",
-            _pct_line("p95", summary["p95_ms"], summary["p95_count"]),
-            _pct_line("p99", summary["p99_ms"], summary["p99_count"]),
-            _pct_line("p99.9", summary["p99_9_ms"], summary["p99_9_count"]),
+            _kv_pre(
+                [
+                    ("Средняя", f"{_ms(summary['avg_ms'])} мс"),
+                    ("Минимум", f"{_ms(summary['min_ms'])} мс"),
+                    ("Максимум", f"{_ms(summary['max_ms'])} мс"),
+                    ("p95", f"{_ms(summary['p95_ms'])} мс ({summary['p95_count']} зам.)"),
+                    ("p99", f"{_ms(summary['p99_ms'])} мс ({summary['p99_count']} зам.)"),
+                    ("p99.9", f"{_ms(summary['p99_9_ms'])} мс ({summary['p99_9_count']} зам.)"),
+                ]
+            ),
             "",
             *_vpn_bucket_lines(summary, interval, expected),
         ]

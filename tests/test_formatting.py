@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from utils.formatting import (
     balance_coverage_block,
     balance_runway,
+    colon_block,
     coverage,
     extra_paid_days,
     paid_days,
+    pre_html,
 )
 
 
@@ -88,3 +90,23 @@ def test_balance_runway_unpaid_and_free():
     assert balance_runway(_user(balance=0, paid_until_date=None), today=today) == "уже не хватает"
     assert balance_runway(_user(daily_price=0), today=today) == "безлимит"
     assert balance_coverage_block(_user(daily_price=0), today=today) == "Безлимит"
+
+
+def test_colon_block_aligns_colons():
+    text = colon_block(
+        [
+            ("Аптайм бота", "1 мин 30 с"),
+            ("Аптайм сервера", "1 д 2 ч"),
+            ("Коммит", "deadbeef"),
+        ]
+    )
+    rows = text.splitlines()
+    assert rows[0] == "   Аптайм бота: 1 мин 30 с"
+    assert rows[1] == "Аптайм сервера: 1 д 2 ч"
+    assert rows[2] == "        Коммит: deadbeef"
+    assert len({row.index(":") for row in rows}) == 1
+    assert colon_block([]) == ""
+
+
+def test_pre_html_escapes_markup():
+    assert pre_html("a <b> & c") == "<pre>a &lt;b&gt; &amp; c</pre>"
