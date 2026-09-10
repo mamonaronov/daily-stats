@@ -65,10 +65,62 @@ def _has_sleep_night(rec) -> bool:
     return bool(rec.phone_in_bed_at or rec.phone_away_at or rec.bedtime)
 
 
-def _attach_bed_to_wake(rec, iso: str) -> bool:
-    if rec is None or rec.wake_time is None or _has_sleep_night(rec):
+def _not_after(earlier: str | None, later: str | None) -> bool:
+    if not earlier or not later:
+        return True
+    return _elapsed_minutes(earlier, later) is not None
+
+
+def _attach_bed_to_open(rec, iso: str) -> bool:
+    if rec is None or _has_sleep_night(rec):
         return False
-    return _elapsed_minutes(iso, rec.wake_time) is not None
+    if rec.wake_time and _elapsed_minutes(iso, rec.wake_time) is not None:
+        return True
+    if rec.sleep_onset_at and _elapsed_minutes(iso, rec.sleep_onset_at) is not None:
+        return True
+    return False
+
+
+def _onset_fits(rec, iso: str) -> bool:
+    if rec.sleep_onset_at:
+        return False
+    if not rec.wake_time and not rec.out_of_bed_at and not _has_sleep_night(rec):
+        return False
+    bed = rec.phone_away_at or rec.phone_in_bed_at or rec.bedtime
+    return _not_after(bed, iso) and _not_after(iso, rec.wake_time) and _not_after(iso, rec.out_of_bed_at)
+
+
+def _wake_fits(rec, iso: str) -> bool:
+    if rec.wake_time is not None or rec.out_of_bed_at is not None:
+        return False
+    if rec.phase() not in {"with_phone", "no_phone", "asleep"}:
+        return False
+    bed = rec.phone_away_at or rec.phone_in_bed_at or rec.bedtime
+    return _not_after(bed, iso) and _not_after(rec.sleep_onset_at, iso)
+
+
+def _up_fits_after_wake(rec, iso: str) -> bool:
+    return bool(rec.wake_time and rec.out_of_bed_at is None and _not_after(rec.wake_time, iso))
+
+
+def _up_fits_open_night(rec, iso: str) -> bool:
+    if rec.wake_time is not None or rec.out_of_bed_at is not None:
+        return False
+    if not _has_sleep_night(rec) and not rec.sleep_onset_at:
+        return False
+    bed = rec.phone_away_at or rec.phone_in_bed_at or rec.bedtime
+    return _not_after(bed, iso) and _not_after(rec.sleep_onset_at, iso)
+
+
+def _away_fits_with_phone(rec, iso: str) -> bool:
+    return rec.phase() == "with_phone" and _not_after(rec.phone_in_bed_at, iso)
+
+
+def _pick_sleep(records: list, pred) -> object | None:
+    for rec in records:
+        if pred(rec):
+            return rec
+    return None
 
 
 async def add_sleep_phone_in(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
@@ -76,8 +128,9 @@ async def add_sleep_phone_in(repo: Repo, user: User, when: datetime) -> tuple[in
     if blocked:
         return None, blocked
     iso = to_iso(when)
-    rec = await repo.latest_sleep(user.telegram_id)
-    if _attach_bed_to_wake(rec, iso):
+    records = await repo.list_recent_sleep(user.telegram_id)
+    rec = _pick_sleep(records, lambda item: _attach_bed_to_open(item, iso))
+    if rec is not None:
         await repo.update_sleep(
             rec.id,
             user.telegram_id,
@@ -98,8 +151,9 @@ async def add_sleep_phone_away(repo: Repo, user: User, when: datetime) -> tuple[
     if blocked:
         return None, blocked
     iso = to_iso(when)
-    rec = await repo.latest_sleep(user.telegram_id)
-    if rec is not None and rec.phase() == "with_phone":
+    records = await repo.list_recent_sleep(user.telegram_id)
+    rec = _pick_sleep(records, lambda item: _away_fits_with_phone(item, iso))
+    if rec is not None:
         await repo.update_sleep(
             rec.id,
             user.telegram_id,
@@ -107,7 +161,8 @@ async def add_sleep_phone_away(repo: Repo, user: User, when: datetime) -> tuple[
             bedtime=_sync_bedtime(rec.phone_in_bed_at, iso),
         )
         return _saved(user, "сон (убрал телефон)", when, rec.id)
-    if _attach_bed_to_wake(rec, iso):
+    rec = _pick_sleep(records, lambda item: _attach_bed_to_open(item, iso))
+    if rec is not None:
         await repo.update_sleep(
             rec.id,
             user.telegram_id,
@@ -128,8 +183,8 @@ async def add_sleep_wake(repo: Repo, user: User, when: datetime, quality: int | 
     if blocked:
         return None, blocked
     iso = to_iso(when)
-    rec = await repo.latest_sleep(user.telegram_id)
-    if rec is not None and rec.wake_time is None and rec.out_of_bed_at is None and rec.phase() in {"with_phone", "no_phone"}:
+    rec = _pick_sleep(await repo.list_recent_sleep(user.telegram_id), lambda item: _wake_fits(item, iso))
+    if rec is not None:
         duration = _sleep_duration(rec.sleep_onset_at, iso)
         await repo.update_sleep(
             rec.id,
@@ -150,8 +205,8 @@ async def add_sleep_wake_and_up(
     if blocked:
         return None, blocked
     iso = to_iso(when)
-    rec = await repo.latest_sleep(user.telegram_id)
-    if rec is not None and rec.wake_time is None and rec.out_of_bed_at is None and rec.phase() in {"with_phone", "no_phone"}:
+    rec = _pick_sleep(await repo.list_recent_sleep(user.telegram_id), lambda item: _wake_fits(item, iso))
+    if rec is not None:
         duration = _sleep_duration(rec.sleep_onset_at, iso)
         await repo.update_sleep(
             rec.id,
@@ -175,29 +230,39 @@ async def add_sleep_up(repo: Repo, user: User, when: datetime) -> tuple[int | No
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    rec = await repo.latest_sleep(user.telegram_id)
-    if rec is None or rec.wake_time is None or rec.out_of_bed_at is not None:
-        return None, "Сначала отметьте пробуждение."
-    await repo.update_sleep(rec.id, user.telegram_id, out_of_bed_at=to_iso(when))
-    return _saved(user, "сон (встал)", when, rec.id)
+    iso = to_iso(when)
+    records = await repo.list_recent_sleep(user.telegram_id)
+    rec = _pick_sleep(records, lambda item: _up_fits_after_wake(item, iso))
+    if rec is not None:
+        await repo.update_sleep(rec.id, user.telegram_id, out_of_bed_at=iso)
+        return _saved(user, "сон (встал)", when, rec.id)
+    rec = _pick_sleep(records, lambda item: _up_fits_open_night(item, iso))
+    if rec is not None:
+        duration = _sleep_duration(rec.sleep_onset_at, iso)
+        await repo.update_sleep(
+            rec.id,
+            user.telegram_id,
+            wake_time=iso,
+            out_of_bed_at=iso,
+            duration_minutes=duration,
+        )
+        return _saved(user, "сон (встал)", when, rec.id)
+    item_id = await repo.add_sleep(user.telegram_id, wake_time=iso, out_of_bed_at=iso)
+    return _saved(user, "сон (встал)", when, item_id)
 
 
 async def add_sleep_onset(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
-    rec = await repo.latest_sleep(user.telegram_id)
-    if rec is None or rec.wake_time is None:
-        return None, "Сначала отметьте пробуждение."
-    if rec.sleep_onset_at is not None:
-        return None, "Время засыпания уже указано."
     iso = to_iso(when)
-    if rec.wake_time:
-        elapsed = _sleep_duration(iso, rec.wake_time)
-        if elapsed is None:
-            return None, "Время засыпания позже пробуждения."
-    else:
-        elapsed = None
+    rec = _pick_sleep(await repo.list_recent_sleep(user.telegram_id), lambda item: _onset_fits(item, iso))
+    if rec is None:
+        item_id = await repo.add_sleep(user.telegram_id, sleep_onset_at=iso)
+        return _saved(user, "сон (заснул)", when, item_id)
+    elapsed = _sleep_duration(iso, rec.wake_time) if rec.wake_time else None
+    if rec.wake_time and elapsed is None:
+        return None, "Время засыпания позже пробуждения."
     await repo.update_sleep(
         rec.id,
         user.telegram_id,

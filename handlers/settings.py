@@ -15,9 +15,12 @@ from keyboards.main import (
     cancel_kb,
     confirm_delete_kb,
     export_period_kb,
+    hours_kb,
+    minutes_kb,
     settings_kb,
     timezone_kb,
     track_metrics_kb,
+    wake_reminder_kb,
 )
 from states.diary import SettingsSG
 from utils.callbacks import NAV_SETTINGS
@@ -132,6 +135,139 @@ async def save_sleep(
         return
     value = f"{hour:02d}:{minute:02d}"
     await repo.update_settings(user.telegram_id, default_sleep_time=value)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await message.answer("Сохранено", reply_markup=settings_kb(user))
+
+
+WAKE_REMINDER_PROMPT = (
+    "Во сколько напомнить отметить подъём?\n"
+    "Если к этому времени ещё нет записи «встал», бот напишет."
+)
+
+
+def _wake_prompt(user: User) -> str:
+    current = user.wake_up_reminder_time or "выкл"
+    return f"{WAKE_REMINDER_PROMPT}\n\nСейчас: {current}"
+
+
+@router.callback_query(F.data == "set:wake")
+async def wake_reminder_root(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await state.clear()
+    await cb.answer()
+    await safe_edit(cb.message, _wake_prompt(user), wake_reminder_kb(user.wake_up_reminder_time))
+
+
+@router.callback_query(F.data == "set:wake:off")
+async def wake_reminder_off(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await repo.set_wake_up_reminder(user.telegram_id, None)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await cb.answer("Выключено")
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
+
+
+@router.callback_query(F.data == "set:wake:custom")
+async def wake_reminder_custom(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await state.set_state(SettingsSG.wake_hour)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        "Выберите час. Напоминание придёт в это время по вашему поясу.",
+        hours_kb(prefix="wrh", back="set:wake"),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^set:wake:\d{1,2}:\d{2}$"))
+async def wake_reminder_preset(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    token = cb.data.removeprefix("set:wake:")
+    try:
+        hour, minute = parse_hhmm(token)
+    except ValueError:
+        await cb.answer("Некорректное время", show_alert=True)
+        return
+    value = f"{hour:02d}:{minute:02d}"
+    await repo.set_wake_up_reminder(user.telegram_id, value)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await cb.answer("Сохранено")
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
+
+
+@router.callback_query(F.data.startswith("wrh:"), SettingsSG.wake_hour)
+async def wake_reminder_hour(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    if await require_active(cb, db_user) is None:
+        return
+    token = cb.data.split(":", 1)[1]
+    if token == "manual":
+        await state.set_state(SettingsSG.wake_manual)
+        await cb.answer()
+        await safe_edit(cb.message, "Введите время ЧЧ:ММ", cancel_kb("set:wake"))
+        return
+    await state.update_data(picked_hour=int(token))
+    await state.set_state(SettingsSG.wake_minute)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        f"Час: {int(token):02d}\nВыберите минуты:",
+        minutes_kb(prefix="wrm", back="set:wake:custom"),
+    )
+
+
+@router.callback_query(F.data.startswith("wrm:"), SettingsSG.wake_minute)
+async def wake_reminder_minute(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    minute = int(cb.data.split(":", 1)[1])
+    data = await state.get_data()
+    hour = int(data["picked_hour"])
+    value = f"{hour:02d}:{minute:02d}"
+    await repo.set_wake_up_reminder(user.telegram_id, value)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await cb.answer("Сохранено")
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
+
+
+@router.message(SettingsSG.wake_manual)
+async def wake_reminder_manual(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(message, db_user)
+    if user is None:
+        return
+    try:
+        hour, minute = parse_hhmm(message.text or "")
+    except ValueError:
+        await message.answer("Пример: 09:30", reply_markup=cancel_kb("set:wake"))
+        return
+    value = f"{hour:02d}:{minute:02d}"
+    await repo.set_wake_up_reminder(user.telegram_id, value)
     user = await repo.get_user(user.telegram_id)
     assert user
     await state.clear()

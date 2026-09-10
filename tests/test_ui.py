@@ -178,6 +178,14 @@ async def test_tracked_metrics_default_empty_and_pin_limit(repo):
     assert MAX_PINS == 3
 
 
+def test_toggle_sleep_phone_enables_sleep():
+    prefs = parse_ui_prefs('{"tracked": [], "sleep_bed_split": true}')
+    prefs = toggle_tracked(prefs, "sleep_nophone")
+    assert prefs.tracked == {"sleep", "sleep_nophone"}
+    prefs = toggle_tracked(prefs, "sleep_nophone")
+    assert prefs.tracked == {"sleep"}
+
+
 def test_parse_ui_prefs_migrates_hidden_and_keeps_legacy_all_on():
     legacy = parse_ui_prefs(None)
     assert legacy.tracked == set(TRACKABLE_TYPES)
@@ -190,7 +198,10 @@ def test_parse_ui_prefs_migrates_hidden_and_keeps_legacy_all_on():
     empty = parse_ui_prefs('{"tracked": []}')
     assert empty.tracked == set()
     picked = parse_ui_prefs('{"tracked": ["sleep", "nope"]}')
-    assert picked.tracked == {"sleep"}
+    assert picked.tracked == {"sleep", "sleep_phone", "sleep_nophone"}
+    assert picked.sleep_bed_split is True
+    split = parse_ui_prefs('{"tracked": ["sleep"], "sleep_bed_split": true}')
+    assert split.tracked == {"sleep"}
 
 
 @pytest.mark.asyncio

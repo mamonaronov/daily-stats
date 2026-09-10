@@ -27,6 +27,8 @@ class User:
     default_sleep_time: str = "23:00"
     stats_prefs_json: str | None = None
     ui_prefs_json: str | None = None
+    wake_up_reminder_time: str | None = None
+    wake_up_reminder_sent_on: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -100,6 +102,8 @@ class SleepRecord:
                 return "with_phone"
             if self.phone_away_at or self.bedtime:
                 return "no_phone"
+            if self.sleep_onset_at:
+                return "asleep"
             return "idle"
         if self.out_of_bed_at is None:
             return "awake"

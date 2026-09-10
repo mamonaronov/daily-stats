@@ -237,7 +237,37 @@ async def sleep_nophone_when(cb: CallbackQuery, state: FSMContext, db_user: User
 
 
 @router.callback_query(F.data == "slp:away")
-async def sleep_phone_away(
+async def sleep_phone_away_when(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await state.clear()
+    await state.set_state(SleepSG.when)
+    await state.update_data(when_prefix="sla")
+    await cb.answer()
+    await safe_edit(cb.message, when_title("sla"), when_kb("sla"))
+
+
+async def complete_sleep_away(
+    event: CallbackQuery | Message,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    when: datetime,
+) -> None:
+    item_id, error = await entries.add_sleep_phone_away(repo, user, when)
+    if error:
+        await _fail(event, error)
+        return
+    rec = await repo.get_sleep(item_id, user.telegram_id) if item_id else None
+    if rec is not None and rec.wake_time is not None:
+        await _maybe_prompt_onset(event, state, repo, user, item_id, "sa", toast="Телефон убран")
+        return
+    await show_saved_entry(event, repo, user, "sa", item_id, state, toast="Телефон убран")
+
+
+@router.callback_query(F.data == "sla:now")
+async def sleep_away_now(
     cb: CallbackQuery,
     state: FSMContext,
     repo: Repo,
@@ -246,11 +276,22 @@ async def sleep_phone_away(
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    item_id, error = await entries.add_sleep_phone_away(repo, user, user_now(user.timezone))
-    if error:
-        await cb.answer(error, show_alert=True)
+    await state.update_data(when_prefix="sla")
+    await complete_sleep_away(cb, state, repo, user, user_now(user.timezone))
+
+
+@router.callback_query(F.data == "sla:time")
+async def sleep_away_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
         return
-    await show_saved_entry(cb, repo, user, "sa", item_id, state, toast="Телефон убран")
+    await start_time_pick(
+        cb,
+        state,
+        "slp_away",
+        {"tz": user.timezone, "when_prefix": "sla", "time_exit": "when:sla"},
+        skip_date=True,
+    )
 
 
 @router.callback_query(F.data.in_({"slb:now", "sln:now"}))

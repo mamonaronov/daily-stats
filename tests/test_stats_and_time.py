@@ -164,6 +164,10 @@ def test_parse_when_text_clock_or_minutes_ago():
     assert (local.hour, local.minute, local.day) == (20, 0, 22)
     ago = parse_when_text("15", "Europe/Moscow", now=now)
     assert int((now - ago).total_seconds()) == 15 * 60
+    yesterday = to_user(parse_when_text("вчера 22:40", "Europe/Moscow", now=now), "Europe/Moscow")
+    assert (yesterday.year, yesterday.month, yesterday.day, yesterday.hour, yesterday.minute) == (2026, 8, 22, 22, 40)
+    daybefore = to_user(parse_when_text("позавчера 9:05", "UTC", now=now), "UTC")
+    assert (daybefore.day, daybefore.hour, daybefore.minute) == (21, 9, 5)
 
 
 def test_parse_calendar_token_relative_days():

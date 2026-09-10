@@ -79,6 +79,9 @@ class StatsSG(StatesGroup):
 class SettingsSG(StatesGroup):
     timezone_custom = State()
     sleep_time = State()
+    wake_hour = State()
+    wake_minute = State()
+    wake_manual = State()
     confirm_delete = State()
 
 

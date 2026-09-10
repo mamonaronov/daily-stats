@@ -39,7 +39,7 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "wgt", "slw", "slu", "slb", "sln", "slo", "cmt", "cms", "cme", "mkt")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "wgt", "slw", "slu", "slb", "sln", "sla", "slo", "cmt", "cms", "cme", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
@@ -51,15 +51,16 @@ WHEN_TO_PURPOSE = {
     "slu": "slp_up",
     "slb": "slp_bed",
     "sln": "slp_bed",
+    "sla": "slp_away",
     "slo": "slp_onset",
     "cmt": "cm",
     "cms": "cm_start",
     "cme": "cm_end",
     "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slb|sln|slo|cmt|cms|cme|mkt)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slb|sln|sla|slo|cmt|cms|cme|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
-WHEN_TEXT_PROMPT = "Введите время (10:00, 1000, 10 00) или сколько минут назад (например 7 или 1 час)"
+WHEN_TEXT_PROMPT = "Введите время (10:00, вчера 22:40, 1000) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
 
 
@@ -88,6 +89,11 @@ async def _finish(
         from handlers.sleep import complete_sleep_bed
 
         await complete_sleep_bed(event, state, repo, user, when)
+        return
+    if purpose == "slp_away":
+        from handlers.sleep import complete_sleep_away
+
+        await complete_sleep_away(event, state, repo, user, when)
         return
     item_id = None
     error = None
@@ -335,7 +341,7 @@ async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) ->
         await state.set_state(None)
         await safe_edit(cb.message, _onset_screen_text(data), sleep_onset_kb(undo_kind, undo_id))
         return
-    if prefix in {"slw", "slu", "slb", "sln"}:
+    if prefix in {"slw", "slu", "slb", "sln", "sla"}:
         await state.set_state(SleepSG.when)
     else:
         await state.set_state(None)
@@ -525,7 +531,7 @@ async def _restore_before_time_pick(
             await cb.answer()
             await safe_edit(cb.message, _onset_screen_text(data), sleep_onset_kb(undo_kind, undo_id))
             return
-        if prefix in {"slw", "slu", "slb", "sln"}:
+        if prefix in {"slw", "slu", "slb", "sln", "sla"}:
             await state.set_state(SleepSG.when)
         await cb.answer()
         await safe_edit(cb.message, when_title(prefix), when_kb(prefix, metric_id=metric_id))

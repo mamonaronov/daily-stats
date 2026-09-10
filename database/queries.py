@@ -137,7 +137,9 @@ SELECT u.telegram_id, u.username, u.first_name, u.last_name, u.registered_at,
        u.created_at, u.updated_at,
        COALESCE(s.default_sleep_time, '23:00') AS default_sleep_time,
        s.stats_prefs_json,
-       s.ui_prefs_json
+       s.ui_prefs_json,
+       s.wake_up_reminder_time,
+       s.wake_up_reminder_sent_on
 FROM users u
 LEFT JOIN user_settings s ON s.telegram_id = u.telegram_id
 """
@@ -451,6 +453,77 @@ class Repo:
                 (default_sleep_time, stats_prefs_json, ui_prefs_json, telegram_id),
             )
         await self.conn.commit()
+
+    async def list_wake_reminder_users(self) -> list[User]:
+        rows = await self.fetchall(
+            USER_SELECT
+            + """
+            WHERE u.deleted_at IS NULL
+              AND u.status = 'active'
+              AND s.wake_up_reminder_time IS NOT NULL
+              AND TRIM(s.wake_up_reminder_time) != ''
+            ORDER BY u.telegram_id
+            """
+        )
+        return [_user(r) for r in rows]
+
+    async def set_wake_up_reminder(self, telegram_id: int, hhmm: str | None) -> None:
+        current = await self.fetchone(
+            "SELECT * FROM user_settings WHERE telegram_id = ?", (telegram_id,)
+        )
+        if current is None:
+            await self.conn.execute(
+                """
+                INSERT INTO user_settings (telegram_id, default_sleep_time, wake_up_reminder_time)
+                VALUES (?, '23:00', ?)
+                """,
+                (telegram_id, hhmm),
+            )
+        else:
+            await self.conn.execute(
+                """
+                UPDATE user_settings
+                SET wake_up_reminder_time = ?,
+                    wake_up_reminder_sent_on = CASE WHEN ? IS NULL THEN NULL ELSE wake_up_reminder_sent_on END
+                WHERE telegram_id = ?
+                """,
+                (hhmm, hhmm, telegram_id),
+            )
+        await self.conn.commit()
+
+    async def mark_wake_up_reminder_sent(self, telegram_id: int, day: str) -> None:
+        current = await self.fetchone(
+            "SELECT * FROM user_settings WHERE telegram_id = ?", (telegram_id,)
+        )
+        if current is None:
+            await self.conn.execute(
+                """
+                INSERT INTO user_settings (
+                    telegram_id, default_sleep_time, wake_up_reminder_sent_on
+                )
+                VALUES (?, '23:00', ?)
+                """,
+                (telegram_id, day),
+            )
+        else:
+            await self.conn.execute(
+                "UPDATE user_settings SET wake_up_reminder_sent_on = ? WHERE telegram_id = ?",
+                (day, telegram_id),
+            )
+        await self.conn.commit()
+
+    async def has_out_of_bed_between(self, telegram_id: int, start: str, end: str) -> bool:
+        row = await self.fetchone(
+            """
+            SELECT 1 AS ok FROM sleep_records
+            WHERE telegram_id = ?
+              AND out_of_bed_at IS NOT NULL
+              AND out_of_bed_at >= ? AND out_of_bed_at < ?
+            LIMIT 1
+            """,
+            (telegram_id, start, end),
+        )
+        return row is not None
 
     async def set_daily_price(self, telegram_id: int, price: float) -> None:
         ts = to_iso(now_utc())
@@ -794,6 +867,18 @@ class Repo:
             (telegram_id,),
         )
         return _opt(SleepRecord, row)
+
+    async def list_recent_sleep(self, telegram_id: int, limit: int = 40) -> list[SleepRecord]:
+        rows = await self.fetchall(
+            """
+            SELECT * FROM sleep_records
+            WHERE telegram_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (telegram_id, limit),
+        )
+        return [SleepRecord(**dict(r)) for r in rows]
 
     async def latest_open_sleep(self, telegram_id: int) -> SleepRecord | None:
         row = await self.fetchone(

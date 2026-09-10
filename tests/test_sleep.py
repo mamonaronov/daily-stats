@@ -54,6 +54,68 @@ async def test_sleep_phone_then_away_then_wake_up_and_onset(repo):
 
 
 @pytest.mark.asyncio
+async def test_sleep_onset_without_wake_then_wake(repo):
+    user = await repo.create_user(39, "s", "S", None, "UTC", 0, "23:00")
+    onset = datetime(2026, 8, 16, 23, 0, tzinfo=timezone.utc)
+    wake = datetime(2026, 8, 17, 7, 0, tzinfo=timezone.utc)
+
+    item_id, error = await add_sleep_onset(repo, user, onset)
+    assert error is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.phase() == "asleep"
+    assert rec.sleep_onset_at is not None
+
+    same_id, error = await add_sleep_wake(repo, user, wake, quality=4)
+    assert error is None
+    assert same_id == item_id
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.phase() == "awake"
+    assert rec.duration_minutes == 8 * 60
+
+
+@pytest.mark.asyncio
+async def test_sleep_onset_attaches_to_previous_night(repo):
+    user = await repo.create_user(40, "s", "S", None, "UTC", 0, "23:00")
+    first_bed = datetime(2026, 8, 15, 22, 0, tzinfo=timezone.utc)
+    first_wake = datetime(2026, 8, 16, 6, 0, tzinfo=timezone.utc)
+    second_bed = datetime(2026, 8, 16, 23, 0, tzinfo=timezone.utc)
+    first_onset = datetime(2026, 8, 15, 23, 30, tzinfo=timezone.utc)
+
+    first_id, error = await add_sleep_phone_away(repo, user, first_bed)
+    assert error is None
+    _, error = await add_sleep_wake(repo, user, first_wake, quality=3)
+    assert error is None
+    second_id, error = await add_sleep_phone_in(repo, user, second_bed)
+    assert error is None
+    assert second_id != first_id
+
+    same_id, error = await add_sleep_onset(repo, user, first_onset)
+    assert error is None
+    assert same_id == first_id
+    old = await repo.get_sleep(first_id, user.telegram_id)
+    new = await repo.get_sleep(second_id, user.telegram_id)
+    assert old.sleep_onset_at is not None
+    assert old.duration_minutes == 390
+    assert new.sleep_onset_at is None
+    assert new.phase() == "with_phone"
+
+
+@pytest.mark.asyncio
+async def test_sleep_up_without_prior_wake_on_open_night(repo):
+    user = await repo.create_user(44, "s", "S", None, "UTC", 0, "23:00")
+    bed = datetime(2026, 8, 16, 22, 0, tzinfo=timezone.utc)
+    up = datetime(2026, 8, 17, 7, 15, tzinfo=timezone.utc)
+    item_id, error = await add_sleep_phone_away(repo, user, bed)
+    assert error is None
+    same_id, error = await add_sleep_up(repo, user, up)
+    assert error is None
+    assert same_id == item_id
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.wake_time == rec.out_of_bed_at
+    assert rec.phase() == "need_onset"
+
+
+@pytest.mark.asyncio
 async def test_sleep_onset_after_wake_without_getting_up(repo):
     user = await repo.create_user(34, "s", "S", None, "UTC", 0, "23:00")
     bed = datetime(2026, 8, 16, 20, 0, tzinfo=timezone.utc)

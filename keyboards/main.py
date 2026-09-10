@@ -62,37 +62,62 @@ def back_kb(back: str | None = None, *, menu: bool = True) -> InlineKeyboardMark
     return b.as_markup()
 
 
-def sleep_rows(sleep: SleepRecord | None) -> list[list[InlineKeyboardButton]]:
+def _sleep_bed_enabled(tracked: set[str] | None) -> tuple[bool, bool]:
+    if tracked is None:
+        return True, True
+    return "sleep_phone" in tracked, "sleep_nophone" in tracked
+
+
+def sleep_rows(sleep: SleepRecord | None, *, tracked: set[str] | None = None) -> list[list[InlineKeyboardButton]]:
     phase = sleep.phase() if sleep else "idle"
     wake = _btn("Проснулся", "slp:wake")
+    wakeup = _btn("И встал", "slp:wakeup")
+    up = _btn("Встал", "slp:up")
+    onset = _btn("Заснул?", "slp:askonset")
     phone = _btn("Лёг с телефоном", "slp:phone")
     nophone = _btn("Лёг без телефона", "slp:nophone")
-    bed = [phone, nophone]
+    away = _btn("Убрал телефон", "slp:away")
+    phone_on, nophone_on = _sleep_bed_enabled(tracked)
+    bed: list[InlineKeyboardButton] = []
+    if phone_on:
+        bed.append(phone)
+    if nophone_on:
+        bed.append(nophone)
+
+    def with_bed(rows: list[list[InlineKeyboardButton]]) -> list[list[InlineKeyboardButton]]:
+        if bed:
+            rows.append(bed)
+        return rows
+
     if phase == "with_phone":
-        return [
-            [wake, _btn("И встал", "slp:wakeup")],
-            [_btn("Убрал телефон", "slp:away")],
-        ]
+        second = [onset, away]
+        return [[wake, wakeup], second]
     if phase == "no_phone":
-        return [[wake, _btn("И встал", "slp:wakeup")]]
+        return [[wake, wakeup], [onset]]
+    if phase == "asleep":
+        return with_bed([[wake, wakeup]])
     if phase == "awake":
-        top = [_btn("Встал", "slp:up")]
+        top = [up]
         if sleep is not None and sleep.sleep_onset_at is None:
-            top.insert(0, _btn("Заснул?", "slp:askonset"))
-        return [top, bed]
+            top.insert(0, onset)
+        return with_bed([top])
     if phase == "need_onset":
-        return [[_btn("Заснул?", "slp:askonset"), wake], bed]
-    return [[wake], bed]
+        return with_bed([[onset, wake]])
+    return with_bed([[wake, wakeup], [onset]])
 
 
-def _add_sleep_rows(builder: InlineKeyboardBuilder, sleep: SleepRecord | None) -> None:
-    for row in sleep_rows(sleep):
+def _add_sleep_rows(
+    builder: InlineKeyboardBuilder,
+    sleep: SleepRecord | None,
+    tracked: set[str] | None = None,
+) -> None:
+    for row in sleep_rows(sleep, tracked=tracked):
         builder.row(*row)
 
 
-def sleep_actions_kb(sleep: SleepRecord | None) -> InlineKeyboardMarkup:
+def sleep_actions_kb(sleep: SleepRecord | None, tracked: set[str] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    _add_sleep_rows(b, sleep)
+    _add_sleep_rows(b, sleep, tracked)
     return with_nav(b)
 
 
@@ -125,7 +150,7 @@ def main_menu(
         if phase == "idle":
             b.row(_btn("😴 Сон", ENTRY_SLEEP))
         else:
-            _add_sleep_rows(b, sleep)
+            _add_sleep_rows(b, sleep, tracked)
     drinks: list[InlineKeyboardButton] = []
     if "caffeine" in tracked:
         drinks.append(_btn("☕ Кофеин", ENTRY_CAF))
@@ -177,6 +202,7 @@ _WHEN_TITLES = {
     "slu": "Когда встали?",
     "slb": "Когда легли с телефоном?",
     "sln": "Когда легли без телефона?",
+    "sla": "Когда убрали телефон?",
     "slo": "Когда заснули?",
     "cmt": "Когда зафиксировать?",
     "cms": "Когда начали?",
@@ -195,6 +221,7 @@ _WHEN_BACK = {
     "slu": ENTRY_SLEEP,
     "slb": ENTRY_SLEEP,
     "sln": ENTRY_SLEEP,
+    "sla": ENTRY_SLEEP,
     "mkt": NAV_MARKERS,
 }
 
@@ -568,14 +595,44 @@ def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKe
 
 def settings_kb(user: User) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    reminder = user.wake_up_reminder_time or "выкл"
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
+    b.row(_btn(f"⏰ Напомнить встать: {reminder}", "set:wake"))
     b.row(_btn("📋 Метрики", "set:trk"))
     b.row(_btn("📤 Выгрузить CSV", "set:exp"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
     b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:s"))
     b.row(_btn("📜 Пользовательское соглашение", "lg:t:0:s"))
     b.row(_btn("🗑 Удалить аккаунт", "set:del"))
+    return with_nav(b)
+
+
+WAKE_REMINDER_PRESETS = ("07:00", "08:00", "09:00", "10:00", "11:00", "12:00")
+
+
+def wake_reminder_kb(current: str | None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    presets = list(WAKE_REMINDER_PRESETS)
+    for i in range(0, len(presets), 3):
+        row = []
+        for stamp in presets[i : i + 3]:
+            label = f"✓ {stamp}" if stamp == current else stamp
+            row.append(_btn(label, f"set:wake:{stamp}"))
+        b.row(*row)
+    b.row(_btn("Другое время", "set:wake:custom"))
+    if current:
+        b.row(_btn("Выключить", "set:wake:off"))
+    return with_nav(b, NAV_SETTINGS)
+
+
+def wake_up_reminder_kb(sleep: SleepRecord | None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    phase = sleep.phase() if sleep else "idle"
+    if phase == "awake":
+        b.row(_btn("Встал", "slp:up"))
+    else:
+        b.row(_btn("Проснулся", "slp:wake"), _btn("И встал", "slp:wakeup"))
     return with_nav(b)
 
 

@@ -234,8 +234,25 @@ def clock_on_day(tz_name: str, hour: int, minute: int, *, now: datetime | None =
     return when
 
 
+_WHEN_DAY_WORDS = (
+    ("позавчера", 2),
+    ("вчера", 1),
+    ("сегодня", 0),
+)
+
+
 def parse_when_text(value: str, tz_name: str, *, now: datetime | None = None) -> datetime:
     raw = (value or "").strip()
+    lowered = raw.lower()
+    for word, days_ago in _WHEN_DAY_WORDS:
+        if lowered == word or lowered.startswith(word + " "):
+            rest = raw[len(word) :].strip()
+            if not rest:
+                raise ValueError("time")
+            hour, minute = parse_hhmm(rest)
+            local_now = to_user(now or now_utc(), tz_name)
+            day = local_now.date() - timedelta(days=days_ago)
+            return combine_local(tz_name, day, hour, minute)
     if looks_like_clock(raw):
         hour, minute = parse_hhmm(raw)
         return clock_on_day(tz_name, hour, minute, now=now)

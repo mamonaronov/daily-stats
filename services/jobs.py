@@ -113,6 +113,17 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        wake_reminder_job,
+        "interval",
+        minutes=1,
+        id="wake_up_reminders",
+        replace_existing=True,
+        kwargs={"repo": repo, "bot": bot},
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
     if config.vpn_monitor_enabled:
         from services.vpn_monitor import VpnMonitor, make_probe_bot
 
@@ -244,6 +255,17 @@ async def notices_job(repo: Repo, bot: Bot, config: Config) -> None:
         await send_coverage_notices(repo, bot, config)
     except Exception:
         logger.exception("Coverage notices failed")
+
+
+async def wake_reminder_job(repo: Repo, bot: Bot) -> None:
+    try:
+        from services.wake_reminders import send_wake_up_reminders
+
+        sent = await send_wake_up_reminders(repo, bot)
+        if sent:
+            logger.info("Wake-up reminders sent: %s", sent)
+    except Exception:
+        logger.exception("Wake-up reminders failed")
 
 
 def vpn_monitor_job_timeout(monitor) -> float:

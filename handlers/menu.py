@@ -11,6 +11,7 @@ from database.models import User
 from database.queries import Repo
 from handlers.common import require_active, require_writable, show_main
 from keyboards.main import balance_kb, now_or_time, paid_kb, sleep_actions_kb
+from services.ui_prefs import prefs_of
 from utils.callbacks import (
     ENTRY_ACT,
     ENTRY_ALC,
@@ -134,7 +135,7 @@ async def sleep_entry(
         return
     sleep = await repo.latest_sleep(user.telegram_id)
     await cb.answer()
-    await safe_edit(cb.message, "😴 Сон", sleep_actions_kb(sleep))
+    await safe_edit(cb.message, "😴 Сон", sleep_actions_kb(sleep, prefs_of(user).tracked))
 
 
 @router.callback_query(F.data == ENTRY_CAF)

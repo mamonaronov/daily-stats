@@ -13,6 +13,8 @@ TRACKABLE_TYPES = (
     "fooling",
     "snus",
     "sleep",
+    "sleep_phone",
+    "sleep_nophone",
     "caffeine",
     "alcohol",
     "activity",
@@ -32,6 +34,8 @@ TRACKABLE_LABELS = {
     "fooling": "🤌 Валять дурака",
     "snus": "🟢 Снюс",
     "sleep": "😴 Сон",
+    "sleep_phone": "📱 Лёг с телефоном",
+    "sleep_nophone": "🛏️ Лёг без телефона",
     "caffeine": "☕ Кофеин",
     "alcohol": "🍺 Алкоголь",
     "activity": "🏃 Активность",
@@ -45,6 +49,8 @@ TRACKABLE_LABELS = {
     "custom": "📌 Кастом",
     "markers": "🔖 Метки",
 }
+
+SLEEP_BED_TYPES = ("sleep_phone", "sleep_nophone")
 
 # Old "hide buttons" list — used only to migrate prefs that still store `hidden`.
 _LEGACY_HIDEABLE = frozenset(
@@ -75,6 +81,7 @@ class UiPrefs:
     onboarded: bool = False
     low_balance_notice_on: str | None = None
     owner_digest_on: str | None = None
+    sleep_bed_split: bool = False
 
     def is_tracked(self, key: str) -> bool:
         return key in self.tracked
@@ -86,6 +93,7 @@ class UiPrefs:
                 "onboarded": self.onboarded,
                 "low_balance_notice_on": self.low_balance_notice_on,
                 "owner_digest_on": self.owner_digest_on,
+                "sleep_bed_split": True,
             },
             ensure_ascii=False,
         )
@@ -107,11 +115,16 @@ def parse_ui_prefs(raw: str | None) -> UiPrefs:
     else:
         hidden = {item for item in data.get("hidden") or [] if item in _LEGACY_HIDEABLE}
         tracked = _legacy_tracked(hidden)
+    sleep_bed_split = bool(data.get("sleep_bed_split"))
+    if "sleep" in tracked and not sleep_bed_split:
+        tracked.update(SLEEP_BED_TYPES)
+        sleep_bed_split = True
     return UiPrefs(
         tracked=tracked,
         onboarded=bool(data.get("onboarded")),
         low_balance_notice_on=data.get("low_balance_notice_on"),
         owner_digest_on=data.get("owner_digest_on"),
+        sleep_bed_split=sleep_bed_split,
     )
 
 
@@ -134,5 +147,8 @@ def toggle_tracked(prefs: UiPrefs, key: str) -> UiPrefs:
         tracked.remove(key)
     else:
         tracked.add(key)
+        if key in SLEEP_BED_TYPES:
+            tracked.add("sleep")
     prefs.tracked = tracked
+    prefs.sleep_bed_split = True
     return prefs
