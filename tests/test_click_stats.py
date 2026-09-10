@@ -13,7 +13,9 @@ from services.click_stats import (
     click_window,
     kind_label,
     record_callback_click,
+    render_click_journal,
     render_click_report,
+    render_user_click_log,
     ux_kind_share,
 )
 from tests.conftest import make_config
@@ -27,6 +29,7 @@ def test_classify_button_kinds():
     assert classify_button("n:a") == "admin"
     assert classify_button("ad:clk") == "admin"
     assert classify_button("adclk:7") == "admin"
+    assert classify_button("adclkj:today") == "admin"
     assert classify_button("stp:yesterday") == "stats"
     assert classify_button("stp:all") == "stats"
     assert classify_button("stp:q:10000") == "steps"
@@ -51,7 +54,13 @@ def test_admin_clicks_kb_callback_limit():
     datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "adclk:7" in datas
     assert "adclkc:7" in datas
+    assert "adclkj:7" in datas
     assert all(data and len(data.encode()) <= 64 for data in datas)
+    from keyboards.main import admin_user_kb
+
+    user_datas = [btn.callback_data for row in admin_user_kb(42).inline_keyboard for btn in row]
+    assert "ad:uclk:42" in user_datas
+    assert all(data and len(data.encode()) <= 64 for data in user_datas)
 
 
 def test_backup_list_skips_clicks_and_vpn(tmp_path):
@@ -140,6 +149,8 @@ async def test_admin_summary_uses_owner_timezone_not_utc(repo):
     assert "всего 1" in text
     assert "2 сентября 2026, 13:15:00" in text
     assert "Иван" in text
+    assert "Меню" in text
+    assert "n:m" in text
     assert "T10:15:00" not in text
     assert "+00:00" not in text
     assert "2026-09-02T" not in text
@@ -147,6 +158,7 @@ async def test_admin_summary_uses_owner_timezone_not_utc(repo):
 
 @pytest.mark.asyncio
 async def test_click_report_and_charts_exclude_owner(repo):
+    await repo.create_user(9, "ivan", "Иван", None, "UTC", 0, "23:00")
     clicks = repo.db.clicks_db
     assert clicks is not None
     await clicks.record(
@@ -182,13 +194,71 @@ async def test_click_report_and_charts_exclude_owner(repo):
     assert "Нажатий: 2" in text
     assert "Сигареты" in text
     assert "e:cig" in text
+    assert "Кто нажимал:" in text
+    assert "Иван — 2" in text
+    assert "Последние:" in text
+    assert "2 сентября 10:00 · Иван · Меню" in text
+    assert "2 сентября 09:00 · Иван · Сигарета" in text
+    assert "ad:clk" not in text
     assert "не попадает в бэкап" in text
+    journal = await render_click_journal(repo, start=start, end=end, title=title, tz_name="UTC")
+    assert journal is not None
+    assert "Иван" in journal
+    assert "id=9" in journal
+    assert "e:cig" in journal
+    assert "02.09.2026 10:00:00" in journal
+    assert "id=1" not in journal
+    user_log = await render_user_click_log(repo, telegram_id=9, tz_name="UTC")
+    assert "Нажатия Иван" in user_log
+    assert "Всего: 2" in user_log
+    assert "Сигарета" in user_log
+    owner_log = await render_user_click_log(repo, telegram_id=1, tz_name="UTC")
+    assert "Всего: 1" in owner_log
+    assert "ad:clk" in owner_log
     share = ux_kind_share(await clicks.kind_counts(to_iso(start), to_iso(end)))
     kinds = {row["kind"] for row in share}
     assert kinds == {"cigarettes", "menu"}
     charts = await build_click_charts(clicks, start, end, title, "UTC")
     assert charts
     assert all(png.startswith(b"\x89PNG") for _, png in charts)
+
+
+@pytest.mark.asyncio
+async def test_click_report_escapes_names_and_empty_journal(repo):
+    await repo.create_user(8, "x", "<b>x</b>", None, "UTC", 0, "23:00")
+    clicks = repo.db.clicks_db
+    assert clicks is not None
+    await clicks.record(
+        telegram_id=8,
+        clicked_at="2026-09-02T11:00:00+00:00",
+        button_kind="menu",
+        callback_data="n:m",
+        button_text="<Меню>",
+        is_owner=False,
+    )
+    start, end, title = click_window(
+        "today",
+        "UTC",
+        now=datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc),
+    )
+    text = await render_click_report(repo, start=start, end=end, title=title, tz_name="UTC")
+    assert "&lt;b&gt;x&lt;/b&gt;" in text
+    assert "<b>x</b>" not in text
+    assert "&lt;Меню&gt;" in text
+    journal = await render_click_journal(repo, start=start, end=end, title=title, tz_name="UTC")
+    assert journal is not None
+    assert "<b>x</b>" in journal
+    empty_start, empty_end, empty_title = click_window(
+        "today",
+        "UTC",
+        now=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    assert await render_click_journal(
+        repo, start=empty_start, end=empty_end, title=empty_title, tz_name="UTC"
+    ) is None
+    missing = await render_user_click_log(repo, telegram_id=99, tz_name="UTC")
+    assert "99" in missing
+    assert "Пока нет нажатий" in missing
 
 
 def _callback(telegram_id: int, data: str, text: str):

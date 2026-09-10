@@ -977,7 +977,7 @@ def admin_user_kb(telegram_id: int) -> InlineKeyboardMarkup:
     b.row(_btn("➕ Пополнить", f"ad:cr:{telegram_id}"), _btn("➖ Списать", f"ad:db:{telegram_id}"))
     b.row(_btn("🎯 Установить баланс", f"ad:st:{telegram_id}"), _btn("💸 Стоимость/день", f"ad:pr:{telegram_id}"))
     b.row(_btn("📋 Операции", f"ad:op:{telegram_id}"), _btn("📊 Статистика", f"ad:us:{telegram_id}"))
-    b.row(_btn("📤 CSV", f"ad:exp:{telegram_id}"))
+    b.row(_btn("🖱 Нажатия", f"ad:uclk:{telegram_id}"), _btn("📤 CSV", f"ad:exp:{telegram_id}"))
     b.row(_btn("🚫 Заблокировать", f"ad:bn:{telegram_id}"), _btn("✅ Разблокировать", f"ad:un:{telegram_id}"))
     b.row(_btn("🔎 Поиск", "ad:search"), _btn("🛠 Админка", NAV_ADMIN))
     b.row(_btn("🏠 Меню", NAV_MAIN))
@@ -1029,6 +1029,7 @@ def admin_clicks_kb(period: str = "today") -> InlineKeyboardMarkup:
     )
     span = {"today": "сегодня", "7": "7 дней", "30": "30 дней", "all": "всё время"}[period]
     b.row(_btn(f"📈 Графики за {span}", f"adclkc:{period}"))
+    b.row(_btn(f"📋 Журнал за {span}", f"adclkj:{period}"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 
