@@ -15,6 +15,8 @@ from utils.formatting import format_int_spaces
 from utils.time import (
     day_bounds_utc,
     format_date,
+    format_dt,
+    format_dt_compact,
     format_dt_full,
     now_utc,
     parse_iso,
@@ -99,6 +101,7 @@ _PREFIX_KIND: tuple[tuple[str, str], ...] = tuple(
             ("advc:", "admin"),
             ("advl:", "admin"),
             ("adclkc:", "admin"),
+            ("adclkj:", "admin"),
             ("adclk:", "admin"),
             ("adv:", "admin"),
             ("ad:", "admin"),
@@ -161,6 +164,11 @@ CLICK_PERIODS: dict[str, str] = {
     "30": "30 дней",
     "all": "всё время",
 }
+
+REPORT_RECENT_LIMIT = 12
+REPORT_PEOPLE_LIMIT = 8
+USER_CLICK_LIMIT = 15
+JOURNAL_FILE_LIMIT = 3000
 
 
 def classify_button(callback_data: str | None) -> str:
@@ -255,11 +263,10 @@ async def admin_click_summary_lines(
     if last and last.get("clicked_at"):
         when = format_dt_full(parse_iso(str(last["clicked_at"])), tz_name)
         telegram_id = int(last["telegram_id"])
-        user = await repo.get_user(telegram_id)
-        who = html.escape(user.display_name) if user else str(telegram_id)
-        last_line = f"Последнее нажатие пользователя: {when} ({who})"
+        who = await _click_who(repo, telegram_id)
+        last_line = f"Последнее нажатие: {when} · {who} · {_click_button_html(last)}"
     else:
-        last_line = "Последнее нажатие пользователя: —"
+        last_line = "Последнее нажатие: —"
     return [
         f"Нажатий пользователей: {format_int_spaces(int(stats['users_total']))}",
         (
@@ -316,6 +323,43 @@ def ux_kind_share(kind_rows: list[tuple[str, int]]) -> list[dict[str, Any]]:
     return rows
 
 
+def click_button_label(row: dict[str, Any]) -> str:
+    text = (row.get("button_text") or "").strip()
+    return text or kind_label(str(row.get("button_kind") or ""))
+
+
+def _click_button_html(row: dict[str, Any]) -> str:
+    label = html.escape(click_button_label(row))
+    callback = html.escape(str(row.get("callback_data") or ""))
+    if callback:
+        return f"{label} (<code>{callback}</code>)"
+    return label
+
+
+def _click_when(row: dict[str, Any], tz_name: str) -> str:
+    raw = str(row.get("clicked_at") or "")
+    try:
+        return format_dt(parse_iso(raw), tz_name)
+    except ValueError:
+        return raw or "—"
+
+
+async def _click_who(repo: Repo, telegram_id: int) -> str:
+    user = await repo.get_user(telegram_id)
+    return html.escape(user.display_name) if user else str(telegram_id)
+
+
+async def _click_names(repo: Repo, telegram_ids: list[int]) -> dict[int, str]:
+    names: dict[int, str] = {}
+    for telegram_id in dict.fromkeys(telegram_ids):
+        names[telegram_id] = await _click_who(repo, telegram_id)
+    return names
+
+
+def _plain_who(html_name: str, telegram_id: int) -> str:
+    return html.unescape(html_name) if html_name != str(telegram_id) else str(telegram_id)
+
+
 async def render_click_report(
     repo: Repo,
     *,
@@ -331,6 +375,12 @@ async def render_click_report(
     summary = await clicks.period_user_summary(start_iso, end_iso)
     kinds = await clicks.kind_counts(start_iso, end_iso)
     top = await clicks.top_callbacks(start_iso, end_iso)
+    people = await clicks.top_people(start_iso, end_iso, limit=REPORT_PEOPLE_LIMIT)
+    recent = await clicks.recent_clicks(start_iso, end_iso, limit=REPORT_RECENT_LIMIT)
+    names = await _click_names(
+        repo,
+        [int(row["telegram_id"]) for row in people] + [int(row["telegram_id"]) for row in recent],
+    )
     lines = [
         "🖱 <b>Нажатия кнопок</b>",
         "",
@@ -340,24 +390,118 @@ async def render_click_report(
             f" · людей: {format_int_spaces(summary['people'])}"
         ),
     ]
+    if people:
+        lines.append("")
+        lines.append("Кто нажимал:")
+        for row in people:
+            telegram_id = int(row["telegram_id"])
+            lines.append(
+                f"• {names.get(telegram_id, str(telegram_id))}"
+                f" — {format_int_spaces(int(row['c']))}"
+            )
+    if recent:
+        lines.append("")
+        lines.append("Последние:")
+        for row in recent:
+            telegram_id = int(row["telegram_id"])
+            lines.append(
+                f"• {_click_when(row, tz_name)} · {names.get(telegram_id, str(telegram_id))}"
+                f" · {_click_button_html(row)}"
+            )
     if kinds:
         lines.append("")
         lines.append("Чаще всего:")
-        for kind, count in kinds[:10]:
+        for kind, count in kinds[:8]:
             lines.append(f"• {html.escape(kind_label(kind))} — {format_int_spaces(count)}")
     if top:
         lines.append("")
         lines.append("Конкретные кнопки:")
-        for row in top[:8]:
-            label = (row.get("button_text") or "").strip() or kind_label(str(row.get("button_kind") or ""))
-            callback = str(row.get("callback_data") or "")
+        for row in top[:6]:
             lines.append(
-                f"• {html.escape(label)} (<code>{html.escape(callback)}</code>)"
-                f" — {format_int_spaces(int(row['c']))}"
+                f"• {_click_button_html(row)} — {format_int_spaces(int(row['c']))}"
             )
     lines.append("")
     lines.append("Хранится отдельно от дневника и не попадает в бэкап.")
     return "\n".join(lines)
+
+
+async def render_user_click_log(
+    repo: Repo,
+    *,
+    telegram_id: int,
+    tz_name: str,
+) -> str:
+    clicks = repo.db.clicks_db
+    user = await repo.get_user(telegram_id)
+    who = html.escape(user.display_name) if user else str(telegram_id)
+    if clicks is None:
+        return f"🖱 <b>Нажатия {who}</b>\n\nБаза нажатий не подключена."
+    start, end, _title = click_window("all", tz_name)
+    start_iso, end_iso = to_iso(start), to_iso(end)
+    summary = await clicks.recent_clicks(
+        start_iso,
+        end_iso,
+        limit=USER_CLICK_LIMIT,
+        telegram_id=telegram_id,
+        include_owner=True,
+    )
+    total = await clicks.person_click_count(telegram_id, start_iso, end_iso)
+    lines = [
+        f"🖱 <b>Нажатия {who}</b>",
+        "",
+        f"Всего: {format_int_spaces(total)}",
+    ]
+    if not summary:
+        lines.append("Пока нет нажатий.")
+        return "\n".join(lines)
+    lines.append("")
+    lines.append("Последние:")
+    for item in summary:
+        lines.append(f"• {_click_when(item, tz_name)} · {_click_button_html(item)}")
+    return "\n".join(lines)
+
+
+async def render_click_journal(
+    repo: Repo,
+    *,
+    start: datetime,
+    end: datetime,
+    title: str,
+    tz_name: str,
+) -> str | None:
+    clicks = repo.db.clicks_db
+    if clicks is None:
+        return None
+    rows = await clicks.recent_clicks(
+        to_iso(start),
+        to_iso(end),
+        limit=JOURNAL_FILE_LIMIT,
+    )
+    if not rows:
+        return None
+    names = await _click_names(repo, [int(row["telegram_id"]) for row in rows])
+    lines = [
+        f"Нажатия кнопок за {title}",
+        "Только пользователи, без владельца.",
+        f"Записей: {len(rows)}"
+        + (" (последние)" if len(rows) >= JOURNAL_FILE_LIMIT else ""),
+        "",
+    ]
+    for row in rows:
+        telegram_id = int(row["telegram_id"])
+        who = _plain_who(names.get(telegram_id, str(telegram_id)), telegram_id)
+        raw_when = str(row.get("clicked_at") or "")
+        try:
+            when = format_dt_compact(parse_iso(raw_when), tz_name)
+        except ValueError:
+            when = raw_when or "—"
+        label = click_button_label(row)
+        callback = str(row.get("callback_data") or "")
+        kind = kind_label(str(row.get("button_kind") or ""))
+        lines.append(
+            f"{when}  {who}  id={telegram_id}  {label}  {callback}  {kind}"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def day_axis_label(day: date) -> str:

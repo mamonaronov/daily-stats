@@ -204,6 +204,62 @@ class ClicksDatabase:
             rows = await cur.fetchall()
         return [dict(row) for row in rows]
 
+    async def top_people(
+        self, start_iso: str, end_iso: str, *, limit: int = 12
+    ) -> list[dict[str, Any]]:
+        async with self.conn.execute(
+            """
+            SELECT telegram_id, COUNT(*) AS c
+            FROM button_clicks
+            WHERE is_owner = 0 AND clicked_at >= ? AND clicked_at < ?
+            GROUP BY telegram_id
+            ORDER BY c DESC, telegram_id ASC
+            LIMIT ?
+            """,
+            (start_iso, end_iso, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(row) for row in rows]
+
+    async def recent_clicks(
+        self,
+        start_iso: str,
+        end_iso: str,
+        *,
+        limit: int = 20,
+        telegram_id: int | None = None,
+        include_owner: bool = False,
+    ) -> list[dict[str, Any]]:
+        clauses = ["clicked_at >= ?", "clicked_at < ?"]
+        params: list[Any] = [start_iso, end_iso]
+        if telegram_id is not None:
+            clauses.append("telegram_id = ?")
+            params.append(telegram_id)
+        elif not include_owner:
+            clauses.append("is_owner = 0")
+        sql = f"""
+            SELECT telegram_id, clicked_at, button_kind, callback_data, button_text
+            FROM button_clicks
+            WHERE {' AND '.join(clauses)}
+            ORDER BY clicked_at DESC, id DESC
+            LIMIT ?
+        """
+        params.append(limit)
+        async with self.conn.execute(sql, tuple(params)) as cur:
+            rows = await cur.fetchall()
+        return [dict(row) for row in rows]
+
+    async def person_click_count(
+        self, telegram_id: int, start_iso: str, end_iso: str
+    ) -> int:
+        return await self._count(
+            """
+            SELECT COUNT(*) FROM button_clicks
+            WHERE telegram_id = ? AND clicked_at >= ? AND clicked_at < ?
+            """,
+            (telegram_id, start_iso, end_iso),
+        )
+
     async def user_clicked_at(self, start_iso: str, end_iso: str) -> list[str]:
         """Raw UTC ISO timestamps of user taps — for charts and later UX work."""
         async with self.conn.execute(
