@@ -73,7 +73,7 @@ async def test_restore_reads_archive_created_by_backup(tmp_path, monkeypatch):
     db = Database(config)
     await db.initialize()
     await Repo(db).create_user(4, "o", "Owner", None, "UTC", 0, "23:00")
-    monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
+    monkeypatch.setattr("services.telegram_backup.write_tar_gzip", _gzip_tar)
     try:
         archive = await create_telegram_archive(db, config)
         preview = await inspect_archive(archive, config.required_db_version)

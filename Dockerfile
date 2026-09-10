@@ -11,7 +11,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
         gosu \
-        pigz \
         tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && gosu nobody true

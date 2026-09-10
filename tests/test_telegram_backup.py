@@ -29,7 +29,7 @@ from services.telegram_backup import (
     telegram_backup_chat,
     telegram_backup_due,
     write_env_snapshot,
-    write_tar_pigz,
+    write_tar_gzip,
 )
 from tests.conftest import make_config
 from utils.app_version import parse_build_git, slugify_commit_title
@@ -278,7 +278,7 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
     config = replace(make_config(tmp_path), telegram_backup_root=root)
     db = Database(config)
     await db.initialize()
-    monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
+    monkeypatch.setattr("services.telegram_backup.write_tar_gzip", _gzip_tar)
     monkeypatch.setattr(
         "services.telegram_backup.app_build_identity",
         lambda: ("abc1234", "add telegram backup"),
@@ -323,7 +323,7 @@ async def test_send_telegram_backup_is_silent_and_records_time(tmp_path, monkeyp
     config = replace(make_config(tmp_path), telegram_backup_root=root)
     db = Database(config)
     await db.initialize()
-    monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
+    monkeypatch.setattr("services.telegram_backup.write_tar_gzip", _gzip_tar)
     monkeypatch.setattr(
         "services.telegram_backup.app_build_identity",
         lambda: ("abc1234", "add telegram backup"),
@@ -366,7 +366,7 @@ async def test_send_telegram_backup_manual_is_not_silent(tmp_path, monkeypatch):
     config = replace(make_config(tmp_path), telegram_backup_root=root)
     db = Database(config)
     await db.initialize()
-    monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
+    monkeypatch.setattr("services.telegram_backup.write_tar_gzip", _gzip_tar)
     sent = {}
 
     class FakeBot:
@@ -484,7 +484,7 @@ async def test_job_sends_when_interval_elapsed(tmp_path, monkeypatch):
     await db.initialize()
     await db._set_system(LAST_SENT_KEY, to_iso(now_utc() - timedelta(minutes=31)))
     await set_telegram_backup_chat(db, -100123, "Backups")
-    monkeypatch.setattr("services.telegram_backup.write_tar_pigz", _gzip_tar)
+    monkeypatch.setattr("services.telegram_backup.write_tar_gzip", _gzip_tar)
     scheduler = AsyncIOScheduler(timezone="UTC")
     sent = {"n": 0}
 
@@ -626,38 +626,38 @@ async def test_backup_here_binds_group(tmp_path):
         await db.close()
 
 
-def test_write_tar_pigz_requires_pigz(tmp_path, monkeypatch):
+def test_write_tar_gzip_requires_gzip(tmp_path, monkeypatch):
     monkeypatch.setattr("services.telegram_backup.shutil.which", lambda _name: None)
-    with pytest.raises(TelegramBackupError, match="pigz"):
-        write_tar_pigz(tmp_path, tmp_path / "out.tar.gz")
+    with pytest.raises(TelegramBackupError, match="gzip"):
+        write_tar_gzip(tmp_path, tmp_path / "out.tar.gz")
 
 
-def test_write_tar_pigz_invokes_pigz(tmp_path, monkeypatch):
+def test_write_tar_gzip_invokes_gzip(tmp_path, monkeypatch):
     src = tmp_path / "src"
     src.mkdir()
     (src / "file.txt").write_text("ok", encoding="utf-8")
     dest = tmp_path / "out.tar.gz"
-    monkeypatch.setattr("services.telegram_backup.shutil.which", lambda _name: "/usr/bin/pigz")
+    monkeypatch.setattr("services.telegram_backup.shutil.which", lambda _name: "/usr/bin/gzip")
 
     def fake_run(cmd, **_kwargs):
         assert cmd[0] == "tar"
         assert cmd[1] == "--use-compress-program"
-        assert cmd[2] == "/usr/bin/pigz"
+        assert cmd[2] == "/usr/bin/gzip"
         Path(cmd[4]).write_bytes(b"gz")
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr("services.telegram_backup.subprocess.run", fake_run)
-    write_tar_pigz(src, dest)
+    write_tar_gzip(src, dest)
     assert dest.read_bytes() == b"gz"
 
 
-@pytest.mark.skipif(not shutil.which("pigz"), reason="pigz not installed")
-def test_write_tar_pigz_real_archive(tmp_path):
+@pytest.mark.skipif(not shutil.which("gzip"), reason="gzip not installed")
+def test_write_tar_gzip_real_archive(tmp_path):
     src = tmp_path / "src"
     src.mkdir()
     (src / "hello.txt").write_text("hello", encoding="utf-8")
     dest = tmp_path / "out.tar.gz"
-    write_tar_pigz(src, dest)
+    write_tar_gzip(src, dest)
     assert dest.is_file() and dest.stat().st_size > 0
     with tarfile.open(dest, "r:gz") as tar:
         names = tar.getnames()

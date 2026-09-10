@@ -346,10 +346,10 @@ def collect_configs(staging: Path, root: Path) -> list[str]:
     return packed
 
 
-def write_tar_pigz(src_dir: Path, dest: Path) -> None:
-    pigz = shutil.which("pigz")
-    if not pigz:
-        raise TelegramBackupError("pigz is not installed")
+def write_tar_gzip(src_dir: Path, dest: Path) -> None:
+    gzip = shutil.which("gzip")
+    if not gzip:
+        raise TelegramBackupError("gzip is not installed")
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".tmp")
     try:
@@ -357,7 +357,7 @@ def write_tar_pigz(src_dir: Path, dest: Path) -> None:
             [
                 "tar",
                 "--use-compress-program",
-                pigz,
+                gzip,
                 "-cf",
                 str(tmp),
                 "-C",
@@ -372,7 +372,7 @@ def write_tar_pigz(src_dir: Path, dest: Path) -> None:
     except subprocess.CalledProcessError as exc:
         tmp.unlink(missing_ok=True)
         detail = (exc.stderr or exc.stdout or "").strip()
-        raise TelegramBackupError(f"pigz/tar failed: {detail or exc}") from exc
+        raise TelegramBackupError(f"gzip/tar failed: {detail or exc}") from exc
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
@@ -398,7 +398,7 @@ async def create_telegram_archive(db: Database, config: Config) -> Path:
             commit,
             db_version,
         )
-        await asyncio.to_thread(write_tar_pigz, staging, archive_path)
+        await asyncio.to_thread(write_tar_gzip, staging, archive_path)
         return archive_path
     except Exception:
         archive_path.unlink(missing_ok=True)
