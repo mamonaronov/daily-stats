@@ -683,6 +683,7 @@ def test_stats_metrics_kb_includes_custom():
     assert all_pairs["☐ ⚖️ Вес"] == "stm:weight"
     assert all_pairs["☐ 💚 Самочувствие"] == "stm:wellbeing"
     assert all_pairs["☐ 🌟 Оценка дня"] == "stm:day_rating"
+    assert all_pairs["☐ 😰 Стресс"] == "stm:stress"
 
 
 def test_followup_keyboards():

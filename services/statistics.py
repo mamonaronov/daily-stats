@@ -517,6 +517,9 @@ PAIRS = [
     ("mood", "productivity"),
     ("energy", "productivity"),
     ("mood", "day_rating"),
+    ("sleep", "stress"),
+    ("mood", "stress"),
+    ("wellbeing", "stress"),
 ]
 
 

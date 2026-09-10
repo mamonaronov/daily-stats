@@ -580,6 +580,7 @@ def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKe
         ("productivity", "📈 Продуктивность"),
         ("mood", "😊 Настроение"),
         ("day_rating", "🌟 Оценка дня"),
+        ("stress", "😰 Стресс"),
     ]
     b = InlineKeyboardBuilder()
     for key, label in options:

@@ -202,6 +202,10 @@ def test_parse_ui_prefs_migrates_hidden_and_keeps_legacy_all_on():
     assert picked.sleep_bed_split is True
     split = parse_ui_prefs('{"tracked": ["sleep"], "sleep_bed_split": true}')
     assert split.tracked == {"sleep"}
+    with_scores = parse_ui_prefs('{"tracked": ["mood", "energy"]}')
+    assert with_scores.tracked == {"mood", "energy", "stress"}
+    opted_out = parse_ui_prefs('{"tracked": ["mood"], "stress_seeded": true}')
+    assert opted_out.tracked == {"mood"}
 
 
 @pytest.mark.asyncio

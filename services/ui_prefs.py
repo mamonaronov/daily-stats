@@ -25,6 +25,7 @@ TRACKABLE_TYPES = (
     "productivity",
     "mood",
     "day_rating",
+    "stress",
     "custom",
     "markers",
 )
@@ -46,11 +47,15 @@ TRACKABLE_LABELS = {
     "productivity": "📈 Продуктивность",
     "mood": "😊 Настроение",
     "day_rating": "🌟 Оценка дня",
+    "stress": "😰 Стресс",
     "custom": "📌 Кастом",
     "markers": "🔖 Метки",
 }
 
 SLEEP_BED_TYPES = ("sleep_phone", "sleep_nophone")
+_DAILY_SCORES_BEFORE_STRESS = frozenset(
+    {"wellbeing", "energy", "productivity", "mood", "day_rating"}
+)
 
 # Old "hide buttons" list — used only to migrate prefs that still store `hidden`.
 _LEGACY_HIDEABLE = frozenset(
@@ -69,6 +74,7 @@ _LEGACY_HIDEABLE = frozenset(
         "productivity",
         "mood",
         "day_rating",
+        "stress",
     }
 )
 
@@ -94,6 +100,7 @@ class UiPrefs:
                 "low_balance_notice_on": self.low_balance_notice_on,
                 "owner_digest_on": self.owner_digest_on,
                 "sleep_bed_split": True,
+                "stress_seeded": True,
             },
             ensure_ascii=False,
         )
@@ -119,6 +126,9 @@ def parse_ui_prefs(raw: str | None) -> UiPrefs:
     if "sleep" in tracked and not sleep_bed_split:
         tracked.update(SLEEP_BED_TYPES)
         sleep_bed_split = True
+    if "tracked" in data and not data.get("stress_seeded"):
+        if any(key in tracked for key in _DAILY_SCORES_BEFORE_STRESS):
+            tracked.add("stress")
     return UiPrefs(
         tracked=tracked,
         onboarded=bool(data.get("onboarded")),

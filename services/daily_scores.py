@@ -1,4 +1,4 @@
-"""Built-in 1–5 daily ratings (wellbeing, energy, productivity, mood, day)."""
+"""Built-in 1–5 daily ratings (wellbeing, energy, productivity, mood, day, stress)."""
 
 from __future__ import annotations
 
@@ -58,6 +58,13 @@ DAILY_SCORE_SPECS: tuple[DailyScoreSpec, ...] = (
         "🌟",
         "Оценка дня",
         "насколько хорошим или плохим день был в целом",
+    ),
+    DailyScoreSpec(
+        "stress",
+        "st",
+        "😰",
+        "Стресс",
+        "насколько спокойным был день, без давления и тревоги",
     ),
 )
 

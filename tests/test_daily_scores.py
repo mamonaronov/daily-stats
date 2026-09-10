@@ -115,3 +115,23 @@ async def test_daily_score_rejects_bad_kind_and_range(repo):
     assert item_id is None and error and updated is False
     item_id, error, updated = await upsert_daily_score(repo, user, today, "mood", 9)
     assert item_id is None and error and updated is False
+
+
+@pytest.mark.asyncio
+async def test_stress_is_sixth_daily_score(repo):
+    spec = spec_of("stress")
+    assert spec.label == "Стресс"
+    assert spec.code == "st"
+    user = await repo.create_user(95, "stress-sc", "Кира", None, "UTC", 0, "23:00")
+    today = user_today("UTC")
+    item_id, error, updated = await upsert_daily_score(repo, user, today, "stress", 2)
+    assert error is None and item_id is not None and updated is False
+    rec = await repo.get_daily_score(item_id, user.telegram_id)
+    assert rec is not None
+    assert rec.kind == "stress"
+    assert rec.score == 2
+    snap = await day_snapshot(repo, user)
+    assert snap.scores == {"stress": 2}
+    shown = snap.as_text({"stress"})
+    assert "😰" in shown
+    assert "плохо" in shown
