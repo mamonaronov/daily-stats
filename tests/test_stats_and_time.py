@@ -90,16 +90,27 @@ def test_process_uptime_from_stat():
 
 
 def test_uptime_report_lines(monkeypatch):
+    import html
+
     import utils.uptime as uptime
 
     monkeypatch.setattr(uptime, "bot_uptime_seconds", lambda: 90)
     monkeypatch.setattr(uptime, "host_uptime_seconds", lambda: 26 * 3600)
     monkeypatch.setattr(uptime, "app_build_identity", lambda: ("deadbeef", "fix: uptime <commit>"))
     lines = uptime.uptime_report_lines()
-    assert lines[0] == "Аптайм бота: 1 мин 30 с"
-    assert lines[1] == "Аптайм сервера: 1 д 2 ч"
-    assert lines[2] == "Коммит: fix: uptime &lt;commit&gt; (<code>deadbeef</code>)"
-    assert len(lines) == 3
+    assert len(lines) == 1
+    assert lines[0].startswith("<pre>")
+    assert lines[0].endswith("</pre>")
+    body = html.unescape(lines[0].removeprefix("<pre>").removesuffix("</pre>"))
+    rows = body.splitlines()
+    assert rows[0].endswith("Аптайм бота: 1 мин 30 с")
+    assert rows[1].endswith("Аптайм сервера: 1 д 2 ч")
+    assert rows[2].endswith("Коммит: fix: uptime <commit> (deadbeef)")
+    assert len({row.index(":") for row in rows}) == 1
+    extra = uptime.uptime_report_lines([("Возраст сервиса", "3 д")])
+    extra_body = html.unescape(extra[0].removeprefix("<pre>").removesuffix("</pre>"))
+    assert extra_body.splitlines()[-1].endswith("Возраст сервиса: 3 д")
+    assert "&lt;commit&gt;" in lines[0]
 
 
 def test_mark_bot_started(monkeypatch):

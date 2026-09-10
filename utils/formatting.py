@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import date, timedelta
 
 SCORE_LABELS = {
@@ -108,6 +109,18 @@ def duration_human(minutes: int | None) -> str:
     if mins or not parts:
         parts.append(f"{mins} мин")
     return " ".join(parts)
+
+
+def colon_block(rows: list[tuple[str, str]]) -> str:
+    """Right-align labels so colons share one column in a monospace font."""
+    if not rows:
+        return ""
+    width = max(len(label) for label, _ in rows)
+    return "\n".join(f"{label.rjust(width)}: {value}" for label, value in rows)
+
+
+def pre_html(text: str) -> str:
+    return f"<pre>{html.escape(text)}</pre>"
 
 
 def seconds_human(seconds: int | float | None) -> str:

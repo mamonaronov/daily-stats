@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import html
 import os
 import time
 from pathlib import Path
 
 from utils.app_version import app_build_identity
-from utils.formatting import seconds_human
+from utils.formatting import colon_block, pre_html, seconds_human
 
 PROC_UPTIME = Path("/proc/uptime")
 PROC_SELF_STAT = Path("/proc/self/stat")
@@ -53,10 +52,13 @@ def bot_uptime_seconds() -> float | None:
         return None
 
 
-def uptime_report_lines() -> list[str]:
+def uptime_report_lines(extra: list[tuple[str, str]] | None = None) -> list[str]:
     commit, title = app_build_identity()
-    return [
-        f"Аптайм бота: {seconds_human(bot_uptime_seconds())}",
-        f"Аптайм сервера: {seconds_human(host_uptime_seconds())}",
-        f"Коммит: {html.escape(title)} (<code>{html.escape(commit)}</code>)",
+    rows = [
+        ("Аптайм бота", seconds_human(bot_uptime_seconds())),
+        ("Аптайм сервера", seconds_human(host_uptime_seconds())),
+        ("Коммит", f"{title} ({commit})"),
     ]
+    if extra:
+        rows.extend(extra)
+    return [pre_html(colon_block(rows))]

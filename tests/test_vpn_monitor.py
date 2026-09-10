@@ -1000,6 +1000,8 @@ def test_merged_spans_keeps_ok_samples_together():
 
 
 def test_vpn_bucket_lines_exclusive_layout():
+    import html
+
     from handlers.admin import _vpn_bucket_lines
 
     lines = _vpn_bucket_lines(
@@ -1015,17 +1017,18 @@ def test_vpn_bucket_lines_exclusive_layout():
         10,
     )
     assert lines[0] == "Время в диапазонах (тик 10 с, должно быть 100 зам.):"
-    assert lines[1].startswith("0–100 мс:")
-    assert "1 мин 40 с" in lines[1]
-    assert "(10,0%)" in lines[1]
-    assert lines[2].startswith("100–500 мс:")
-    assert lines[3].startswith("500–1000 мс:")
-    assert lines[4].startswith("&gt; 1000 мс:")
-    assert lines[5].startswith("Нет пинга/соединения:")
-    assert "5 мин" in lines[5]
-    assert lines[6].startswith("сервис не запущен:")
-    assert "(8,0%)" in lines[6]
-    assert lines[7].startswith("сервер выключен:")
+    assert lines[1].startswith("<pre>")
+    assert "&gt; 1000 мс:" in lines[1]
+    body = html.unescape(lines[1].removeprefix("<pre>").removesuffix("</pre>"))
+    rows = body.splitlines()
+    assert rows[0].endswith("0–100 мс: 1 мин 40 с (10,0%)")
+    assert rows[1].endswith("100–500 мс: 3 мин 20 с (20,0%)")
+    assert rows[2].endswith("500–1000 мс: 50 с (5,0%)")
+    assert rows[3].endswith("> 1000 мс: 2 мин 30 с (15,0%)")
+    assert rows[4].endswith("Нет пинга/соединения: 5 мин (30,0%)")
+    assert rows[5].endswith("сервис не запущен: 1 мин 20 с (8,0%)")
+    assert rows[6].endswith("сервер выключен: 2 мин (12,0%)")
+    assert len({row.index(":") for row in rows}) == 1
 
 
 def test_vpn_bucket_lines_use_expected_period_ticks():
@@ -1046,7 +1049,7 @@ def test_vpn_bucket_lines_use_expected_period_ticks():
     )
     assert lines[0] == "Время в диапазонах (тик 10 с, должно быть 30 зам.):"
     assert "(6,7%)" in lines[1]
-    assert lines[1].startswith("0–100 мс:")
+    assert "0–100 мс:" in lines[1]
 
 
 def test_expected_vpn_ticks_matches_period():
