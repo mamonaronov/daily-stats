@@ -45,11 +45,17 @@ def test_guide_index_buttons_match_pages():
 
 
 def test_main_menu_and_onboarding_open_guide():
+    from handlers.settings import TRACK_PROMPT
+    from keyboards.main import track_metrics_kb
+
     menu = dict(_pairs(main_menu(SimpleNamespace(), False)))
     assert menu["📖 Гайд"] == NAV_GUIDE
     onboarding = dict(_pairs(how_to_kb()))
     assert onboarding["📖 Подробный гайд"] == NAV_GUIDE
     assert onboarding["Понятно"] == "onb:ok"
+    assert TRACK_PROMPT == "Какие метрики вести:"
+    track = dict(_pairs(track_metrics_kb(set())))
+    assert track["☐ 🚬 Сигареты"] == "set:trk:cigarettes"
 
 
 def test_guide_explains_core_flows():

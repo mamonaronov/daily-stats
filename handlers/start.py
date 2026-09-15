@@ -159,14 +159,15 @@ async def cmd_stats(message: Message, state: FSMContext, db_user: User | None) -
 async def onboarding_ok(
     cb: CallbackQuery,
     state: FSMContext,
-    repo: Repo,
-    config: Config,
     db_user: User | None,
-    is_owner: bool,
 ) -> None:
     from handlers.common import require_active
+    from handlers.settings import show_track_metrics
 
     user = await require_active(cb, db_user)
     if user is None:
         return
-    await show_main(cb, user, config, is_owner, state, repo, hide_reply=True)
+    await state.clear()
+    await hide_reply_keyboard(cb.message)
+    await cb.answer()
+    await show_track_metrics(cb, user)
