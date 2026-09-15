@@ -431,6 +431,8 @@ def daily_scores_value_kb(
         for score in range(1, 6):
             mark = "·" if chosen == score else ""
             row.append(_btn(f"{mark}{SCORE_EMOJI[score]}", f"ds:q:{spec.code}:{score}"))
+        if chosen is not None:
+            row.append(_btn("✖️", f"ds:x:{spec.code}"))
         b.row(*row)
     b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()

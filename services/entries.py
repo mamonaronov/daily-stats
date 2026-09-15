@@ -378,6 +378,28 @@ async def upsert_daily_score(
     return item_id, None, updated
 
 
+async def clear_daily_score(repo: Repo, user: User, day, kind: str) -> str | None:
+    from datetime import date as date_type
+
+    from services.daily_scores import SCORE_BY_KEY, spec_of
+    from utils.time import combine_local
+
+    blocked = await require_write(user)
+    if blocked:
+        return blocked
+    if kind not in SCORE_BY_KEY:
+        return "Неизвестная оценка."
+    if not isinstance(day, date_type):
+        day = date_type.fromisoformat(str(day))
+    rec = await repo.get_daily_score_by_day(user.telegram_id, day.isoformat(), kind)
+    if rec is None:
+        return None
+    if not await repo.delete_daily_score(rec.id, user.telegram_id):
+        return "Запись не найдена."
+    note_write(user, f"{spec_of(kind).label.lower()} (снято)", combine_local(user.timezone, day, 0, 0))
+    return None
+
+
 async def add_weight(repo: Repo, user: User, kilograms: float, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:

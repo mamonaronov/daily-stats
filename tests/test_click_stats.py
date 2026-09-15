@@ -35,6 +35,7 @@ def test_classify_button_kinds():
     assert classify_button("stp:q:10000") == "steps"
     assert classify_button("e:ds") == "daily_scores"
     assert classify_button("ds:q:md:4") == "daily_scores"
+    assert classify_button("ds:x:md") == "daily_scores"
     assert classify_button("dscal:2026-09-02") == "daily_scores"
     assert classify_button("slp:wake") == "sleep"
     assert classify_button("slb:now") == "sleep"

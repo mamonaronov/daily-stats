@@ -6,7 +6,7 @@ import pytest
 
 from services.charts import build_charts
 from services.daily_scores import parse_daily_score, spec_of
-from services.entries import upsert_daily_score
+from services.entries import clear_daily_score, undo_entry, upsert_daily_score
 from services.history import build_timeline, format_timeline
 from services.statistics import render_stats
 from services.today import day_snapshot
@@ -135,3 +135,25 @@ async def test_stress_is_sixth_daily_score(repo):
     shown = snap.as_text({"stress"})
     assert "😰" in shown
     assert "плохо" in shown
+
+
+@pytest.mark.asyncio
+async def test_clear_daily_score_today_and_past(repo):
+    user = await repo.create_user(96, "clear-sc", "Лена", None, "UTC", 0, "23:00")
+    today = user_today("UTC")
+    yesterday = today - timedelta(days=1)
+    today_id, error, _ = await upsert_daily_score(repo, user, today, "mood", 4)
+    assert error is None and today_id is not None
+    yest_id, error, _ = await upsert_daily_score(repo, user, yesterday, "energy", 2)
+    assert error is None and yest_id is not None
+    assert await clear_daily_score(repo, user, today, "mood") is None
+    assert await repo.get_daily_score(today_id, user.telegram_id) is None
+    assert await repo.get_daily_score_by_day(user.telegram_id, today.isoformat(), "mood") is None
+    assert await clear_daily_score(repo, user, today, "mood") is None
+    assert await clear_daily_score(repo, user, yesterday, "energy") is None
+    assert await repo.get_daily_score_by_day(user.telegram_id, yesterday.isoformat(), "energy") is None
+    mood_id, error, updated = await upsert_daily_score(repo, user, today, "mood", 5)
+    assert error is None and updated is False
+    assert await undo_entry(repo, user, "dsc", mood_id) is None
+    assert await repo.get_daily_score(mood_id, user.telegram_id) is None
+    assert await clear_daily_score(repo, user, today, "sleep") == "Неизвестная оценка."

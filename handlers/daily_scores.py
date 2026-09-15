@@ -50,16 +50,16 @@ def _day_heading(day: date, today: date) -> str:
 
 def _value_text(day: date, today: date, specs, current: dict[str, int]) -> str:
     extra = (
-        "День ещё идёт — можно записать сейчас и потом поменять."
+        "День ещё идёт — можно записать сейчас, потом поменять или снять."
         if day == today
-        else "Можно поменять значение в любой момент."
+        else "Можно поменять или снять значение в любой момент."
     )
     lines = [f"{HUB_LABEL} за {_day_heading(day, today)}", extra, ""]
     for spec in specs:
         lines.append(format_score_line(spec, current.get(spec.key)))
         lines.append(spec.hint)
         lines.append("")
-    lines.append("Нажмите оценку от 1 до 5. Лица: 😢 ужасно … 🤩 отлично.")
+    lines.append("Нажмите оценку от 1 до 5. Ещё раз или ✖️ — снять. Лица: 😢 ужасно … 🤩 отлично.")
     return "\n".join(lines)
 
 
@@ -78,6 +78,7 @@ async def _ask_values(
     day: date,
     *,
     extra_kind: str | None = None,
+    toast: str | None = None,
 ) -> None:
     keys = await _score_keys(user, extra_kind)
     if not keys:
@@ -96,7 +97,7 @@ async def _ask_values(
     text = _value_text(day, user_today(user.timezone), specs, current)
     markup = daily_scores_value_kb(specs, current, back=ENTRY_DS)
     if isinstance(event, CallbackQuery):
-        await event.answer()
+        await event.answer(toast or "")
         await safe_edit(event.message, text, markup)
         return
     await event.answer(text, reply_markup=markup)
@@ -207,18 +208,37 @@ async def scores_pick(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user:
         await cb.answer("Сначала выберите день", show_alert=True)
         return
     day = date.fromisoformat(raw_day)
-    _, error, updated = await entries.upsert_daily_score(repo, user, day, spec.key, score)
+    rec = await repo.get_daily_score_by_day(user.telegram_id, day.isoformat(), spec.key)
+    if rec is not None and rec.score == score:
+        error = await entries.clear_daily_score(repo, user, day, spec.key)
+        toast = "Снято"
+    else:
+        _, error, updated = await entries.upsert_daily_score(repo, user, day, spec.key, score)
+        toast = "Обновлено" if updated else "Записано"
     if error:
         await cb.answer(error, show_alert=True)
         return
-    toast = "Обновлено" if updated else "Записано"
-    keys = await _score_keys(user, spec.key)
-    rows = await repo.list_daily_scores_for_day(user.telegram_id, day.isoformat())
-    current = {rec.kind: rec.score for rec in rows}
-    specs = [spec_of(key) for key in keys]
-    await state.set_state(DailyScoreSG.value)
-    await state.update_data(ds_day=day.isoformat())
-    text = _value_text(day, user_today(user.timezone), specs, current)
-    markup = daily_scores_value_kb(specs, current, back=ENTRY_DS)
-    await cb.answer(toast)
-    await safe_edit(cb.message, text, markup)
+    await _ask_values(cb, state, repo, user, day, extra_kind=spec.key, toast=toast)
+
+
+@router.callback_query(F.data.startswith("ds:x:"))
+async def scores_clear(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    parts = (cb.data or "").split(":")
+    spec = SCORE_BY_CODE.get(parts[2]) if len(parts) >= 3 else None
+    if spec is None:
+        await cb.answer("Некорректная оценка", show_alert=True)
+        return
+    data = await state.get_data()
+    raw_day = data.get("ds_day")
+    if not raw_day:
+        await cb.answer("Сначала выберите день", show_alert=True)
+        return
+    day = date.fromisoformat(raw_day)
+    error = await entries.clear_daily_score(repo, user, day, spec.key)
+    if error:
+        await cb.answer(error, show_alert=True)
+        return
+    await _ask_values(cb, state, repo, user, day, extra_kind=spec.key, toast="Снято")
