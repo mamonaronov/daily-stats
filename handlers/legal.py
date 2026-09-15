@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery
 from config import Config
 from database.models import User
 from handlers.common import BANNED_TEXT, LEGAL_PROMPT, TZ_PROMPT, show_main
-from keyboards.main import legal_consent_kb, legal_page_kb, timezone_kb
+from keyboards.main import legal_consent_kb, legal_docs_kb, legal_page_kb, timezone_kb
 from services.legal import DOC_PRIVACY, DOC_TERMS, DOC_TITLES, document_page, legal_contact
 from states.diary import RegisterSG
 from utils.telegram import safe_edit
@@ -66,6 +66,16 @@ async def legal_home(
         await safe_edit(cb.message, BANNED_TEXT)
         return
     await _show_consent(cb, state)
+
+
+@router.callback_query(F.data == "lg:docs")
+async def legal_docs(cb: CallbackQuery, db_user: User | None) -> None:
+    if db_user and db_user.is_banned:
+        await cb.answer()
+        await safe_edit(cb.message, BANNED_TEXT)
+        return
+    await cb.answer()
+    await safe_edit(cb.message, "📄 Политика и соглашение", legal_docs_kb())
 
 
 @router.callback_query(F.data == "lg:ok")

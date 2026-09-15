@@ -604,8 +604,7 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     b.row(_btn("📋 Метрики", "set:trk"))
     b.row(_btn("📤 Выгрузить CSV", "set:exp"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
-    b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:s"))
-    b.row(_btn("📜 Пользовательское соглашение", "lg:t:0:s"))
+    b.row(_btn("📄 Политика и соглашение", "lg:docs"))
     b.row(_btn("🗑 Удалить аккаунт", "set:del"))
     return with_nav(b)
 
@@ -724,6 +723,13 @@ def legal_consent_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def legal_docs_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("📄 Политика конфиденциальности", "lg:p:0:s"))
+    b.row(_btn("📜 Пользовательское соглашение", "lg:t:0:s"))
+    return with_nav(b, NAV_SETTINGS)
+
+
 def legal_page_kb(doc_token: str, page: int, pages: int, origin: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     nav: list[InlineKeyboardButton] = []
@@ -739,7 +745,7 @@ def legal_page_kb(doc_token: str, page: int, pages: int, origin: str) -> InlineK
         b.row(_btn("⬅️ Назад", "lg:home"))
         b.row(_btn("✅ Принимаю", "lg:ok"))
     else:
-        b.row(*nav_row(NAV_SETTINGS))
+        b.row(*nav_row("lg:docs"))
     return b.as_markup()
 
 
