@@ -205,6 +205,20 @@ def parse_hhmm(value: str) -> tuple[int, int]:
     raise ValueError("time")
 
 
+def is_hhmm_due(hhmm: str | None, sent_on: str | None, local_now: datetime) -> bool:
+    if not hhmm:
+        return False
+    if sent_on == local_now.date().isoformat():
+        return False
+    try:
+        hour, minute = parse_hhmm(hhmm)
+    except ValueError:
+        return False
+    if local_now.hour * 60 + local_now.minute < hour * 60 + minute:
+        return False
+    return True
+
+
 def looks_like_clock(value: str) -> bool:
     raw = (value or "").strip()
     if not raw:

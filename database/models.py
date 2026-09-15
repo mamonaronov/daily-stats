@@ -29,6 +29,8 @@ class User:
     ui_prefs_json: str | None = None
     wake_up_reminder_time: str | None = None
     wake_up_reminder_sent_on: str | None = None
+    daily_score_reminder_time: str | None = None
+    daily_score_reminder_sent_on: str | None = None
 
     @property
     def is_active(self) -> bool:

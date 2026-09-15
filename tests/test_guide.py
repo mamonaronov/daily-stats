@@ -40,6 +40,7 @@ def test_guide_index_buttons_match_pages():
     assert pairs["🏠 Меню"] == NAV_MAIN
     assert "Кнопки внизу" not in pairs
     assert "напоминание отметить подъём" in INDEX_TEXT.lower()
+    assert "напоминание оценить день" in INDEX_TEXT.lower()
     assert "дневник" in INDEX_TEXT.lower() or "привычек" in INDEX_TEXT.lower()
 
 
@@ -75,6 +76,8 @@ def test_guide_explains_core_flows():
         assert needle in blob
     assert "напомнит" in PAGES["sleep"].lower()
     assert "напомнить встать" in PAGES["set"].lower()
+    assert "напомнить оценить" in PAGES["set"].lower()
+    assert "напоминание оценить день" in PAGES["ds"].lower()
     assert "во сколько проснулись" in PAGES["sleep"].lower()
     assert "указать время" in PAGES["sleep"].lower()
     assert "когда заснули" in PAGES["sleep"].lower()

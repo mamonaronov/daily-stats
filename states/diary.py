@@ -82,6 +82,9 @@ class SettingsSG(StatesGroup):
     wake_hour = State()
     wake_minute = State()
     wake_manual = State()
+    score_hour = State()
+    score_minute = State()
+    score_manual = State()
     confirm_delete = State()
 
 

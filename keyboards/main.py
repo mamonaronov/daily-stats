@@ -596,9 +596,11 @@ def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKe
 def settings_kb(user: User) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     reminder = user.wake_up_reminder_time or "выкл"
+    score_reminder = user.daily_score_reminder_time or "выкл"
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
     b.row(_btn(f"⏰ Напомнить встать: {reminder}", "set:wake"))
+    b.row(_btn(f"🙂 Напомнить оценить: {score_reminder}", "set:dsr"))
     b.row(_btn("📋 Метрики", "set:trk"))
     b.row(_btn("📤 Выгрузить CSV", "set:exp"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
@@ -609,6 +611,7 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
 
 
 WAKE_REMINDER_PRESETS = ("07:00", "08:00", "09:00", "10:00", "11:00", "12:00")
+SCORE_REMINDER_PRESETS = ("18:00", "19:00", "20:00", "21:00", "22:00", "23:00")
 
 
 def wake_reminder_kb(current: str | None) -> InlineKeyboardMarkup:
@@ -624,6 +627,27 @@ def wake_reminder_kb(current: str | None) -> InlineKeyboardMarkup:
     if current:
         b.row(_btn("Выключить", "set:wake:off"))
     return with_nav(b, NAV_SETTINGS)
+
+
+def score_reminder_kb(current: str | None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    presets = list(SCORE_REMINDER_PRESETS)
+    for i in range(0, len(presets), 3):
+        row = []
+        for stamp in presets[i : i + 3]:
+            label = f"✓ {stamp}" if stamp == current else stamp
+            row.append(_btn(label, f"set:dsr:{stamp}"))
+        b.row(*row)
+    b.row(_btn("Другое время", "set:dsr:custom"))
+    if current:
+        b.row(_btn("Выключить", "set:dsr:off"))
+    return with_nav(b, NAV_SETTINGS)
+
+
+def daily_score_reminder_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("🙂 Оценить сегодня", "ds:today"))
+    return with_nav(b)
 
 
 def wake_up_reminder_kb(sleep: SleepRecord | None, tracked: set[str] | None = None) -> InlineKeyboardMarkup:

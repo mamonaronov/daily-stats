@@ -9,6 +9,7 @@ from keyboards.main import (
     calendar_kb,
     cancel_kb,
     custom_metrics_kb,
+    daily_score_reminder_kb,
     drink_amount_kb,
     hours_kb,
     legal_consent_kb,
@@ -25,6 +26,7 @@ from keyboards.main import (
     minutes_kb,
     now_or_time,
     score_kb,
+    score_reminder_kb,
     settings_kb,
     skip_comment_kb,
     sleep_rows,
@@ -174,10 +176,16 @@ def test_legal_page_kb_paginates_and_returns():
 
 
 def test_settings_kb_includes_legal_docs():
-    user = SimpleNamespace(timezone="Europe/Moscow", default_sleep_time="23:00", wake_up_reminder_time=None)
+    user = SimpleNamespace(
+        timezone="Europe/Moscow",
+        default_sleep_time="23:00",
+        wake_up_reminder_time=None,
+        daily_score_reminder_time=None,
+    )
     pairs = _pairs(settings_kb(user))
     assert ("📋 Метрики", "set:trk") in pairs
     assert ("⏰ Напомнить встать: выкл", "set:wake") in pairs
+    assert ("🙂 Напомнить оценить: выкл", "set:dsr") in pairs
     assert ("📄 Политика конфиденциальности", "lg:p:0:s") in pairs
     assert ("📜 Пользовательское соглашение", "lg:t:0:s") in pairs
     assert ("🗑 Удалить аккаунт", "set:del") in pairs
@@ -192,6 +200,21 @@ def test_wake_reminder_kb_presets_and_off():
     enabled = dict(_pairs(wake_reminder_kb("10:00")))
     assert enabled["✓ 10:00"] == "set:wake:10:00"
     assert enabled["Выключить"] == "set:wake:off"
+
+
+def test_score_reminder_kb_presets_and_off():
+    pairs = dict(_pairs(score_reminder_kb(None)))
+    assert pairs["21:00"] == "set:dsr:21:00"
+    assert pairs["Другое время"] == "set:dsr:custom"
+    assert "Выключить" not in pairs
+    enabled = dict(_pairs(score_reminder_kb("21:00")))
+    assert enabled["✓ 21:00"] == "set:dsr:21:00"
+    assert enabled["Выключить"] == "set:dsr:off"
+
+
+def test_daily_score_reminder_kb_opens_today():
+    pairs = dict(_pairs(daily_score_reminder_kb()))
+    assert pairs["🙂 Оценить сегодня"] == "ds:today"
 
 
 def test_wake_up_reminder_kb_keeps_all_sleep_actions():
