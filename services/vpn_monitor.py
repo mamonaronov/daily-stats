@@ -129,33 +129,57 @@ def vpn_samples_as_dicts(samples: list[VpnLatencySample]) -> list[dict]:
     return result
 
 
+_GROUP_NOW_HOPS = 5
+
+
+async def _mihomo_proxy_payload(
+    session: aiohttp.ClientSession, base: str, headers: dict[str, str], name: str
+) -> tuple[dict | None, str | None]:
+    url = f"{base}/proxies/{quote(name, safe='')}"
+    async with session.get(url, headers=headers) as resp:
+        if resp.status == 401:
+            return None, "mihomo_unauthorized"
+        if resp.status != 200:
+            return None, f"mihomo_http_{resp.status}"
+        data = await resp.json(content_type=None)
+    if not isinstance(data, dict):
+        return None, "mihomo_no_now"
+    return data, None
+
+
 async def fetch_auto_now(config: Config) -> tuple[str | None, str | None]:
-    """Current AUTO node from mihomo. Second value is an error, not a subscription."""
+    """Current AUTO node from mihomo. Second value is an error, not a subscription.
+
+    Follows nested groups (AUTO → FAST/BACKUP → leaf) so charts show the node,
+    not the inner group name.
+    """
     if not config.mihomo_api_secret:
         return None, "mihomo_secret_missing"
     base = config.mihomo_api_url.rstrip("/")
-    group = quote(config.mihomo_proxy_group, safe="")
-    url = f"{base}/proxies/{group}"
+    name = config.mihomo_proxy_group.strip()
     timeout = aiohttp.ClientTimeout(total=3)
     headers = {"Authorization": f"Bearer {config.mihomo_api_secret}"}
+    last_now: str | None = None
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status == 401:
-                    return None, "mihomo_unauthorized"
-                if resp.status != 200:
-                    return None, f"mihomo_http_{resp.status}"
-                data = await resp.json(content_type=None)
+            for _ in range(_GROUP_NOW_HOPS):
+                data, error = await _mihomo_proxy_payload(session, base, headers, name)
+                if error:
+                    return (last_now, None) if last_now else (None, error)
+                now = data.get("now")
+                if not isinstance(now, str) or not now.strip():
+                    return (last_now, None) if last_now else (None, "mihomo_no_now")
+                last_now = now.strip()
+                if last_now == name or not isinstance(data.get("all"), list):
+                    return last_now, None
+                name = last_now
     except asyncio.TimeoutError:
         return None, "mihomo_timeout"
     except aiohttp.ClientError as exc:
         return None, f"mihomo_unreachable:{type(exc).__name__}"
     except Exception as exc:
         return None, sanitize_error(exc)
-    now = data.get("now") if isinstance(data, dict) else None
-    if not isinstance(now, str) or not now.strip():
-        return None, "mihomo_no_now"
-    return now.strip(), None
+    return last_now, None
 
 
 def make_probe_bot(config: Config) -> Bot:
