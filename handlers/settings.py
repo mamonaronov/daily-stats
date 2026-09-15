@@ -29,6 +29,14 @@ from utils.time import add_days, is_valid_timezone, parse_hhmm, user_today
 
 router = Router(name="settings")
 
+TRACK_PROMPT = "Какие метрики вести:"
+
+
+async def show_track_metrics(cb: CallbackQuery, user: User) -> None:
+    from services.ui_prefs import prefs_of
+
+    await safe_edit(cb.message, TRACK_PROMPT, track_metrics_kb(prefs_of(user).tracked))
+
 
 @router.callback_query(F.data == NAV_SETTINGS)
 async def settings_root(cb: CallbackQuery, state: FSMContext, db_user: User | None, repo: Repo) -> None:
@@ -319,10 +327,8 @@ async def track_root(cb: CallbackQuery, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
-    from services.ui_prefs import prefs_of
-
     await cb.answer()
-    await safe_edit(cb.message, "Какие метрики вести:", track_metrics_kb(prefs_of(user).tracked))
+    await show_track_metrics(cb, user)
 
 
 @router.callback_query(F.data.startswith("set:trk:"))
@@ -336,7 +342,7 @@ async def track_toggle(cb: CallbackQuery, repo: Repo, db_user: User | None) -> N
     prefs = toggle_tracked(prefs_of(user), key)
     user = await save_prefs(repo, user, prefs)
     await cb.answer("Сохранено")
-    await safe_edit(cb.message, "Какие метрики вести:", track_metrics_kb(prefs.tracked))
+    await show_track_metrics(cb, user)
 
 
 @router.callback_query(F.data == "set:exp")

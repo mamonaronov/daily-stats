@@ -19,6 +19,38 @@ from tests.conftest import make_config
 from utils.time import now_utc, to_iso, user_today
 
 
+class _OnbState:
+    async def clear(self) -> None:
+        return None
+
+
+class _OnbMsg:
+    def __init__(self) -> None:
+        self.edits: list[tuple] = []
+        self.answers: list[tuple] = []
+        self.deleted = 0
+
+    async def edit_text(self, text, reply_markup=None, **kwargs):
+        self.edits.append((text, reply_markup))
+        return self
+
+    async def answer(self, text, reply_markup=None, **kwargs):
+        self.answers.append((text, reply_markup))
+        return self
+
+    async def delete(self):
+        self.deleted += 1
+
+
+class _OnbCb:
+    def __init__(self, message) -> None:
+        self.message = message
+        self.answered: list[tuple] = []
+
+    async def answer(self, *args, **kwargs):
+        self.answered.append((args, kwargs))
+
+
 class FakeBot:
     def __init__(self) -> None:
         self.sent: list[tuple] = []
@@ -73,6 +105,32 @@ def test_first_start_explains_purpose_and_capabilities():
     assert "для чего" in HOW_TO.lower()
     assert "настройк" in HOW_TO.lower()
     assert "галочк" in HOW_TO.lower()
+    assert "дальше" in HOW_TO.lower()
+
+
+def test_onboarding_ok_opens_track_metrics():
+    src = Path("handlers/start.py").read_text(encoding="utf-8")
+    handler = src.split('F.data == "onb:ok"', 1)[1].split("@router", 1)[0]
+    assert "show_track_metrics" in handler
+    assert "show_main" not in handler
+
+
+@pytest.mark.asyncio
+async def test_onboarding_ok_edits_to_track_metrics(repo):
+    from handlers.settings import TRACK_PROMPT
+    from handlers.start import onboarding_ok
+
+    user = await repo.create_user(77, "n", "Ник", None, "UTC", 10, "23:00")
+    msg = _OnbMsg()
+    cb = _OnbCb(msg)
+    await onboarding_ok(cb, _OnbState(), user)
+    assert cb.answered
+    assert msg.edits
+    text, markup = msg.edits[0]
+    assert text == TRACK_PROMPT
+    labels = [btn.text for row in markup.inline_keyboard for btn in row]
+    assert any(item.startswith("☐ 🚬") for item in labels)
+    assert "🏠 Меню" in labels
 
 
 def test_bot_commands_exist():
