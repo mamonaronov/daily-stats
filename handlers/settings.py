@@ -17,6 +17,7 @@ from keyboards.main import (
     export_period_kb,
     hours_kb,
     minutes_kb,
+    score_reminder_kb,
     settings_kb,
     timezone_kb,
     track_metrics_kb,
@@ -276,6 +277,140 @@ async def wake_reminder_manual(
         return
     value = f"{hour:02d}:{minute:02d}"
     await repo.set_wake_up_reminder(user.telegram_id, value)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await message.answer("Сохранено", reply_markup=settings_kb(user))
+
+
+SCORE_REMINDER_PROMPT = (
+    "Во сколько напомнить оценить день?\n"
+    "Если к этому времени ещё нет всех оценок за сегодня, бот напишет. "
+    "Оценки включаются в Метриках."
+)
+
+
+def _score_prompt(user: User) -> str:
+    current = user.daily_score_reminder_time or "выкл"
+    return f"{SCORE_REMINDER_PROMPT}\n\nСейчас: {current}"
+
+
+@router.callback_query(F.data == "set:dsr")
+async def score_reminder_root(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await state.clear()
+    await cb.answer()
+    await safe_edit(cb.message, _score_prompt(user), score_reminder_kb(user.daily_score_reminder_time))
+
+
+@router.callback_query(F.data == "set:dsr:off")
+async def score_reminder_off(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await repo.set_daily_score_reminder(user.telegram_id, None)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await cb.answer("Выключено")
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
+
+
+@router.callback_query(F.data == "set:dsr:custom")
+async def score_reminder_custom(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await state.set_state(SettingsSG.score_hour)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        "Выберите час. Напоминание придёт в это время по вашему поясу.",
+        hours_kb(prefix="srh", back="set:dsr"),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^set:dsr:\d{1,2}:\d{2}$"))
+async def score_reminder_preset(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    token = cb.data.removeprefix("set:dsr:")
+    try:
+        hour, minute = parse_hhmm(token)
+    except ValueError:
+        await cb.answer("Некорректное время", show_alert=True)
+        return
+    value = f"{hour:02d}:{minute:02d}"
+    await repo.set_daily_score_reminder(user.telegram_id, value)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await cb.answer("Сохранено")
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
+
+
+@router.callback_query(F.data.startswith("srh:"), SettingsSG.score_hour)
+async def score_reminder_hour(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    if await require_active(cb, db_user) is None:
+        return
+    token = cb.data.split(":", 1)[1]
+    if token == "manual":
+        await state.set_state(SettingsSG.score_manual)
+        await cb.answer()
+        await safe_edit(cb.message, "Введите время ЧЧ:ММ", cancel_kb("set:dsr"))
+        return
+    await state.update_data(picked_hour=int(token))
+    await state.set_state(SettingsSG.score_minute)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        f"Час: {int(token):02d}\nВыберите минуты:",
+        minutes_kb(prefix="srm", back="set:dsr:custom"),
+    )
+
+
+@router.callback_query(F.data.startswith("srm:"), SettingsSG.score_minute)
+async def score_reminder_minute(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    minute = int(cb.data.split(":", 1)[1])
+    data = await state.get_data()
+    hour = int(data["picked_hour"])
+    value = f"{hour:02d}:{minute:02d}"
+    await repo.set_daily_score_reminder(user.telegram_id, value)
+    user = await repo.get_user(user.telegram_id)
+    assert user
+    await state.clear()
+    await cb.answer("Сохранено")
+    await safe_edit(cb.message, "Сохранено", settings_kb(user))
+
+
+@router.message(SettingsSG.score_manual)
+async def score_reminder_manual(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(message, db_user)
+    if user is None:
+        return
+    try:
+        hour, minute = parse_hhmm(message.text or "")
+    except ValueError:
+        await message.answer("Пример: 21:30", reply_markup=cancel_kb("set:dsr"))
+        return
+    value = f"{hour:02d}:{minute:02d}"
+    await repo.set_daily_score_reminder(user.telegram_id, value)
     user = await repo.get_user(user.telegram_id)
     assert user
     await state.clear()

@@ -139,7 +139,9 @@ SELECT u.telegram_id, u.username, u.first_name, u.last_name, u.registered_at,
        s.stats_prefs_json,
        s.ui_prefs_json,
        s.wake_up_reminder_time,
-       s.wake_up_reminder_sent_on
+       s.wake_up_reminder_sent_on,
+       s.daily_score_reminder_time,
+       s.daily_score_reminder_sent_on
 FROM users u
 LEFT JOIN user_settings s ON s.telegram_id = u.telegram_id
 """
@@ -508,6 +510,64 @@ class Repo:
         else:
             await self.conn.execute(
                 "UPDATE user_settings SET wake_up_reminder_sent_on = ? WHERE telegram_id = ?",
+                (day, telegram_id),
+            )
+        await self.conn.commit()
+
+    async def list_daily_score_reminder_users(self) -> list[User]:
+        rows = await self.fetchall(
+            USER_SELECT
+            + """
+            WHERE u.deleted_at IS NULL
+              AND u.status = 'active'
+              AND s.daily_score_reminder_time IS NOT NULL
+              AND TRIM(s.daily_score_reminder_time) != ''
+            ORDER BY u.telegram_id
+            """
+        )
+        return [_user(r) for r in rows]
+
+    async def set_daily_score_reminder(self, telegram_id: int, hhmm: str | None) -> None:
+        current = await self.fetchone(
+            "SELECT * FROM user_settings WHERE telegram_id = ?", (telegram_id,)
+        )
+        if current is None:
+            await self.conn.execute(
+                """
+                INSERT INTO user_settings (telegram_id, default_sleep_time, daily_score_reminder_time)
+                VALUES (?, '23:00', ?)
+                """,
+                (telegram_id, hhmm),
+            )
+        else:
+            await self.conn.execute(
+                """
+                UPDATE user_settings
+                SET daily_score_reminder_time = ?,
+                    daily_score_reminder_sent_on = CASE WHEN ? IS NULL THEN NULL ELSE daily_score_reminder_sent_on END
+                WHERE telegram_id = ?
+                """,
+                (hhmm, hhmm, telegram_id),
+            )
+        await self.conn.commit()
+
+    async def mark_daily_score_reminder_sent(self, telegram_id: int, day: str) -> None:
+        current = await self.fetchone(
+            "SELECT * FROM user_settings WHERE telegram_id = ?", (telegram_id,)
+        )
+        if current is None:
+            await self.conn.execute(
+                """
+                INSERT INTO user_settings (
+                    telegram_id, default_sleep_time, daily_score_reminder_sent_on
+                )
+                VALUES (?, '23:00', ?)
+                """,
+                (telegram_id, day),
+            )
+        else:
+            await self.conn.execute(
+                "UPDATE user_settings SET daily_score_reminder_sent_on = ? WHERE telegram_id = ?",
                 (day, telegram_id),
             )
         await self.conn.commit()

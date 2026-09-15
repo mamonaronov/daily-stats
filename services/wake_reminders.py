@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from database.models import User
 from database.queries import Repo
 from keyboards.main import wake_up_reminder_kb
-from utils.time import day_bounds_utc, parse_hhmm, to_iso, user_now
+from utils.time import day_bounds_utc, is_hhmm_due, to_iso, user_now
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +26,9 @@ def is_wake_reminder_due(
     local_now: datetime,
     has_out_of_bed_today: bool,
 ) -> bool:
-    if not reminder_hhmm or has_out_of_bed_today:
+    if has_out_of_bed_today:
         return False
-    if sent_on == local_now.date().isoformat():
-        return False
-    try:
-        hour, minute = parse_hhmm(reminder_hhmm)
-    except ValueError:
-        return False
-    if local_now.hour * 60 + local_now.minute < hour * 60 + minute:
-        return False
-    return True
+    return is_hhmm_due(reminder_hhmm, sent_on, local_now)
 
 
 async def _has_out_of_bed_today(repo: Repo, user: User, local_now: datetime) -> bool:
