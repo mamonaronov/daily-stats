@@ -6,6 +6,7 @@ from keyboards.main import (
     activity_duration_kb,
     ago_pick_kb,
     back_kb,
+    balance_kb,
     calendar_kb,
     cancel_kb,
     custom_metrics_kb,
@@ -190,6 +191,18 @@ def test_settings_kb_includes_legal_docs():
     assert ("📜 Пользовательское соглашение", "lg:t:0:s") in pairs
     assert ("🗑 Удалить аккаунт", "set:del") in pairs
     assert all(text != "📋 Кнопки меню" for text, _ in pairs)
+
+
+def test_balance_kb_links_owner_and_drops_paid_button():
+    markup = balance_kb("@owner")
+    texts = [btn.text for row in markup.inline_keyboard for btn in row]
+    urls = [btn.url for row in markup.inline_keyboard for btn in row if btn.url]
+    assert "Я оплатил" not in texts
+    assert "Написать @owner" in texts
+    assert urls == ["https://t.me/owner"]
+    assert ("🏠 Меню", NAV_MAIN) in _pairs(markup)
+    empty = [btn.url for row in balance_kb("владелец сервиса").inline_keyboard for btn in row if btn.url]
+    assert empty == []
 
 
 def test_wake_reminder_kb_presets_and_off():

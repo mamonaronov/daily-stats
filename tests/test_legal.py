@@ -8,6 +8,7 @@ from services.legal import (
     document_pages,
     legal_contact,
     markdown_to_telegram_html,
+    owner_chat_url,
     paginate_html,
 )
 
@@ -16,6 +17,16 @@ def test_legal_contact_fallback():
     assert legal_contact(" @owner ") == "@owner"
     assert legal_contact("") == "владелец сервиса"
     assert legal_contact("   ") == "владелец сервиса"
+
+
+def test_owner_chat_url_from_username_and_links():
+    assert owner_chat_url("@owner") == "https://t.me/owner"
+    assert owner_chat_url("owner") == "https://t.me/owner"
+    assert owner_chat_url("https://t.me/owner") == "https://t.me/owner"
+    assert owner_chat_url("t.me/owner") == "https://t.me/owner"
+    assert owner_chat_url("владелец сервиса") is None
+    assert owner_chat_url("") is None
+    assert owner_chat_url("@ab") is None
 
 
 def test_markdown_escapes_and_substitutes_contact():

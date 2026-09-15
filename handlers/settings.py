@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -17,12 +19,14 @@ from keyboards.main import (
     export_period_kb,
     hours_kb,
     minutes_kb,
+    owner_write_kb,
     score_reminder_kb,
     settings_kb,
     timezone_kb,
     track_metrics_kb,
     wake_reminder_kb,
 )
+from services.legal import legal_contact
 from states.diary import SettingsSG
 from utils.callbacks import NAV_SETTINGS
 from utils.telegram import safe_edit, text_file
@@ -422,10 +426,11 @@ async def contact(cb: CallbackQuery, config: Config, db_user: User | None) -> No
     if await require_active(cb, db_user) is None:
         return
     await cb.answer()
+    contact = html.escape(legal_contact(config.owner_contact))
     await safe_edit(
         cb.message,
-        f"Владелец сервиса: {config.owner_contact}\nПо вопросам оплаты и доступа пишите сюда.",
-        settings_kb(db_user),
+        f"Владелец сервиса: {contact}\nПо вопросам оплаты и доступа пишите сюда.",
+        owner_write_kb(config.owner_contact, NAV_SETTINGS),
     )
 
 

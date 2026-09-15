@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from aiogram import Bot, F, Router
+import html
+
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -10,7 +12,8 @@ from config import Config
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_active, require_writable, show_main
-from keyboards.main import balance_kb, now_or_time, paid_kb, sleep_actions_kb
+from keyboards.main import balance_kb, now_or_time, sleep_actions_kb
+from services.legal import legal_contact
 from services.ui_prefs import prefs_of
 from utils.callbacks import (
     ENTRY_ACT,
@@ -27,7 +30,6 @@ from utils.callbacks import (
     NAV_CANCEL,
     NAV_MAIN,
 )
-from states.diary import PaidSG
 from utils.formatting import balance_coverage_block, money
 from utils.telegram import safe_edit
 
@@ -71,20 +73,22 @@ async def noop(cb: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == NAV_BALANCE)
-async def show_balance(cb: CallbackQuery, db_user: User | None, repo: Repo) -> None:
+async def show_balance(cb: CallbackQuery, db_user: User | None, repo: Repo, config: Config) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
     user = await repo.get_user(user.telegram_id) or user
+    contact = html.escape(legal_contact(config.owner_contact))
     text = (
         f"💰 <b>Баланс</b>\n\n"
         f"Сейчас: {money(user.balance)}\n"
         f"Стоимость: {money(user.daily_price)} / день\n"
         f"{balance_coverage_block(user)}\n\n"
-        f"Пополнение выполняется владельцем сервиса вручную после оплаты вне бота."
+        f"Чтобы пополнить, напишите владельцу: {contact}\n"
+        f"Оплата проходит вне бота. После перевода баланс зачислят вручную."
     )
     await cb.answer()
-    await safe_edit(cb.message, text, balance_kb())
+    await safe_edit(cb.message, text, balance_kb(config.owner_contact))
 
 
 @router.callback_query(F.data == ENTRY_CIG)
@@ -205,65 +209,3 @@ async def daily_scores_entry(cb: CallbackQuery, state: FSMContext, repo: Repo, d
     if user is None:
         return
     await show_daily_scores_menu(cb, repo, user, state)
-
-
-@router.callback_query(F.data == "bal:paid")
-async def paid_start(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_active(cb, db_user) is None:
-        return
-    await state.set_state(PaidSG.amount)
-    await cb.answer()
-    await safe_edit(cb.message, "Сумма перевода? Можно пропустить.", paid_kb())
-
-
-@router.callback_query(F.data == "bal:paid:0")
-async def paid_skip(
-    cb: CallbackQuery,
-    state: FSMContext,
-    db_user: User | None,
-    config: Config,
-    bot: Bot,
-    repo: Repo,
-) -> None:
-    user = await require_active(cb, db_user)
-    if user is None:
-        return
-    await state.clear()
-    from services.paid import report_payment
-
-    await report_payment(bot, config, user, None)
-    user = await repo.get_user(user.telegram_id) or user
-    await cb.answer("Сообщили владельцу")
-    await safe_edit(
-        cb.message,
-        (
-            f"💰 <b>Баланс</b>\n\n"
-            f"Сейчас: {money(user.balance)}\n"
-            f"Владелец получил заявку. Зачисление вручную, не сразу."
-        ),
-        balance_kb(),
-    )
-
-
-@router.message(PaidSG.amount)
-async def paid_amount(
-    message: Message,
-    state: FSMContext,
-    db_user: User | None,
-    config: Config,
-    bot: Bot,
-    repo: Repo,
-) -> None:
-    user = await require_active(message, db_user)
-    if user is None:
-        return
-    raw = (message.text or "").strip()
-    await state.clear()
-    from services.paid import report_payment
-
-    await report_payment(bot, config, user, raw or None)
-    user = await repo.get_user(user.telegram_id) or user
-    await message.answer(
-        "Сообщили владельцу. Зачисление вручную, баланс пока тот же.",
-        reply_markup=balance_kb(),
-    )

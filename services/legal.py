@@ -29,8 +29,38 @@ _HEADER_RE = re.compile(r"^(#{1,3})\s+(.*)$")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 
 
+_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+_TME_PREFIXES = (
+    "https://t.me/",
+    "http://t.me/",
+    "https://telegram.me/",
+    "http://telegram.me/",
+    "t.me/",
+    "telegram.me/",
+)
+
+
 def legal_contact(owner_contact: str) -> str:
     return (owner_contact or "").strip() or "владелец сервиса"
+
+
+def owner_chat_url(owner_contact: str) -> str | None:
+    raw = (owner_contact or "").strip()
+    if not raw:
+        return None
+    lowered = raw.lower()
+    username = raw
+    for prefix in _TME_PREFIXES:
+        if lowered.startswith(prefix):
+            username = raw[len(prefix) :]
+            break
+    else:
+        if username.startswith("@"):
+            username = username[1:]
+    username = username.split("/", 1)[0].split("?", 1)[0].strip()
+    if not _USERNAME_RE.fullmatch(username):
+        return None
+    return f"https://t.me/{username}"
 
 
 @lru_cache(maxsize=4)
