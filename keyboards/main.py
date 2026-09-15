@@ -9,6 +9,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import SleepRecord, User
 from services.daily_scores import HUB_LABEL, tracked_score_keys
+from services.legal import legal_contact, owner_chat_url
 from services.metric_types import METRIC_TYPES, UNIT_PRESETS
 from utils.callbacks import (
     ENTRY_ACT,
@@ -703,16 +704,16 @@ def charts_done_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def paid_kb() -> InlineKeyboardMarkup:
+def owner_write_kb(owner_contact: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Пропустить сумму", "bal:paid:0"))
-    return with_nav(b, NAV_BALANCE)
+    url = owner_chat_url(owner_contact)
+    if url:
+        b.row(InlineKeyboardButton(text=f"Написать {legal_contact(owner_contact)}", url=url))
+    return with_nav(b, back)
 
 
-def balance_kb() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(_btn("Я оплатил", "bal:paid"))
-    return with_nav(b)
+def balance_kb(owner_contact: str = "") -> InlineKeyboardMarkup:
+    return owner_write_kb(owner_contact)
 
 
 def legal_consent_kb() -> InlineKeyboardMarkup:

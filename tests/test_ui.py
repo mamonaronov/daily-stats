@@ -11,7 +11,6 @@ from services.charts import build_charts
 from services.export import export_user_csv
 from services.history import PAGE_SIZE, build_timeline, paginate
 from services.notices import send_coverage_notices
-from services.paid import report_payment
 from services.statistics import render_stats
 from services.today import EMPTY_TRACKED_HINT, day_snapshot, sleep_status_line, today_block
 from services.ui_prefs import MAX_PINS, TRACKABLE_TYPES, parse_ui_prefs, prefs_of, save_prefs, toggle_tracked
@@ -291,25 +290,6 @@ async def test_csv_export_is_isolated(repo):
 
 
 @pytest.mark.asyncio
-async def test_report_payment_notifies_owner_without_changing_balance(repo, tmp_path):
-    config = make_config(tmp_path)
-    user = await repo.create_user(42, "payer", "Плательщик", None, "UTC", 10, "23:00")
-    await repo.apply_balance_change(42, "credit", delta=50, comment="seed", performed_by=1)
-    user = await repo.get_user(42)
-    assert user.balance == pytest.approx(50)
-    bot = FakeBot()
-    await report_payment(bot, config, user, "300")
-    user = await repo.get_user(42)
-    assert user.balance == pytest.approx(50)
-    assert bot.sent
-    chat_id, text, markup = bot.sent[0]
-    assert chat_id == config.owner_id
-    assert "42" in text
-    assert "300" in text
-    assert markup is not None
-
-
-@pytest.mark.asyncio
 async def test_tracked_metrics_default_empty_and_pin_limit(repo):
     user = await repo.create_user(30, "d", "Дима", None, "UTC", 10, "23:00")
     prefs = prefs_of(user)
@@ -383,6 +363,8 @@ async def test_coverage_notice_once_a_day(repo, tmp_path):
     await send_coverage_notices(repo, bot, config)
     targeted = [item for item in bot.sent if item[0] == 55]
     assert targeted
+    assert "@owner" in targeted[0][1]
+    assert "Я оплатил" not in targeted[0][1]
     await send_coverage_notices(repo, bot, config)
     targeted_again = [item for item in bot.sent if item[0] == 55]
     assert len(targeted_again) == 1

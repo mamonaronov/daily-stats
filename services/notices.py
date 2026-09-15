@@ -9,6 +9,7 @@ from aiogram import Bot
 from config import Config
 from database.queries import Repo
 from services.alerts import notify_owner
+from services.legal import legal_contact
 from services.ui_prefs import prefs_of, save_prefs
 from utils.formatting import coverage
 from utils.time import user_today
@@ -31,7 +32,7 @@ async def send_coverage_notices(repo: Repo, bot: Bot, config: Config) -> None:
         try:
             await bot.send_message(
                 user.telegram_id,
-                f"Покрытия осталось на {days} дн. Если уже оплатили — напишите «Я оплатил» в балансе.",
+                f"Покрытия осталось на {days} дн. Чтобы продлить, напишите {legal_contact(config.owner_contact)}.",
             )
         except Exception:
             logger.exception("Failed to send coverage notice to %s", user.telegram_id)
