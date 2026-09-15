@@ -293,6 +293,8 @@ def test_daily_scores_day_and_value_keyboards():
     assert ("⚡", "noop") in pairs
     assert ("😢", "ds:q:md:1") in pairs
     assert ("😢", "ds:q:en:1") in pairs
+    assert ("✖️", "ds:x:md") in pairs
+    assert ("✖️", "ds:x:en") not in pairs
 
 
 def test_main_menu_custom_metrics_button():
