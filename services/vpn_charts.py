@@ -595,7 +595,8 @@ def _curve_times(times: list[datetime], values: list[float], steps: int = _CURVE
     return [datetime.fromtimestamp(x, tz=tz) for x in xs], ys
 
 
-def _finite_ping_segments(points: list[TimelinePoint], gap: timedelta) -> list[list[TimelinePoint]]:
+def _finite_ping_segments(points: list[TimelinePoint]) -> list[list[TimelinePoint]]:
+    """Split ping only on missing samples. Downsampled OK runs stay one polyline."""
     segments: list[list[TimelinePoint]] = []
     current: list[TimelinePoint] = []
     for point in points:
@@ -604,9 +605,6 @@ def _finite_ping_segments(points: list[TimelinePoint], gap: timedelta) -> list[l
                 segments.append(current)
                 current = []
             continue
-        if current and point.time - current[-1].time > gap:
-            segments.append(current)
-            current = []
         current.append(point)
     if current:
         segments.append(current)
@@ -895,11 +893,10 @@ def _merged_spans(points: list[TimelinePoint], step: timedelta) -> list[tuple[da
     key = points[0].color_key
     signal = points[0].signal
     for prev, current in zip(points, points[1:]):
-        # Start/end markers of service-down / server-off are far apart on purpose.
-        # Same for thinned no-ping runs. Keep them as one band, not two stripes.
+        # Same color after downsample is sparse on purpose. Keep one band, not stripes.
+        # Real holes are filled as down/off markers before this runs.
         same_run = current.color_key == key and current.signal == signal
-        same_signal_run = signal is not None and same_run
-        jumped = (not same_signal_run) and current.time - prev.time > gap_limit
+        jumped = (not same_run) and current.time - prev.time > gap_limit
         if not same_run or jumped:
             end = current.time if not jumped else prev.time + step
             spans.append((start, end, key, signal))
@@ -972,11 +969,11 @@ def render_timeline_chart(
         else:
             color = colors.get(key, _SIGNAL_COLORS[SIGNAL_NO_PING])
             alpha = 0.50
-        ax.axvspan(start, end, color=color, alpha=alpha, linewidth=0, zorder=1)
+        ax.axvspan(start, end, color=color, alpha=alpha, linewidth=0, antialiased=False, zorder=1)
 
-    gap = step * _GAP_FACTOR
+    ping_segments = _finite_ping_segments(points)
     ping_handles: list = []
-    for segment in _finite_ping_segments(points, gap):
+    for segment in ping_segments:
         xs = [point.time for point in segment]
         ys = _clip_ping_ys([point.ping_ms for point in segment])
         if len(segment) >= 3:
@@ -986,7 +983,7 @@ def render_timeline_chart(
             xs,
             ys,
             color="#e2e8f0",
-            linewidth=0.95,
+            linewidth=1.25,
             alpha=0.92,
             zorder=3,
             solid_capstyle="round",
@@ -1000,6 +997,7 @@ def render_timeline_chart(
     if len(finite) >= 2:
         avg_times = [point.time for point in finite]
         avg_values = _clip_ping_ys(smooth_ping_series(avg_times, [point.ping_ms for point in finite]))
+        avg_by_time = {time: value for time, value in zip(avg_times, avg_values)}
 
         def _plot_avg(seg_t: list[datetime], seg_y: list[float]):
             nonlocal avg_handle
@@ -1012,7 +1010,7 @@ def render_timeline_chart(
                 seg_t,
                 seg_y,
                 color=_AVG_LINE,
-                linewidth=1.35,
+                linewidth=1.55,
                 alpha=0.95,
                 zorder=5,
                 solid_capstyle="round",
@@ -1020,17 +1018,11 @@ def render_timeline_chart(
             if avg_handle is None:
                 avg_handle = handle
 
-        split_t: list[datetime] = []
-        split_y: list[float] = []
-        prev_t: datetime | None = None
-        for time, value in zip(avg_times, avg_values):
-            if prev_t is not None and time - prev_t > gap:
-                _plot_avg(split_t, split_y)
-                split_t, split_y = [], []
-            split_t.append(time)
-            split_y.append(value)
-            prev_t = time
-        _plot_avg(split_t, split_y)
+        for segment in ping_segments:
+            _plot_avg(
+                [point.time for point in segment],
+                [avg_by_time[point.time] for point in segment],
+            )
 
     ping_fail_x = [point.time for point in points if point.signal == SIGNAL_NO_PING]
     if ping_fail_x:
@@ -1080,7 +1072,7 @@ def render_timeline_chart(
         avg_handle.set_label("сглаженный пинг")
         handles.append(avg_handle)
     elif len(finite) >= 2:
-        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=1.35, label="сглаженный пинг"))
+        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=1.55, label="сглаженный пинг"))
     if handles:
         _style_legend(
             ax.legend(

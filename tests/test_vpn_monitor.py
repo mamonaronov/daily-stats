@@ -1053,6 +1053,68 @@ def test_merged_spans_keeps_ok_samples_together():
     assert (spans[0][1] - spans[0][0]).total_seconds() == 60
 
 
+def test_merged_spans_keeps_downsampled_ok_run():
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import TimelinePoint, _merged_spans
+
+    utc = timezone.utc
+    t0 = datetime(2026, 8, 19, 10, 0, tzinfo=utc)
+    points = [
+        TimelinePoint(t0 + timedelta(seconds=120 * i), 80.0, "n1", None, "n1")
+        for i in range(8)
+    ]
+    spans = _merged_spans(points, timedelta(seconds=10))
+    assert len(spans) == 1
+    assert (spans[0][1] - spans[0][0]).total_seconds() == 120 * 7 + 10
+
+
+def test_finite_ping_segments_connect_sparse_ok_and_split_on_nan():
+    import math
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import SIGNAL_NO_PING, TimelinePoint, _finite_ping_segments
+
+    utc = timezone.utc
+    t0 = datetime(2026, 8, 19, 10, 0, tzinfo=utc)
+    ok = [
+        TimelinePoint(t0 + timedelta(seconds=120 * i), 80.0, "n1", None, "n1")
+        for i in range(6)
+    ]
+    assert len(_finite_ping_segments(ok)) == 1
+    assert len(_finite_ping_segments(ok)[0]) == 6
+
+    mixed = [
+        *ok[:3],
+        TimelinePoint(t0 + timedelta(seconds=120 * 3), float("nan"), "n1", SIGNAL_NO_PING, SIGNAL_NO_PING),
+        *ok[3:],
+    ]
+    segments = _finite_ping_segments(mixed)
+    assert len(segments) == 2
+    assert [len(segment) for segment in segments] == [3, 3]
+    assert all(not math.isnan(point.ping_ms) for segment in segments for point in segment)
+
+
+def test_downsample_then_merge_keeps_long_ok_period():
+    from datetime import datetime, timedelta, timezone
+
+    from services.vpn_charts import TimelinePoint, _merged_spans, downsample_timeline
+
+    utc = timezone.utc
+    t0 = datetime(2026, 8, 19, 10, 0, tzinfo=utc)
+    points = [
+        TimelinePoint(t0 + timedelta(seconds=10 * i), 80.0, "n1", None, "n1")
+        for i in range(5000)
+    ]
+    thinned = downsample_timeline(points, max_ok=200, max_down=50)
+    assert len(thinned) <= 210
+    assert (thinned[1].time - thinned[0].time).total_seconds() > 30
+    spans = _merged_spans(thinned, timedelta(seconds=10))
+    assert len(spans) == 1
+    assert spans[0][0] == points[0].time
+    assert spans[0][1] == points[-1].time + timedelta(seconds=10)
+
+
 def test_vpn_bucket_lines_exclusive_layout():
     import html
 
