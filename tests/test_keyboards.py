@@ -14,6 +14,7 @@ from keyboards.main import (
     drink_amount_kb,
     hours_kb,
     legal_consent_kb,
+    legal_docs_kb,
     legal_page_kb,
     main_menu,
     marker_card_kb,
@@ -171,9 +172,17 @@ def test_legal_page_kb_paginates_and_returns():
     assert consent["⬅️ Назад"] == "lg:home"
     assert consent["✅ Принимаю"] == "lg:ok"
     settings = dict(_pairs(legal_page_kb("t", 0, 1, "s")))
-    assert settings["⬅️ Назад"] == NAV_SETTINGS
+    assert settings["⬅️ Назад"] == "lg:docs"
     assert settings["🏠 Меню"] == NAV_MAIN
     assert "✅ Принимаю" not in settings
+
+
+def test_legal_docs_kb_lists_both_documents():
+    pairs = _pairs(legal_docs_kb())
+    assert ("📄 Политика конфиденциальности", "lg:p:0:s") in pairs
+    assert ("📜 Пользовательское соглашение", "lg:t:0:s") in pairs
+    assert ("⬅️ Назад", NAV_SETTINGS) in pairs
+    assert ("🏠 Меню", NAV_MAIN) in pairs
 
 
 def test_settings_kb_includes_legal_docs():
@@ -187,8 +196,8 @@ def test_settings_kb_includes_legal_docs():
     assert ("📋 Метрики", "set:trk") in pairs
     assert ("⏰ Напомнить встать: выкл", "set:wake") in pairs
     assert ("🙂 Напомнить оценить: выкл", "set:dsr") in pairs
-    assert ("📄 Политика конфиденциальности", "lg:p:0:s") in pairs
-    assert ("📜 Пользовательское соглашение", "lg:t:0:s") in pairs
+    assert ("📄 Политика и соглашение", "lg:docs") in pairs
+    assert all(data not in {"lg:p:0:s", "lg:t:0:s"} for _, data in pairs)
     assert ("🗑 Удалить аккаунт", "set:del") in pairs
     assert all(text != "📋 Кнопки меню" for text, _ in pairs)
 
