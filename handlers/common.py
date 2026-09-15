@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
@@ -185,12 +187,11 @@ async def start_time_pick(
     extra: dict | None = None,
     *,
     skip_date: bool = False,
+    picked_date: date | None = None,
 ) -> None:
-    from datetime import date
-
     from states.diary import TimePickSG
     from utils.callbacks import NAV_BACK
-    from utils.time import user_today
+    from utils.time import hours_pick_prompt, user_today
 
     extra = dict(extra or {})
     if "time_exit" not in extra:
@@ -219,7 +220,10 @@ async def start_time_pick(
             }.get(purpose, "when:cig")
     user_tz = extra.get("tz")
     today = user_today(user_tz) if user_tz else date.today()
-    payload = {"time_purpose": purpose, "picked_date": today.isoformat(), **extra}
+    day = picked_date or today
+    if day > today:
+        day = today
+    payload = {**extra, "time_purpose": purpose, "picked_date": day.isoformat()}
     if skip_date:
         payload["time_date_shortcuts"] = True
         await state.set_state(TimePickSG.hour)
@@ -227,13 +231,11 @@ async def start_time_pick(
         await cb.answer()
         await safe_edit(
             cb.message,
-            prompt_with_hint(
-                f"Дата: {today.isoformat()} (сегодня)\nВыберите час — можно уже прошедший:",
-                payload,
-            ),
+            prompt_with_hint(hours_pick_prompt(day, today), payload),
             hours_kb(date_shortcuts=True, back=NAV_BACK),
         )
         return
+    payload["time_date_shortcuts"] = False
     await state.set_state(TimePickSG.date)
     await state.update_data(**payload)
     await cb.answer()

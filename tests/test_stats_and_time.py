@@ -193,6 +193,30 @@ def test_parse_calendar_token_relative_days():
     assert parse_calendar_token("2026-08-10", today) == date(2026, 8, 10)
 
 
+def test_default_sleep_clock_day_uses_yesterday_in_the_morning():
+    from datetime import datetime, timezone
+
+    from utils.time import default_sleep_clock_day
+
+    morning = datetime(2026, 8, 23, 7, 0, tzinfo=timezone.utc)  # 10:00 MSK
+    evening = datetime(2026, 8, 23, 18, 0, tzinfo=timezone.utc)  # 21:00 MSK
+    assert default_sleep_clock_day("Europe/Moscow", "slb", now=morning).isoformat() == "2026-08-22"
+    assert default_sleep_clock_day("Europe/Moscow", "slo", now=morning).isoformat() == "2026-08-22"
+    assert default_sleep_clock_day("Europe/Moscow", "slw", now=morning).isoformat() == "2026-08-23"
+    assert default_sleep_clock_day("Europe/Moscow", "slb", now=evening).isoformat() == "2026-08-23"
+
+
+def test_hours_pick_prompt_labels_relative_days():
+    from datetime import date
+
+    from utils.time import hours_pick_prompt
+
+    today = date(2026, 8, 23)
+    assert "сегодня" in hours_pick_prompt(today, today)
+    assert "вчера" in hours_pick_prompt(date(2026, 8, 22), today)
+    assert "позавчера" in hours_pick_prompt(date(2026, 8, 21), today)
+
+
 def test_cigarette_stats_text():
     from database.models import Cigarette, User
 

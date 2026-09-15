@@ -74,6 +74,7 @@ async def test_wake_reminder_still_asks_if_awake_but_not_up(repo):
     markup = bot.sent[0][2]
     texts = [btn.text for row in markup.inline_keyboard for btn in row]
     assert "Встал" in texts
+    assert "Лёг с телефоном" in texts or "Лёг без телефона" in texts
 
 
 @pytest.mark.asyncio

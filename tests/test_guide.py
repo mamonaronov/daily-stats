@@ -82,3 +82,5 @@ def test_guide_explains_core_flows():
     assert "отдельн" in PAGES["sleep"].lower() or "метрик" in PAGES["sleep"].lower()
     assert "в любой момент" in PAGES["sleep"].lower()
     assert "прошл" in PAGES["sleep"].lower()
+    assert "вчера" in PAGES["sleep"].lower()
+    assert "не пряч" in PAGES["sleep"].lower() or "все сразу" in PAGES["sleep"].lower()

@@ -140,6 +140,9 @@ def format_date_long(day: date) -> str:
     return f"{day.day} {MONTHS_RU[day.month]} {day.year}"
 
 
+SLEEP_NIGHT_WHEN_PREFIXES = frozenset({"slb", "sln", "sla", "slo"})
+
+
 def parse_calendar_token(token: str, today: date) -> date:
     if token == "today":
         return today
@@ -148,6 +151,26 @@ def parse_calendar_token(token: str, today: date) -> date:
     if token == "daybefore":
         return today - timedelta(days=2)
     return date.fromisoformat(token)
+
+
+def default_sleep_clock_day(tz_name: str, prefix: str, *, now: datetime | None = None) -> date:
+    local = to_user(now or now_utc(), tz_name)
+    today = local.date()
+    if prefix in SLEEP_NIGHT_WHEN_PREFIXES and local.hour < 12:
+        return today - timedelta(days=1)
+    return today
+
+
+def hours_pick_prompt(day: date, today: date) -> str:
+    if day == today:
+        label = "сегодня"
+    elif day == today - timedelta(days=1):
+        label = "вчера"
+    elif day == today - timedelta(days=2):
+        label = "позавчера"
+    else:
+        label = day.isoformat()
+    return f"Дата: {day.isoformat()} ({label})\nВыберите час — можно уже прошедший:"
 
 
 def _as_clock(hour: int, minute: int) -> tuple[int, int]:

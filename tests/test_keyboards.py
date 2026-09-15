@@ -71,6 +71,8 @@ def test_now_or_time_has_relative_options():
     assert ("5 мин назад", "cig:ago:5") in pairs
     assert ("⏱ Сколько назад", "cig:agoask") in pairs
     assert ("⌨️ Ввести текстом", "cig:txt") in pairs
+    assert all(text != "Вчера" for text, _ in pairs)
+    assert all(text != "Сегодня" for text, _ in pairs)
 
 
 def test_now_or_time_back_goes_to_previous_screen():
@@ -93,65 +95,35 @@ def _sleep_texts(rows) -> list[str]:
     return [btn.text for row in rows for btn in row]
 
 
-def test_sleep_row_changes_with_phase():
+def test_sleep_rows_keep_all_actions():
+    core = ["slp:wake", "slp:wakeup", "slp:up", "slp:askonset", "slp:phone", "slp:nophone"]
     idle = sleep_rows(None)
-    assert [[btn.callback_data for btn in row] for row in idle] == [
-        ["slp:wake", "slp:wakeup"],
-        ["slp:askonset"],
-        ["slp:phone", "slp:nophone"],
-    ]
+    assert _sleep_callbacks(idle) == [*core, "slp:away"]
     assert _sleep_texts(idle) == [
         "Проснулся",
         "И встал",
+        "Встал",
         "Заснул?",
         "Лёг с телефоном",
         "Лёг без телефона",
+        "Убрал телефон",
     ]
-    with_phone = SimpleNamespace(
-        phase=lambda: "with_phone",
-    )
+    with_phone = SimpleNamespace(phase=lambda: "with_phone")
     phone_rows = sleep_rows(with_phone)
-    assert _sleep_callbacks(phone_rows) == [
-        "slp:wake",
-        "slp:wakeup",
-        "slp:askonset",
-        "slp:away",
-    ]
-    assert _sleep_texts(phone_rows) == ["Проснулся", "И встал", "Заснул?", "Убрал телефон"]
+    assert _sleep_callbacks(phone_rows) == [*core, "slp:away"]
+    assert "Убрал телефон" in _sleep_texts(phone_rows)
+    assert "Лёг с телефоном" in _sleep_texts(phone_rows)
     no_phone = SimpleNamespace(phase=lambda: "no_phone")
-    assert _sleep_callbacks(sleep_rows(no_phone)) == ["slp:wake", "slp:wakeup", "slp:askonset"]
+    assert _sleep_callbacks(sleep_rows(no_phone)) == [*core, "slp:away"]
     asleep = SimpleNamespace(phase=lambda: "asleep")
-    assert _sleep_callbacks(sleep_rows(asleep)) == [
-        "slp:wake",
-        "slp:wakeup",
-        "slp:phone",
-        "slp:nophone",
-    ]
+    assert _sleep_callbacks(sleep_rows(asleep)) == [*core, "slp:away"]
     awake = SimpleNamespace(phase=lambda: "awake", sleep_onset_at=None)
-    assert _sleep_callbacks(sleep_rows(awake)) == [
-        "slp:askonset",
-        "slp:up",
-        "slp:phone",
-        "slp:nophone",
-    ]
+    assert _sleep_callbacks(sleep_rows(awake)) == [*core, "slp:away"]
     awake_done = SimpleNamespace(phase=lambda: "awake", sleep_onset_at="2026-08-16T21:00:00+00:00")
-    assert _sleep_callbacks(sleep_rows(awake_done)) == [
-        "slp:up",
-        "slp:phone",
-        "slp:nophone",
-    ]
+    assert _sleep_callbacks(sleep_rows(awake_done)) == [*core, "slp:away"]
     need_onset = SimpleNamespace(phase=lambda: "need_onset")
-    onset_rows = sleep_rows(need_onset)
-    assert [[btn.callback_data for btn in row] for row in onset_rows] == [
-        ["slp:askonset", "slp:wake"],
-        ["slp:phone", "slp:nophone"],
-    ]
-    assert _sleep_texts(onset_rows) == [
-        "Заснул?",
-        "Проснулся",
-        "Лёг с телефоном",
-        "Лёг без телефона",
-    ]
+    assert _sleep_callbacks(sleep_rows(need_onset)) == [*core, "slp:away"]
+    assert "Лёг без телефона" in _sleep_texts(sleep_rows(need_onset))
 
 
 def test_calendar_has_yesterday_and_daybefore():
@@ -222,13 +194,16 @@ def test_wake_reminder_kb_presets_and_off():
     assert enabled["Выключить"] == "set:wake:off"
 
 
-def test_wake_up_reminder_kb_matches_phase():
+def test_wake_up_reminder_kb_keeps_all_sleep_actions():
     idle = dict(_pairs(wake_up_reminder_kb(None)))
     assert idle["Проснулся"] == "slp:wake"
     assert idle["И встал"] == "slp:wakeup"
+    assert idle["Встал"] == "slp:up"
+    assert idle["Лёг с телефоном"] == "slp:phone"
     awake = SimpleNamespace(phase=lambda: "awake")
     buttons = dict(_pairs(wake_up_reminder_kb(awake)))
     assert buttons["Встал"] == "slp:up"
+    assert buttons["Лёг без телефона"] == "slp:nophone"
 
 
 def test_timezone_registration_has_no_menu_cancel():
@@ -395,6 +370,10 @@ def test_saved_entry_actions_use_undo():
     assert onset["🗑 Отменить"] == "un:wu:3"
     assert onset["Позже"] == "slp:later:wu:3"
     assert onset["Сейчас"] == "slo:now"
+    assert onset["Сегодня"] == "slo:today"
+    assert onset["Вчера"] == "slo:yesterday"
+    assert onset["Позавчера"] == "slo:daybefore"
+    assert onset["📅 Другая дата"] == "slo:date"
     assert onset["🕐 Указать время"] == "slo:time"
     assert onset["5 мин назад"] == "slo:ago:5"
 
@@ -402,6 +381,10 @@ def test_saved_entry_actions_use_undo():
 def test_when_kb_sleep_wake_goes_back_to_quality():
     pairs = dict(_pairs(when_kb("slw")))
     assert pairs["Сейчас"] == "slw:now"
+    assert pairs["Сегодня"] == "slw:today"
+    assert pairs["Вчера"] == "slw:yesterday"
+    assert pairs["Позавчера"] == "slw:daybefore"
+    assert pairs["📅 Другая дата"] == "slw:date"
     assert pairs["🕐 Указать время"] == "slw:time"
     assert pairs["⬅️ Назад"] == "slp:ql"
 
@@ -411,6 +394,8 @@ def test_when_kb_sleep_up_goes_back_to_sleep():
 
     pairs = dict(_pairs(when_kb("slu")))
     assert pairs["Сейчас"] == "slu:now"
+    assert pairs["Сегодня"] == "slu:today"
+    assert pairs["Вчера"] == "slu:yesterday"
     assert pairs["🕐 Указать время"] == "slu:time"
     assert pairs["⬅️ Назад"] == ENTRY_SLEEP
 
@@ -420,15 +405,21 @@ def test_when_kb_sleep_bed_asks_time():
 
     phone = dict(_pairs(when_kb("slb")))
     assert phone["Сейчас"] == "slb:now"
+    assert phone["Сегодня"] == "slb:today"
+    assert phone["Вчера"] == "slb:yesterday"
+    assert phone["Позавчера"] == "slb:daybefore"
+    assert phone["📅 Другая дата"] == "slb:date"
     assert phone["🕐 Указать время"] == "slb:time"
     assert phone["5 мин назад"] == "slb:ago:5"
     assert phone["⬅️ Назад"] == ENTRY_SLEEP
     nophone = dict(_pairs(when_kb("sln")))
     assert nophone["Сейчас"] == "sln:now"
+    assert nophone["Вчера"] == "sln:yesterday"
     assert nophone["🕐 Указать время"] == "sln:time"
     assert nophone["⬅️ Назад"] == ENTRY_SLEEP
     away = dict(_pairs(when_kb("sla")))
     assert away["Сейчас"] == "sla:now"
+    assert away["Позавчера"] == "sla:daybefore"
     assert away["🕐 Указать время"] == "sla:time"
     assert away["⬅️ Назад"] == ENTRY_SLEEP
 
@@ -547,24 +538,32 @@ def test_main_menu_sleep_actions_use_two_rows():
             tracked={"sleep", "sleep_phone", "sleep_nophone"},
         ).inline_keyboard
     ]
-    assert ["Заснул?", "Проснулся"] in rows
+    assert ["Заснул?", "Проснулся"] not in rows
+    assert ["Проснулся", "И встал"] in rows
+    assert ["Встал", "Заснул?"] in rows
     assert ["Лёг с телефоном", "Лёг без телефона"] in rows
 
 
 def test_sleep_rows_hide_bed_when_metrics_off():
     idle = sleep_rows(None, tracked={"sleep"})
-    assert _sleep_callbacks(idle) == ["slp:wake", "slp:wakeup", "slp:askonset"]
+    assert _sleep_callbacks(idle) == ["slp:wake", "slp:wakeup", "slp:up", "slp:askonset"]
     assert "Лёг с телефоном" not in _sleep_texts(idle)
     phone_only = sleep_rows(None, tracked={"sleep", "sleep_phone"})
     assert _sleep_texts(phone_only) == [
         "Проснулся",
         "И встал",
+        "Встал",
         "Заснул?",
         "Лёг с телефоном",
+        "Убрал телефон",
     ]
     open_phone = sleep_rows(SimpleNamespace(phase=lambda: "with_phone"), tracked={"sleep"})
     assert "slp:away" in _sleep_callbacks(open_phone)
     assert "Лёг с телефоном" not in _sleep_texts(open_phone)
+    awake = sleep_rows(SimpleNamespace(phase=lambda: "awake"), tracked={"sleep", "sleep_phone", "sleep_nophone"})
+    assert "slp:phone" in _sleep_callbacks(awake)
+    assert "slp:nophone" in _sleep_callbacks(awake)
+    assert "slp:up" in _sleep_callbacks(awake)
 
 
 def test_main_menu_keeps_open_sleep_without_tracking():

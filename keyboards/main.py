@@ -78,32 +78,17 @@ def sleep_rows(sleep: SleepRecord | None, *, tracked: set[str] | None = None) ->
     nophone = _btn("Лёг без телефона", "slp:nophone")
     away = _btn("Убрал телефон", "slp:away")
     phone_on, nophone_on = _sleep_bed_enabled(tracked)
+    rows: list[list[InlineKeyboardButton]] = [[wake, wakeup], [up, onset]]
     bed: list[InlineKeyboardButton] = []
     if phone_on:
         bed.append(phone)
     if nophone_on:
         bed.append(nophone)
-
-    def with_bed(rows: list[list[InlineKeyboardButton]]) -> list[list[InlineKeyboardButton]]:
-        if bed:
-            rows.append(bed)
-        return rows
-
-    if phase == "with_phone":
-        second = [onset, away]
-        return [[wake, wakeup], second]
-    if phase == "no_phone":
-        return [[wake, wakeup], [onset]]
-    if phase == "asleep":
-        return with_bed([[wake, wakeup]])
-    if phase == "awake":
-        top = [up]
-        if sleep is not None and sleep.sleep_onset_at is None:
-            top.insert(0, onset)
-        return with_bed([top])
-    if phase == "need_onset":
-        return with_bed([[onset, wake]])
-    return with_bed([[wake, wakeup], [onset]])
+    if bed:
+        rows.append(bed)
+    if phone_on or phase == "with_phone":
+        rows.append([away])
+    return rows
 
 
 def _add_sleep_rows(
@@ -237,15 +222,27 @@ def when_kb(prefix: str, *, metric_id: int | None = None) -> InlineKeyboardMarku
     return now_or_time(prefix, back)
 
 
+SLEEP_WHEN_PREFIXES = frozenset({"slw", "slu", "slb", "sln", "sla", "slo"})
+
+
 def _relative_when_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
     builder.row(_btn("5 мин назад", f"{prefix}:ago:5"), _btn("10 мин назад", f"{prefix}:ago:10"))
     builder.row(_btn("15 мин назад", f"{prefix}:ago:15"), _btn("30 мин назад", f"{prefix}:ago:30"))
     builder.row(_btn("⏱ Сколько назад", f"{prefix}:agoask"), _btn("⌨️ Ввести текстом", f"{prefix}:txt"))
 
 
+def _sleep_when_date_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
+    builder.row(_btn("Сейчас", f"{prefix}:now"), _btn("Сегодня", f"{prefix}:today"))
+    builder.row(_btn("Вчера", f"{prefix}:yesterday"), _btn("Позавчера", f"{prefix}:daybefore"))
+    builder.row(_btn("📅 Другая дата", f"{prefix}:date"), _btn("🕐 Указать время", f"{prefix}:time"))
+
+
 def now_or_time(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Сейчас", f"{prefix}:now"), _btn("🕐 Указать время", f"{prefix}:time"))
+    if prefix in SLEEP_WHEN_PREFIXES:
+        _sleep_when_date_rows(b, prefix)
+    else:
+        b.row(_btn("Сейчас", f"{prefix}:now"), _btn("🕐 Указать время", f"{prefix}:time"))
     _relative_when_rows(b, prefix)
     return with_nav(b, back)
 
@@ -277,7 +274,7 @@ def ago_pick_kb(prefix: str, back: str | None = NAV_BACK) -> InlineKeyboardMarku
 def sleep_onset_kb(undo_kind: str | None = None, undo_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     later = f"slp:later:{undo_kind}:{undo_id}" if undo_kind and undo_id is not None else "slp:later"
-    b.row(_btn("Сейчас", "slo:now"), _btn("🕐 Указать время", "slo:time"))
+    _sleep_when_date_rows(b, "slo")
     _relative_when_rows(b, "slo")
     b.row(_btn("Позже", later))
     if undo_kind and undo_id is not None:
@@ -627,13 +624,9 @@ def wake_reminder_kb(current: str | None) -> InlineKeyboardMarkup:
     return with_nav(b, NAV_SETTINGS)
 
 
-def wake_up_reminder_kb(sleep: SleepRecord | None) -> InlineKeyboardMarkup:
+def wake_up_reminder_kb(sleep: SleepRecord | None, tracked: set[str] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    phase = sleep.phase() if sleep else "idle"
-    if phase == "awake":
-        b.row(_btn("Встал", "slp:up"))
-    else:
-        b.row(_btn("Проснулся", "slp:wake"), _btn("И встал", "slp:wakeup"))
+    _add_sleep_rows(b, sleep, tracked)
     return with_nav(b)
 
 

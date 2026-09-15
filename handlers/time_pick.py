@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -29,6 +29,8 @@ from utils.callbacks import NAV_BACK, NAV_MAIN
 from utils.telegram import safe_edit
 from utils.time import (
     combine_local,
+    default_sleep_clock_day,
+    hours_pick_prompt,
     minutes_ago,
     parse_calendar_token,
     parse_hhmm,
@@ -59,6 +61,7 @@ WHEN_TO_PURPOSE = {
     "mkt": "mk",
 }
 _WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slb|sln|sla|slo|cmt|cms|cme|mkt)"
+_SLEEP_WHEN_RE = r"^(?:slw|slu|slb|sln|sla|slo)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, вчера 22:40, 1000) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -321,6 +324,61 @@ async def _prepare_when_purpose(state: FSMContext, prefix: str, user: User) -> N
     if "time_exit" not in data:
         payload["time_exit"] = f"when:{prefix}"
     await state.update_data(**payload)
+
+
+async def start_when_clock(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    prefix: str,
+    *,
+    day: date | None = None,
+    calendar: bool = False,
+) -> None:
+    from handlers.common import start_time_pick
+    from handlers.sleep import _onset_extra, _onset_record, bed_times_hint, onset_prompt_text
+
+    await _prepare_when_purpose(state, prefix, user)
+    data = await state.get_data()
+    purpose = data.get("time_purpose") or WHEN_TO_PURPOSE[prefix]
+    extra = {**data, "tz": user.timezone, "when_prefix": prefix}
+    extra.setdefault("time_exit", f"when:{prefix}")
+    if prefix == "slo":
+        extra.update(_onset_extra(user, extra))
+        rec = await _onset_record(repo, user, extra)
+        extra["time_hint"] = bed_times_hint(user, rec)
+        extra["onset_prompt"] = onset_prompt_text(user, rec)
+    await start_time_pick(
+        cb,
+        state,
+        purpose,
+        extra,
+        skip_date=not calendar,
+        picked_date=None if calendar else day,
+    )
+
+
+@router.callback_query(F.data.regexp(_SLEEP_WHEN_RE + r":(?:today|yesterday|daybefore|date|time)$"))
+async def sleep_when_clock(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    prefix = _when_prefix(cb.data)
+    token = cb.data.rsplit(":", 1)[1]
+    if token == "date":
+        await start_when_clock(cb, state, repo, user, prefix, calendar=True)
+        return
+    if token == "time":
+        day = default_sleep_clock_day(user.timezone, prefix)
+    else:
+        day = parse_calendar_token(token, user_today(user.timezone))
+    await start_when_clock(cb, state, repo, user, prefix, day=day)
 
 
 def _onset_undo(data: dict) -> tuple[str | None, int | None]:
@@ -624,7 +682,7 @@ async def time_pick_back(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
     await safe_edit(
         cb.message,
         prompt_with_hint(
-            _hours_prompt(day, today) if data.get("time_date_shortcuts") else f"Дата: {day.isoformat()}\nВыберите час:",
+            hours_pick_prompt(day, today) if data.get("time_date_shortcuts") else f"Дата: {day.isoformat()}\nВыберите час:",
             data,
         ),
         hours_kb(date_shortcuts=bool(data.get("time_date_shortcuts"))),
@@ -639,18 +697,6 @@ async def change_month(cb: CallbackQuery, db_user: User | None) -> None:
     year, month = int(ym[:4]), int(ym[5:7])
     await cb.answer()
     await safe_edit(cb.message, "Выберите дату:", calendar_kb(year, month, back=NAV_BACK))
-
-
-def _hours_prompt(day: date, today: date) -> str:
-    if day == today:
-        label = "сегодня"
-    elif day == today - timedelta(days=1):
-        label = "вчера"
-    elif day == today - timedelta(days=2):
-        label = "позавчера"
-    else:
-        label = day.isoformat()
-    return f"Дата: {day.isoformat()} ({label})\nВыберите час — можно уже прошедший:"
 
 
 @router.callback_query(F.data.startswith("hdt:"), TimePickSG.hour)
@@ -680,7 +726,7 @@ async def hour_date_shortcut(cb: CallbackQuery, state: FSMContext, db_user: User
     await cb.answer()
     await safe_edit(
         cb.message,
-        prompt_with_hint(_hours_prompt(day, today), data),
+        prompt_with_hint(hours_pick_prompt(day, today), data),
         hours_kb(date_shortcuts=True),
     )
 

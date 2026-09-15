@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from config import Config
 from database.models import SleepRecord, User
 from database.queries import Repo
-from handlers.common import require_writable, start_time_pick
+from handlers.common import require_writable
 from handlers.history import show_saved_entry
 from keyboards.main import score_kb, sleep_onset_kb, when_kb, when_title
 from services import entries
@@ -280,20 +280,6 @@ async def sleep_away_now(
     await complete_sleep_away(cb, state, repo, user, user_now(user.timezone))
 
 
-@router.callback_query(F.data == "sla:time")
-async def sleep_away_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    await start_time_pick(
-        cb,
-        state,
-        "slp_away",
-        {"tz": user.timezone, "when_prefix": "sla", "time_exit": "when:sla"},
-        skip_date=True,
-    )
-
-
 @router.callback_query(F.data.in_({"slb:now", "sln:now"}))
 async def sleep_bed_now(
     cb: CallbackQuery,
@@ -307,28 +293,6 @@ async def sleep_bed_now(
     prefix = cb.data.split(":", 1)[0]
     await state.update_data(when_prefix=prefix, sleep_action="nophone" if prefix == "sln" else "phone")
     await complete_sleep_bed(cb, state, repo, user, user_now(user.timezone))
-
-
-@router.callback_query(F.data.in_({"slb:time", "sln:time"}))
-async def sleep_bed_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    prefix = cb.data.split(":", 1)[0]
-    data = await state.get_data()
-    action = data.get("sleep_action") or ("nophone" if prefix == "sln" else "phone")
-    await start_time_pick(
-        cb,
-        state,
-        "slp_bed",
-        {
-            "tz": user.timezone,
-            "sleep_action": action,
-            "when_prefix": prefix,
-            "time_exit": f"when:{prefix}",
-        },
-        skip_date=True,
-    )
 
 
 @router.callback_query(F.data == "slp:wake")
@@ -380,26 +344,6 @@ async def sleep_wake_now(
     await complete_sleep_wake(cb, state, repo, user, user_now(user.timezone))
 
 
-@router.callback_query(F.data == "slw:time")
-async def sleep_wake_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    data = await state.get_data()
-    await start_time_pick(
-        cb,
-        state,
-        "slp_wake",
-        {
-            "tz": user.timezone,
-            "sleep_action": data.get("sleep_action"),
-            "sleep_quality": data.get("sleep_quality"),
-            "time_exit": "when:slw",
-        },
-        skip_date=True,
-    )
-
-
 @router.callback_query(F.data == "slp:up")
 async def sleep_up_when(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
@@ -422,20 +366,6 @@ async def sleep_up_now(
     if user is None:
         return
     await complete_sleep_up(cb, state, repo, user, user_now(user.timezone))
-
-
-@router.callback_query(F.data == "slu:time")
-async def sleep_up_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    await start_time_pick(
-        cb,
-        state,
-        "slp_up",
-        {"tz": user.timezone, "time_exit": "when:slu"},
-        skip_date=True,
-    )
 
 
 @router.callback_query(F.data == "slp:askonset")
@@ -487,7 +417,7 @@ async def sleep_onset_later(
     await show_main(cb, user, config, is_owner, state, repo)
 
 
-@router.callback_query(F.data.in_({"slp:onset", "slo:time"}))
+@router.callback_query(F.data == "slp:onset")
 async def sleep_onset_pick(
     cb: CallbackQuery,
     state: FSMContext,
@@ -497,11 +427,12 @@ async def sleep_onset_pick(
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    extra = _onset_extra(user, await state.get_data())
-    rec = await _onset_record(repo, user, extra)
-    extra["time_hint"] = bed_times_hint(user, rec)
-    extra["onset_prompt"] = onset_prompt_text(user, rec)
-    await start_time_pick(cb, state, "slp_onset", extra, skip_date=True)
+    from handlers.time_pick import start_when_clock
+    from utils.time import default_sleep_clock_day
+
+    await start_when_clock(
+        cb, state, repo, user, "slo", day=default_sleep_clock_day(user.timezone, "slo")
+    )
 
 
 @router.callback_query(F.data == "slo:now")
