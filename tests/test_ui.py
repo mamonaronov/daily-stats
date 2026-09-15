@@ -53,6 +53,102 @@ async def test_today_snapshot_and_menu_text(repo):
     assert await today_block(repo, user) == EMPTY_TRACKED_HINT
 
 
+@pytest.mark.asyncio
+async def test_today_snapshot_shows_only_logged_metrics(repo):
+    from datetime import timedelta
+
+    from services.ui_prefs import parse_ui_prefs, save_prefs
+
+    user = await repo.create_user(13, "kim", "Ким", None, "UTC", 10, "23:00")
+    prefs = parse_ui_prefs(
+        '{"tracked": ["cigarettes", "fooling", "snus", "sleep", "caffeine",'
+        ' "alcohol", "activity", "custom", "markers"]}'
+    )
+    user = await save_prefs(repo, user, prefs)
+    assert await today_block(repo, user) == ""
+
+    stamp = to_iso(now_utc())
+    yesterday = to_iso(now_utc() - timedelta(days=1))
+    await repo.add_cigarette(user.telegram_id, stamp)
+    await repo.add_fooling(user.telegram_id, stamp)
+    await repo.add_caffeine(user.telegram_id, "coffee", 250, "мл", stamp)
+    await repo.add_caffeine(user.telegram_id, "coffee", 250, "мл", stamp)
+    await repo.add_caffeine(user.telegram_id, "tea", 1, "шт", yesterday)
+    await repo.add_alcohol(user.telegram_id, "beer", 500, "мл", stamp)
+    await repo.add_activity(user.telegram_id, "walk", 30, None, stamp)
+    await repo.add_activity(user.telegram_id, "run", 20, None, stamp)
+    water = await repo.add_metric(user.telegram_id, "Вода", "number", "мл", None)
+    await repo.add_metric_value(user.telegram_id, water, stamp, value_number=250)
+    await repo.add_metric_value(user.telegram_id, water, stamp, value_number=300)
+    await repo.add_marker(user.telegram_id, stamp, "Экзамен", None)
+    await repo.add_marker(user.telegram_id, stamp, "Встреча", None)
+
+    user = await repo.get_user(13)
+    text = await today_block(repo, user)
+    assert "🚬 1" in text
+    assert "🤌 1" in text
+    assert "☕ кофе 0,5 л" in text
+    assert "чай" not in text
+    assert "🍺 пиво 0,5 л" in text
+    assert "🏃 ходьба 30 мин · бег 20 мин" in text
+    assert "📌 Вода 550 мл" in text
+    assert "🔖 Экзамен · Встреча" in text
+    assert "🟢" not in text
+    assert "😴" not in text
+
+    hidden = (await day_snapshot(repo, user)).as_text({"cigarettes", "caffeine"})
+    assert "🚬 1" in hidden
+    assert "☕" in hidden
+    assert "🍺" not in hidden
+    assert "🤌" not in hidden
+    assert "📌" not in hidden
+
+
+@pytest.mark.asyncio
+async def test_today_snapshot_hides_empty_placeholders(repo):
+    user = await repo.create_user(14, "leo", "Лео", None, "UTC", 10, "23:00")
+    snap = await day_snapshot(repo, user)
+    assert snap.cigarettes == 0
+    assert snap.fooling == 0
+    assert snap.as_text() == ""
+    assert snap.as_text(set(TRACKABLE_TYPES)) == ""
+    assert sleep_status_line(None) == "нет записи"
+
+
+@pytest.mark.asyncio
+async def test_today_snapshot_sleep_only_if_current_or_today(repo):
+    from datetime import datetime, timezone
+
+    from utils.time import combine_local
+
+    user = await repo.create_user(16, "oldsl", "Оля", None, "UTC", 0, "23:00")
+    await repo.add_sleep(
+        user.telegram_id,
+        sleep_onset_at=to_iso(datetime(2026, 8, 1, 23, 0, tzinfo=timezone.utc)),
+        wake_time=to_iso(datetime(2026, 8, 2, 7, 0, tzinfo=timezone.utc)),
+        out_of_bed_at=to_iso(datetime(2026, 8, 2, 7, 20, tzinfo=timezone.utc)),
+        duration_minutes=8 * 60,
+        quality=4,
+    )
+    snap = await day_snapshot(repo, user)
+    assert snap.sleep_line == "нет записи"
+    assert "😴" not in snap.as_text({"sleep"})
+
+    today = user_today("UTC")
+    await repo.add_sleep(
+        user.telegram_id,
+        sleep_onset_at=to_iso(combine_local("UTC", today, 1, 0)),
+        wake_time=to_iso(combine_local("UTC", today, 8, 0)),
+        out_of_bed_at=to_iso(combine_local("UTC", today, 8, 15)),
+        duration_minutes=7 * 60,
+        quality=5,
+    )
+    snap = await day_snapshot(repo, user)
+    assert "7 ч" in snap.sleep_line
+    assert "отлично" in snap.sleep_line
+    assert "😴" in snap.as_text({"sleep"})
+
+
 def test_tz_prompt_does_not_promise_reminders():
     blob = f"{TZ_PROMPT}\n{HOW_TO}".lower()
     assert "напомню" not in blob
