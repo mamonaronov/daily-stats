@@ -28,6 +28,60 @@ def test_parse_node_unknown_and_empty():
     assert sub == "sub1"
 
 
+async def test_fetch_auto_now_follows_nested_groups(monkeypatch, tmp_path):
+    from dataclasses import replace
+    from urllib.parse import unquote
+
+    from services.vpn_monitor import fetch_auto_now
+    from tests.conftest import make_config
+
+    payloads = {
+        "AUTO": {"now": "FAST", "all": ["FAST", "BACKUP"], "type": "Fallback"},
+        "FAST": {
+            "now": "s3 | France, Paris | [BL]-02",
+            "all": ["s3 | France, Paris | [BL]-02", "s3 | Estonia"],
+            "type": "URLTest",
+        },
+        "s3 | France, Paris | [BL]-02": {"type": "Vless", "history": []},
+    }
+
+    class FakeResp:
+        def __init__(self, payload, status=200):
+            self.status = status
+            self._payload = payload
+
+        async def json(self, content_type=None):
+            return self._payload
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def get(self, url, headers=None):
+            name = unquote(url.rsplit("/", 1)[-1])
+            if name not in payloads:
+                return FakeResp({}, status=404)
+            return FakeResp(payloads[name])
+
+    monkeypatch.setattr("services.vpn_monitor.aiohttp.ClientSession", FakeSession)
+    config = replace(make_config(tmp_path), mihomo_api_secret="secret")
+    now, error = await fetch_auto_now(config)
+    assert error is None
+    assert now == "s3 | France, Paris | [BL]-02"
+
+
 def test_sanitize_error_strips_bot_token():
     class Fake(Exception):
         pass
