@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from database.clicks_database import ClicksDatabase
+from services.chart_theme import BAR, BAR_ALT, LINE, apply_dark, save_png
 from services.click_stats import (
     bucket_clicks_by_day,
     bucket_clicks_by_hour,
@@ -26,7 +27,7 @@ plt.rcParams["axes.unicode_minus"] = False
 def _png(fig) -> bytes:
     buf = io.BytesIO()
     fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=140)
+    save_png(fig, buf, format="png", dpi=140)
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -37,10 +38,10 @@ def _kind_chart(rows: list[tuple[str, int]], title: str) -> bytes:
     values = [count for _, count in reversed(rows)]
     height = max(3.6, 0.42 * len(labels) + 1.4)
     fig, ax = plt.subplots(figsize=(8, height))
-    ax.barh(labels, values, color="#4C78A8")
+    ax.barh(labels, values, color=BAR)
     ax.set_title(title)
     ax.set_xlabel("нажатий")
-    ax.grid(True, axis="x", alpha=0.3)
+    apply_dark(fig, ax, grid="x")
     return _png(fig)
 
 
@@ -49,24 +50,24 @@ def _daily_chart(days: list[tuple[date, int]], title: str) -> bytes:
     ys = [count for _, count in days]
     fig, ax = plt.subplots(figsize=(8, 4.5))
     idx = list(range(len(xs)))
-    ax.plot(idx, ys, marker="o", linewidth=2, color="#4C78A8")
+    ax.plot(idx, ys, marker="o", linewidth=2, color=LINE)
     ax.set_title(title)
     ax.set_ylabel("нажатий")
     ax.set_xticks(idx)
     ax.set_xticklabels(xs)
-    ax.grid(True, alpha=0.3)
     fig.autofmt_xdate(rotation=45)
+    apply_dark(fig, ax, grid="both")
     return _png(fig)
 
 
 def _hourly_chart(hours: list[int], title: str) -> bytes:
     fig, ax = plt.subplots(figsize=(8, 4.2))
     xs = [f"{hour:02d}" for hour in range(24)]
-    ax.bar(xs, hours, color="#72B7B2")
+    ax.bar(xs, hours, color=BAR_ALT)
     ax.set_title(title)
     ax.set_xlabel("час")
     ax.set_ylabel("нажатий")
-    ax.grid(True, axis="y", alpha=0.3)
+    apply_dark(fig, ax, grid="y")
     return _png(fig)
 
 

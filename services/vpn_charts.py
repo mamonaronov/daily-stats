@@ -21,6 +21,12 @@ from matplotlib.ticker import FixedLocator
 
 from database.models import VpnLatencySample
 from database.queries import Repo
+from services.chart_theme import (
+    AXIS as _AXIS,
+    GRID as _GRID,
+    apply_dark as _apply_dark,
+    style_legend as _style_legend,
+)
 from services.vpn_monitor import subscription_label
 from utils.time import parse_iso, zone
 from utils.uptime import host_uptime_seconds
@@ -31,10 +37,6 @@ plt.rcParams["axes.unicode_minus"] = False
 _MAX_TIMELINE_OK = 1800
 _MAX_TIMELINE_DOWN = 1500
 _MAX_LEGEND_NODES = 16
-_BG = "#111318"
-_FG = "#e8eaed"
-_GRID = "#3a3f4b"
-_AXIS = "#8b919a"
 _CHART_DPI = 620
 _DIST_DPI = 800
 _MAX_PNG_BYTES = 1_000_000
@@ -780,29 +782,6 @@ def _png(fig, *, dpi: int = _CHART_DPI) -> bytes:
     )
     plt.close(fig)
     return _fit_png(buf.getvalue())
-
-
-def _apply_dark(fig, *axes) -> None:
-    fig.patch.set_facecolor(_BG)
-    for ax in axes:
-        ax.set_facecolor(_BG)
-        ax.tick_params(colors=_FG, labelsize=10)
-        ax.xaxis.label.set_color(_FG)
-        ax.yaxis.label.set_color(_FG)
-        ax.title.set_color(_FG)
-        for spine in ax.spines.values():
-            spine.set_color(_AXIS)
-        ax.grid(True, axis="y", color=_GRID, alpha=0.75)
-
-
-def _style_legend(legend) -> None:
-    if legend is None:
-        return
-    frame = legend.get_frame()
-    frame.set_facecolor("#1c1f26")
-    frame.set_edgecolor(_GRID)
-    for text in legend.get_texts():
-        text.set_color(_FG)
 
 
 def _server_colors(count: int) -> list[tuple[float, float, float]]:

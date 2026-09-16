@@ -219,6 +219,12 @@ async def test_sleep_charts_include_day_strips(repo):
     assert "22:00" in title
     assert "пустых" not in title
     assert png.startswith(b"\x89PNG")
+    from io import BytesIO
+
+    from PIL import Image
+
+    red, green, blue = Image.open(BytesIO(png)).convert("RGB").getpixel((4, 4))
+    assert (red + green + blue) / 3 < 50
 
     from services.ui_prefs import prefs_of, save_prefs
 
