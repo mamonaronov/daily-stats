@@ -72,7 +72,7 @@ def _sleep_bed_enabled(tracked: set[str] | None) -> tuple[bool, bool]:
 def sleep_rows(sleep: SleepRecord | None, *, tracked: set[str] | None = None) -> list[list[InlineKeyboardButton]]:
     phase = sleep.phase() if sleep else "idle"
     wake = _btn("Проснулся", "slp:wake")
-    wakeup = _btn("И встал", "slp:wakeup")
+    wakeup = _btn("Проснулся и встал", "slp:wakeup")
     up = _btn("Встал", "slp:up")
     onset = _btn("Заснул?", "slp:askonset")
     phone = _btn("Лёг с телефоном", "slp:phone")
@@ -1174,7 +1174,8 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
     if view == "a":
         b.row(_btn(f"📈 Доступность за {span}", f"advc:{period}:a" + (":r" if rounded else "")))
     else:
-        b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
+        chart_view = ":s" if view == "s" else ""
+        b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}{chart_view}"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 

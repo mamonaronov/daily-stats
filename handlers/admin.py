@@ -861,15 +861,18 @@ def _parse_vpn_view(data: str | None) -> tuple[str, str, bool]:
     return period, view, rounded
 
 
-def _parse_vpn_chart(data: str | None) -> tuple[str, bool, bool]:
-    period, availability, rounded = "24h", False, False
+def _parse_vpn_chart(data: str | None) -> tuple[str, bool, bool, bool]:
+    period, availability, rounded, color_by_sub = "24h", False, False, False
     if data and data.startswith("advc:"):
         parts = data.split(":")
         if len(parts) >= 2:
             period = parts[1] if parts[1] in VPN_PERIODS else "24h"
-        availability = len(parts) >= 3 and parts[2] == "a"
-        rounded = availability and len(parts) >= 4 and parts[3] == "r"
-    return period, availability, rounded
+        if len(parts) >= 3 and parts[2] == "a":
+            availability = True
+            rounded = len(parts) >= 4 and parts[3] == "r"
+        elif len(parts) >= 3 and parts[2] == "s":
+            color_by_sub = True
+    return period, availability, rounded, color_by_sub
 
 
 async def _owner_timezone(repo: Repo, config: Config) -> str:
@@ -892,7 +895,7 @@ async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
 async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
-    period, availability, rounded = _parse_vpn_chart(cb.data)
+    period, availability, rounded, color_by_sub = _parse_vpn_chart(cb.data)
     _period, start, end, title = await _vpn_window(repo, period)
     tz_name = await _owner_timezone(repo, config)
     await cb.answer("Строю графики")
@@ -904,7 +907,9 @@ async def admin_vpn_charts(cb: CallbackQuery, config: Config, repo: Repo) -> Non
                 repo, to_iso(start), to_iso(end), title, rounded=rounded, tz_name=tz_name
             )
         else:
-            charts = await build_vpn_charts(repo, to_iso(start), to_iso(end), title, tz_name=tz_name)
+            charts = await build_vpn_charts(
+                repo, to_iso(start), to_iso(end), title, color_by_sub=color_by_sub, tz_name=tz_name
+            )
     except Exception:
         logger.exception("VPN charts failed")
         await safe_send(cb.message.answer, "Не удалось построить графики.")
