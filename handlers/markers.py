@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, Message
 
 from database.models import EventPeriod, User
 from database.queries import Repo
-from handlers.common import require_active, require_writable, start_time_pick
+from handlers.common import require_active, require_writable
 from handlers.history import show_saved_entry
 from keyboards.main import (
     confirm_unlink_kb,
@@ -34,26 +34,14 @@ router = Router(name="markers")
 MARKERS_INTRO = (
     "🔖 <b>Временные метки</b>\n\n"
     "Метка — событие с названием и временем, например экзамен. "
-    "На графиках они видны как ориентиры.\n\n"
+    "На графиках они видны как ориентиры. "
+    "Можно поставить на сегодня или на прошедшую дату.\n\n"
     "Две метки можно связать в период: создать начало, затем конец, "
     "или объединить уже существующие. Период можно убрать — метки останутся."
 )
 NAME_PROMPT = "Название метки? Например: экзамен, отпуск, сессия."
 COMMENT_PROMPT = "Комментарий? Можно пропустить."
 WHEN_PROMPT = "Когда поставить метку?"
-
-
-def _marker_payload(data: dict, tz: str) -> dict:
-    extra = {
-        "tz": tz,
-        "marker_name": data.get("marker_name"),
-        "marker_comment": data.get("marker_comment"),
-        "marker_mode": data.get("marker_mode") or "plain",
-        "time_exit": "when:mkt",
-    }
-    if data.get("close_period_id") is not None:
-        extra["close_period_id"] = data["close_period_id"]
-    return extra
 
 
 async def show_markers_root(
@@ -329,18 +317,6 @@ async def marker_now(
         await cb.answer(error, show_alert=True)
         return
     await show_saved_entry(cb, repo, user, "mk", item_id, state)
-
-
-@router.callback_query(F.data == "mkt:time")
-async def marker_time(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    user = await require_writable(cb, db_user)
-    if user is None:
-        return
-    data = await state.get_data()
-    if not data.get("marker_name"):
-        await cb.answer("Сначала укажите название.", show_alert=True)
-        return
-    await start_time_pick(cb, state, "mk", _marker_payload(data, user.timezone))
 
 
 @router.callback_query(F.data == "mk:join")
