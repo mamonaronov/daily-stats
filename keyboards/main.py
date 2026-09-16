@@ -72,7 +72,7 @@ def _sleep_bed_enabled(tracked: set[str] | None) -> tuple[bool, bool]:
 def sleep_rows(sleep: SleepRecord | None, *, tracked: set[str] | None = None) -> list[list[InlineKeyboardButton]]:
     phase = sleep.phase() if sleep else "idle"
     wake = _btn("Проснулся", "slp:wake")
-    wakeup = _btn("И встал", "slp:wakeup")
+    wakeup = _btn("Проснулся и встал", "slp:wakeup")
     up = _btn("Встал", "slp:up")
     onset = _btn("Заснул?", "slp:askonset")
     phone = _btn("Лёг с телефоном", "slp:phone")

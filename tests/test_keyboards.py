@@ -105,7 +105,7 @@ def test_sleep_rows_keep_all_actions():
     assert _sleep_callbacks(idle) == [*core, "slp:away"]
     assert _sleep_texts(idle) == [
         "Проснулся",
-        "И встал",
+        "Проснулся и встал",
         "Встал",
         "Заснул?",
         "Лёг с телефоном",
@@ -242,7 +242,7 @@ def test_daily_score_reminder_kb_opens_today():
 def test_wake_up_reminder_kb_keeps_all_sleep_actions():
     idle = dict(_pairs(wake_up_reminder_kb(None)))
     assert idle["Проснулся"] == "slp:wake"
-    assert idle["И встал"] == "slp:wakeup"
+    assert idle["Проснулся и встал"] == "slp:wakeup"
     assert idle["Встал"] == "slp:up"
     assert idle["Лёг с телефоном"] == "slp:phone"
     awake = SimpleNamespace(phase=lambda: "awake")
@@ -586,7 +586,7 @@ def test_main_menu_sleep_actions_use_two_rows():
         ).inline_keyboard
     ]
     assert ["Заснул?", "Проснулся"] not in rows
-    assert ["Проснулся", "И встал"] in rows
+    assert ["Проснулся", "Проснулся и встал"] in rows
     assert ["Встал", "Заснул?"] in rows
     assert ["Лёг с телефоном", "Лёг без телефона"] in rows
 
@@ -598,7 +598,7 @@ def test_sleep_rows_hide_bed_when_metrics_off():
     phone_only = sleep_rows(None, tracked={"sleep", "sleep_phone"})
     assert _sleep_texts(phone_only) == [
         "Проснулся",
-        "И встал",
+        "Проснулся и встал",
         "Встал",
         "Заснул?",
         "Лёг с телефоном",
