@@ -225,6 +225,7 @@ def when_kb(prefix: str, *, metric_id: int | None = None) -> InlineKeyboardMarku
 
 
 SLEEP_WHEN_PREFIXES = frozenset({"slw", "slu", "slb", "sln", "sla", "slo"})
+DATE_WHEN_PREFIXES = SLEEP_WHEN_PREFIXES | {"mkt"}
 
 
 def _relative_when_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
@@ -233,7 +234,7 @@ def _relative_when_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
     builder.row(_btn("⏱ Сколько назад", f"{prefix}:agoask"), _btn("⌨️ Ввести текстом", f"{prefix}:txt"))
 
 
-def _sleep_when_date_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
+def _when_date_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
     builder.row(_btn("Сейчас", f"{prefix}:now"), _btn("Сегодня", f"{prefix}:today"))
     builder.row(_btn("Вчера", f"{prefix}:yesterday"), _btn("Позавчера", f"{prefix}:daybefore"))
     builder.row(_btn("📅 Другая дата", f"{prefix}:date"), _btn("🕐 Указать время", f"{prefix}:time"))
@@ -241,8 +242,8 @@ def _sleep_when_date_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
 
 def now_or_time(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    if prefix in SLEEP_WHEN_PREFIXES:
-        _sleep_when_date_rows(b, prefix)
+    if prefix in DATE_WHEN_PREFIXES:
+        _when_date_rows(b, prefix)
     else:
         b.row(_btn("Сейчас", f"{prefix}:now"), _btn("🕐 Указать время", f"{prefix}:time"))
     _relative_when_rows(b, prefix)
@@ -276,7 +277,7 @@ def ago_pick_kb(prefix: str, back: str | None = NAV_BACK) -> InlineKeyboardMarku
 def sleep_onset_kb(undo_kind: str | None = None, undo_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     later = f"slp:later:{undo_kind}:{undo_id}" if undo_kind and undo_id is not None else "slp:later"
-    _sleep_when_date_rows(b, "slo")
+    _when_date_rows(b, "slo")
     _relative_when_rows(b, "slo")
     b.row(_btn("Позже", later))
     if undo_kind and undo_id is not None:

@@ -61,7 +61,7 @@ WHEN_TO_PURPOSE = {
     "mkt": "mk",
 }
 _WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slb|sln|sla|slo|cmt|cms|cme|mkt)"
-_SLEEP_WHEN_RE = r"^(?:slw|slu|slb|sln|sla|slo)"
+_DATE_WHEN_RE = r"^(?:slw|slu|slb|sln|sla|slo|mkt)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, вчера 22:40, 1000) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -359,8 +359,8 @@ async def start_when_clock(
     )
 
 
-@router.callback_query(F.data.regexp(_SLEEP_WHEN_RE + r":(?:today|yesterday|daybefore|date|time)$"))
-async def sleep_when_clock(
+@router.callback_query(F.data.regexp(_DATE_WHEN_RE + r":(?:today|yesterday|daybefore|date|time)$"))
+async def date_when_clock(
     cb: CallbackQuery,
     state: FSMContext,
     repo: Repo,
@@ -370,6 +370,9 @@ async def sleep_when_clock(
     if user is None:
         return
     prefix = _when_prefix(cb.data)
+    if prefix == "mkt" and not (await state.get_data()).get("marker_name"):
+        await cb.answer("Сначала укажите название.", show_alert=True)
+        return
     token = cb.data.rsplit(":", 1)[1]
     if token == "date":
         await start_when_clock(cb, state, repo, user, prefix, calendar=True)

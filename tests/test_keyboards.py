@@ -492,6 +492,7 @@ def test_sleep_when_prefixes_map_to_purposes():
     assert WHEN_TO_PURPOSE["cms"] == "cm_start"
     assert WHEN_TO_PURPOSE["cme"] == "cm_end"
     assert WHEN_TO_PURPOSE["wgt"] == "wgt"
+    assert WHEN_TO_PURPOSE["mkt"] == "mk"
 
 
 def test_markers_root_and_card():
@@ -518,9 +519,18 @@ def test_markers_root_and_card():
 
 
 def test_when_kb_marker_goes_back_to_markers():
-    pairs = _pairs(when_kb("mkt"))
-    assert ("⬅️ Назад", NAV_MARKERS) in pairs
-    assert ("Сейчас", "mkt:now") in pairs
+    from keyboards.main import DATE_WHEN_PREFIXES, SLEEP_WHEN_PREFIXES
+
+    pairs = dict(_pairs(when_kb("mkt")))
+    assert pairs["⬅️ Назад"] == NAV_MARKERS
+    assert pairs["Сейчас"] == "mkt:now"
+    assert pairs["Сегодня"] == "mkt:today"
+    assert pairs["Вчера"] == "mkt:yesterday"
+    assert pairs["Позавчера"] == "mkt:daybefore"
+    assert pairs["📅 Другая дата"] == "mkt:date"
+    assert pairs["🕐 Указать время"] == "mkt:time"
+    assert "mkt" in DATE_WHEN_PREFIXES
+    assert "mkt" not in SLEEP_WHEN_PREFIXES
 
 
 def test_spam_alert_kb_opens_user_card():

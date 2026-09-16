@@ -139,6 +139,7 @@ _PREFIX_KIND: tuple[tuple[str, str], ...] = tuple(
             ("hmkp:", "history"),
             ("hmk:", "history"),
             ("cm:", "custom"),
+            ("mkt:", "markers"),
             ("mk:", "markers"),
             ("set:", "settings"),
             ("tz:", "timezone"),

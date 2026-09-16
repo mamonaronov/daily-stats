@@ -95,3 +95,4 @@ def test_guide_explains_core_flows():
     assert "не пряч" in PAGES["sleep"].lower() or "все сразу" in PAGES["sleep"].lower()
     assert "я оплатил" not in PAGES["bal"].lower()
     assert "напишите владельцу" in PAGES["bal"].lower()
+    assert "прошедш" in PAGES["mk"].lower()
