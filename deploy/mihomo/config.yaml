@@ -12,11 +12,14 @@
 # and append it under FAST.use (curated) or BACKUP.use (pool). Do not put
 # whitelist CIDR/SNI on the bot path.
 #
-# FAST is url-test of sub3 (lowest Telegram RTT). BACKUP is a lazy url-test of
-# sub1/sub2. AUTO is fallback FAST→BACKUP so a dead FAST group fails over
-# without waiting for a full BACKUP pass.
-# First download uses DIRECT; if the subscription URL is blocked, save the YAML
-# into path: once, later refreshes can use proxy: AUTO.
+# FAST is url-test of sub3: sit on the lowest Telegram RTT among curated nodes.
+# BACKUP is fallback of sub1/sub2: on a dead FAST node, try the next leaf
+# immediately instead of waiting for a full url-test pass. AUTO is fallback
+# FAST→BACKUP so a healthy FAST keeps the fast node; a dead FAST group walks
+# BACKUP on the same request.
+# Provider pulls use SUBSCRIBE: DIRECT first, AUTO if GitHub is blocked.
+# Do not point providers at AUTO alone — that deadlocks when the tunnel is down.
+# Cached provider YAML still works if both DIRECT and AUTO fail.
 
 mixed-port: 11808
 bind-address: 127.0.0.1
@@ -59,7 +62,7 @@ proxy-providers:
     path: ./providers/sub1.yaml
     interval: 900 # раз в 15 мин 3600-час
     size-limit: 10485760
-    proxy: DIRECT
+    proxy: SUBSCRIBE
     header:
       User-Agent:
         - "clash.meta"
@@ -83,7 +86,7 @@ proxy-providers:
     path: ./providers/sub2.yaml
     interval: 900
     size-limit: 10485760
-    proxy: AUTO
+    proxy: SUBSCRIBE
     header:
       User-Agent:
         - "clash.meta"
@@ -107,7 +110,7 @@ proxy-providers:
     path: ./providers/sub3.yaml
     interval: 900
     size-limit: 10485760
-    proxy: AUTO
+    proxy: SUBSCRIBE
     header:
       User-Agent:
         - "clash.meta"
@@ -131,7 +134,7 @@ proxy-providers:
     path: ./providers/sub4.yaml
     interval: 3600
     size-limit: 10485760
-    proxy: AUTO
+    proxy: SUBSCRIBE
     header:
       User-Agent:
         - "clash.meta"
@@ -155,7 +158,7 @@ proxy-providers:
     path: ./providers/sub5.yaml
     interval: 3600
     size-limit: 10485760
-    proxy: AUTO
+    proxy: SUBSCRIBE
     header:
       User-Agent:
         - "clash.meta"
@@ -179,7 +182,7 @@ proxy-providers:
   #   path: ./providers/sub6.yaml
   #   interval: 3600
   #   size-limit: 10485760
-  #   proxy: AUTO
+  #   proxy: SUBSCRIBE
   #   header:
   #     User-Agent:
   #       - "clash.meta"
@@ -203,7 +206,7 @@ proxy-providers:
   #   path: ./providers/sub7.yaml
   #   interval: 3600
   #   size-limit: 10485760
-  #   proxy: AUTO
+  #   proxy: SUBSCRIBE
   #   header:
   #     User-Agent:
   #       - "clash.meta"
@@ -227,7 +230,7 @@ proxy-providers:
   #   path: ./providers/sub8.yaml
   #   interval: 3600
   #   size-limit: 10485760
-  #   proxy: AUTO
+  #   proxy: SUBSCRIBE
   #   header:
   #     User-Agent:
   #       - "clash.meta"
@@ -255,27 +258,26 @@ proxy-groups:
     use:
       - sub3
     url: https://api.telegram.org/bot
-    interval: 60
-    timeout: 2500
-    tolerance: 150
+    interval: 120
+    timeout: 4000
+    tolerance: 100
     lazy: false
     max-failed-times: 1
     expected-status: 404
-    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅|Singapore|Hong Kong|HongKong|Thailand|Bangkok|Canada|Korea|Japan|Australia|Brazil|India|United States|\\bUSA\\b|🇭🇰|🇸🇬|🇹🇭|🇨🇦|🇰🇷|🇯🇵|🇦🇺|🇧🇷|🇮🇳|🇺🇸"
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅|Anycast|Singapore|Hong Kong|HongKong|Thailand|Bangkok|Canada|Korea|Japan|Australia|Brazil|India|United States|\\bUSA\\b|🇭🇰|🇸🇬|🇹🇭|🇨🇦|🇰🇷|🇯🇵|🇦🇺|🇧🇷|🇮🇳|🇺🇸"
 
   - name: BACKUP
-    type: url-test
+    type: fallback
     use:
       - sub1
       - sub2
     url: https://api.telegram.org/bot
-    interval: 120
-    timeout: 2500
-    tolerance: 200
+    interval: 300
+    timeout: 4000
     lazy: true
     max-failed-times: 1
     expected-status: 404
-    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅"
+    exclude-filter: "(?i)expire|expiring|traffic|remain|剩余|流量|过期|官网|套餐|到期|重置|订阅|Anycast"
 
   - name: AUTO
     type: fallback
@@ -284,10 +286,24 @@ proxy-groups:
       - BACKUP
     url: https://api.telegram.org/bot
     interval: 30
-    timeout: 2500
+    timeout: 4000
     lazy: false
     max-failed-times: 1
     expected-status: 404
+
+  - name: SUBSCRIBE
+    type: fallback
+    proxies:
+      - DIRECT
+      - AUTO
+    # Same host family as provider URLs. Bot API would make DIRECT always fail
+    # in RU, so every pull would go through the tunnel.
+    url: https://github.com/favicon.ico
+    expected-status: 200/204/301/302
+    interval: 300
+    timeout: 4000
+    lazy: false
+    max-failed-times: 1
 
   - name: WHITELIST
     type: select
