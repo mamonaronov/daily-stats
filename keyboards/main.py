@@ -11,6 +11,7 @@ from database.models import SleepRecord, User
 from services.daily_scores import HUB_LABEL, tracked_score_keys
 from services.legal import legal_contact, owner_chat_url
 from services.metric_types import METRIC_TYPES, UNIT_PRESETS
+from services.ui_prefs import prefs_of
 from utils.callbacks import (
     ENTRY_ACT,
     ENTRY_ALC,
@@ -600,6 +601,9 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     score_reminder = user.daily_score_reminder_time or "выкл"
     b.row(_btn(f"🌍 Часовой пояс: {user.timezone}", "set:tz"))
     b.row(_btn(f"🌙 Сон по умолчанию: {user.default_sleep_time}", "set:sleep"))
+    hide_edges = prefs_of(user).hide_sleep_empty_edges
+    mark = "☑" if hide_edges else "☐"
+    b.row(_btn(f"{mark} Прятать пустые края сна", "set:sedge"))
     b.row(_btn(f"⏰ Напомнить встать: {reminder}", "set:wake"))
     b.row(_btn(f"🙂 Напомнить оценить: {score_reminder}", "set:dsr"))
     b.row(_btn("📋 Метрики", "set:trk"))

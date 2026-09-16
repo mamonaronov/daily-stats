@@ -340,6 +340,11 @@ def test_parse_ui_prefs_migrates_hidden_and_keeps_legacy_all_on():
     assert with_scores.tracked == {"mood", "energy", "stress"}
     opted_out = parse_ui_prefs('{"tracked": ["mood"], "stress_seeded": true}')
     assert opted_out.tracked == {"mood"}
+    assert opted_out.hide_sleep_empty_edges is False
+    hidden_edges = parse_ui_prefs('{"tracked": ["sleep"], "hide_sleep_empty_edges": true}')
+    assert hidden_edges.hide_sleep_empty_edges is True
+    dumped = parse_ui_prefs(hidden_edges.to_json())
+    assert dumped.hide_sleep_empty_edges is True
 
 
 @pytest.mark.asyncio

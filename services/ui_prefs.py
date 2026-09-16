@@ -88,6 +88,7 @@ class UiPrefs:
     low_balance_notice_on: str | None = None
     owner_digest_on: str | None = None
     sleep_bed_split: bool = False
+    hide_sleep_empty_edges: bool = False
 
     def is_tracked(self, key: str) -> bool:
         return key in self.tracked
@@ -101,6 +102,7 @@ class UiPrefs:
                 "owner_digest_on": self.owner_digest_on,
                 "sleep_bed_split": True,
                 "stress_seeded": True,
+                "hide_sleep_empty_edges": self.hide_sleep_empty_edges,
             },
             ensure_ascii=False,
         )
@@ -135,6 +137,7 @@ def parse_ui_prefs(raw: str | None) -> UiPrefs:
         low_balance_notice_on=data.get("low_balance_notice_on"),
         owner_digest_on=data.get("owner_digest_on"),
         sleep_bed_split=sleep_bed_split,
+        hide_sleep_empty_edges=bool(data.get("hide_sleep_empty_edges")),
     )
 
 

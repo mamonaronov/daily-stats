@@ -154,6 +154,20 @@ async def save_sleep(
     await message.answer("Сохранено", reply_markup=settings_kb(user))
 
 
+@router.callback_query(F.data == "set:sedge")
+async def toggle_sleep_empty_edges(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    from services.ui_prefs import prefs_of, save_prefs
+
+    prefs = prefs_of(user)
+    prefs.hide_sleep_empty_edges = not prefs.hide_sleep_empty_edges
+    user = await save_prefs(repo, user, prefs)
+    await cb.answer("Сохранено")
+    await safe_edit(cb.message, "⚙️ Настройки", settings_kb(user))
+
+
 WAKE_REMINDER_PROMPT = (
     "Во сколько напомнить отметить подъём?\n"
     "Если к этому времени ещё нет записи «встал», бот напишет."

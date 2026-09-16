@@ -12,13 +12,23 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
+from matplotlib.patches import Patch
+
 from database.models import EventMarker, EventPeriod, User
 from database.queries import Repo
 from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from services.markers import period_title
+from services.sleep_strips import (
+    PHASE_COLORS,
+    PHASE_LABELS,
+    SleepStrip,
+    build_sleep_strip,
+    strip_title,
+)
 from services.statistics import daily_event_counts, daily_volume_ml, load_period
+from services.ui_prefs import prefs_of
 from utils.quantity import milliliters_of
-from utils.time import daterange, format_date, parse_iso, to_user
+from utils.time import daterange, format_date, parse_iso, to_user, user_now
 
 plt.rcParams["font.family"] = "DejaVu Sans"
 plt.rcParams["axes.unicode_minus"] = False
@@ -36,10 +46,11 @@ _PERIOD_COLORS = (
 _MARK_COLOR = "#5B5B5B"
 
 
-def _png(fig) -> bytes:
+def _png(fig, *, tight: bool = True) -> bytes:
     buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=140)
+    if tight:
+        fig.tight_layout()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches=None if tight else "tight")
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -164,6 +175,88 @@ def _bar(
     return _png(fig)
 
 
+_AWAKE_COLOR = "#B4B4B4"
+_SLEEP_COLOR = "#1D4ED8"
+_STRIP_EDGE = "#5A6F8F"
+
+
+def _sleep_strip_png(strip: SleepStrip) -> bytes:
+    rows = strip.rows
+    n = len(rows)
+    bar_h = 0.42 if n <= 31 else 0.28 if n <= 90 else 0.16
+    fig_h = min(22.0, max(3.4, bar_h * n + 2.2))
+    fig, ax = plt.subplots(figsize=(11, fig_h))
+    ys = list(range(n))
+    for y, row in zip(ys, rows):
+        duration = max((row.end - row.start).total_seconds() / 3600, 1e-6)
+        ax.barh(y, duration, left=0, height=0.62, color=_AWAKE_COLOR, edgecolor=_STRIP_EDGE, linewidth=0.6, zorder=1)
+        for seg in row.segments:
+            ax.barh(
+                y,
+                seg.width,
+                left=seg.offset,
+                height=0.62,
+                color=PHASE_COLORS.get(seg.phase, _SLEEP_COLOR),
+                edgecolor=_STRIP_EDGE,
+                linewidth=0.4,
+                zorder=2,
+            )
+    step = 1 if n <= 40 else 2 if n <= 80 else max(1, n // 25)
+    ax.set_yticks(ys[::step])
+    ax.set_yticklabels([rows[i].label for i in ys[::step]], fontsize=9 if n <= 40 else 8)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 24)
+    ax.set_ylim(n - 0.45, -1.35)
+    ticks = [0, 6, 12, 18, 24]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([f"{(strip.day_hour + t) % 24:02d}:00" for t in ticks])
+    ax.tick_params(axis="x", labelsize=9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    _draw_strip_headers(ax, strip)
+    _draw_strip_legend(ax, strip)
+    ax.set_xlabel("")
+    fig.subplots_adjust(left=0.18, right=0.98, top=0.86, bottom=0.2)
+    return _png(fig, tight=False)
+
+
+def _draw_strip_headers(ax, strip: SleepStrip) -> None:
+    ax.text(0, -1.05, "Начало дня", ha="left", va="center", fontsize=10, clip_on=False)
+    ax.text(24, -1.05, "конец дня", ha="right", va="center", fontsize=10, clip_on=False)
+    onset = strip.mean_onset_axis
+    wake = strip.mean_wake_axis
+    if onset is not None and 1.5 < onset < 22.5:
+        ax.text(onset, -1.05, "заснул", ha="center", va="center", fontsize=10, clip_on=False)
+    if wake is not None and 1.5 < wake < 22.5:
+        if onset is None or abs(wake - onset) >= 2.2:
+            ax.text(wake, -1.05, "проснулся", ha="center", va="center", fontsize=10, clip_on=False)
+
+
+def _draw_strip_legend(ax, strip: SleepStrip) -> None:
+    used = []
+    for row in strip.rows:
+        for seg in row.segments:
+            if seg.phase not in used:
+                used.append(seg.phase)
+    if not used:
+        return
+    handles = [
+        Patch(facecolor=PHASE_COLORS[phase], edgecolor=_STRIP_EDGE, label=PHASE_LABELS[phase])
+        for phase in used
+        if phase in PHASE_LABELS
+    ]
+    if not handles:
+        return
+    ax.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
+        ncol=min(4, len(handles)),
+        frameon=False,
+        fontsize=9,
+    )
+
+
 async def build_charts(repo: Repo, user: User, start: date, end: date, selected: list[str]) -> list[tuple[str, bytes]]:
     data = await load_period(repo, user, start, end)
     days = daterange(start, end)
@@ -212,6 +305,16 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
         )
 
     if "sleep" in selected:
+        strip = build_sleep_strip(
+            data["sleep"],
+            user.timezone,
+            start,
+            end,
+            user_now(user.timezone),
+            trim_empty_edges=prefs_of(user).hide_sleep_empty_edges,
+        )
+        if strip is not None:
+            charts.insert(0, (strip_title(strip), _sleep_strip_png(strip)))
         dur = {d: None for d in days}
         beds = {d: None for d in days}
         wakes = {d: None for d in days}
