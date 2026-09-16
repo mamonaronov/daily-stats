@@ -518,6 +518,8 @@ def history_period_kb() -> InlineKeyboardMarkup:
     b.row(_btn("7 дней", "hist:7"), _btn("14 дней", "hist:14"))
     b.row(_btn("30 дней", "hist:30"), _btn("Сколько дней", "hist:ndays"))
     b.row(_btn("📅 Дата", "hist:date"), _btn("📆 Период", "hist:range"))
+    b.row(_btn("Всё время", "hist:all"))
+    b.row(_btn("С даты", "hist:since"), _btn("С метки", "hist:marker"))
     return with_nav(b)
 
 
@@ -563,6 +565,7 @@ def stats_period_kb() -> InlineKeyboardMarkup:
     b.row(_btn("Сегодня", "stp:today"), _btn("Вчера", "stp:yesterday"))
     b.row(_btn("7 дней", "stp:7"), _btn("14 дней", "stp:14"))
     b.row(_btn("30 дней", "stp:30"), _btn("Всё время", "stp:all"))
+    b.row(_btn("С даты", "stp:since"), _btn("С метки", "stp:marker"))
     b.row(_btn("📆 Период", "stp:range"))
     return with_nav(b)
 
@@ -1224,6 +1227,30 @@ def marker_pick_kb(items, prefix: str, tz: str, *, selected_id: int | None = Non
         mark = "• " if selected_id is not None and item.id == selected_id else ""
         b.row(_btn(truncate(f"{mark}{_marker_btn_label(item, tz)}", 40), f"{prefix}:{item.id}"))
     return with_nav(b, NAV_MARKERS)
+
+
+def since_marker_pick_kb(
+    items,
+    tz: str,
+    *,
+    pick_prefix: str,
+    page_prefix: str,
+    page: int,
+    pages: int,
+    back: str,
+) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item in items:
+        b.row(_btn(truncate(_marker_btn_label(item, tz), 40), f"{pick_prefix}:{item.id}"))
+    if pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if page > 0:
+            nav.append(_btn("«", f"{page_prefix}:{page - 1}"))
+        nav.append(_btn(f"{page + 1}/{pages}", "noop"))
+        if page + 1 < pages:
+            nav.append(_btn("»", f"{page_prefix}:{page + 1}"))
+        b.row(*nav)
+    return with_nav(b, back)
 
 
 def period_pick_kb(periods) -> InlineKeyboardMarkup:

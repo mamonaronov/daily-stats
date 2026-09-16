@@ -90,6 +90,8 @@ _EXACT_KIND: dict[str, str] = {
     "stp:14": "stats",
     "stp:30": "stats",
     "stp:all": "stats",
+    "stp:since": "stats",
+    "stp:marker": "stats",
     "stp:range": "stats",
 }
 
@@ -130,8 +132,12 @@ _PREFIX_KIND: tuple[tuple[str, str], ...] = tuple(
             ("hr:", "time"),
             ("mn:", "time"),
             ("h:", "history"),
+            ("stmkp:", "stats"),
+            ("stmk:", "stats"),
             ("stm:", "stats"),
             ("stv:", "stats"),
+            ("hmkp:", "history"),
+            ("hmk:", "history"),
             ("cm:", "custom"),
             ("mk:", "markers"),
             ("set:", "settings"),

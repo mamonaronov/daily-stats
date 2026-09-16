@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
-from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_active
+from handlers.common import prompt_since_marker, require_active
 from keyboards.main import calendar_kb, stats_metrics_kb, stats_period_kb
 from services.charts import build_charts
 from services.statistics import render_stats
@@ -23,11 +22,37 @@ from utils.time import add_days, parse_calendar_token, parse_iso, to_user, user_
 router = Router(name="statistics")
 
 DEFAULT_METRICS = {"cigarettes", "sleep"}
+STATS_SINCE_PROMPT = "С какой даты считать статистику?"
+STATS_MARKER_PROMPT = "С какой метки считать статистику?"
 
 
 async def _metrics_kb(repo: Repo, user: User, selected: set[str]):
     custom = await repo.list_metrics(user.telegram_id, enabled_only=True)
     return stats_metrics_kb(selected, custom)
+
+
+def dates_until_today(start: date, today: date) -> tuple[date, date]:
+    if start > today:
+        start = today
+    return start, today
+
+
+async def dates_from_first_entry(repo: Repo, user: User) -> tuple[date, date]:
+    today = user_today(user.timezone)
+    first = await repo.first_entry_at(user.telegram_id)
+    if not first:
+        return today, today
+    start = to_user(parse_iso(first), user.timezone).date()
+    return dates_until_today(start, today)
+
+
+async def dates_from_marker(repo: Repo, user: User, marker_id: int) -> tuple[date, date] | None:
+    rec = await repo.get_marker(marker_id, user.telegram_id)
+    if rec is None:
+        return None
+    today = user_today(user.timezone)
+    start = to_user(parse_iso(rec.occurred_at), user.timezone).date()
+    return dates_until_today(start, today)
 
 
 async def _period(repo: Repo, user: User, token: str, data: dict) -> tuple[date, date] | None:
@@ -41,13 +66,17 @@ async def _period(repo: Repo, user: User, token: str, data: dict) -> tuple[date,
         days = int(token)
         return add_days(today, -(days - 1)), today
     if token == "all":
-        first = await repo.first_entry_at(user.telegram_id)
-        if not first:
-            return today, today
-        start = to_user(parse_iso(first), user.timezone).date()
-        if start > today:
-            start = today
-        return start, today
+        return await dates_from_first_entry(repo, user)
+    if token == "since":
+        raw = data.get("since_start")
+        if not raw:
+            return None
+        return dates_until_today(date.fromisoformat(raw), today)
+    if token == "marker":
+        marker_id = data.get("stats_marker_id")
+        if marker_id is None:
+            return None
+        return await dates_from_marker(repo, user, int(marker_id))
     if token == "custom":
         start = date.fromisoformat(data["range_start"])
         end = date.fromisoformat(data["range_end"])
@@ -55,6 +84,13 @@ async def _period(repo: Repo, user: User, token: str, data: dict) -> tuple[date,
             start, end = end, start
         return start, end
     return None
+
+
+async def _ask_metrics(cb: CallbackQuery, state: FSMContext, repo: Repo, user: User) -> None:
+    data = await state.get_data()
+    selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
+    await cb.answer()
+    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
 
 
 @router.callback_query(F.data == NAV_STATS)
@@ -81,11 +117,75 @@ async def stats_period(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
         await cb.answer()
         await safe_edit(cb.message, "Начало периода:", calendar_kb(today.year, today.month, prefix="scal", back=NAV_STATS))
         return
+    if token == "since":
+        today = user_today(user.timezone)
+        await state.set_state(StatsSG.custom_date)
+        await state.update_data(stats_mode="since")
+        await cb.answer()
+        await safe_edit(
+            cb.message,
+            STATS_SINCE_PROMPT,
+            calendar_kb(today.year, today.month, prefix="scal", back=NAV_STATS),
+        )
+        return
+    if token == "marker":
+        await prompt_since_marker(
+            cb,
+            repo,
+            user,
+            pick_prefix="stmk",
+            page_prefix="stmkp",
+            back=NAV_STATS,
+            prompt=STATS_MARKER_PROMPT,
+        )
+        return
     await state.update_data(period=token)
-    data = await state.get_data()
-    selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
-    await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
+    await _ask_metrics(cb, state, repo, user)
+
+
+@router.callback_query(F.data.startswith("stmkp:"))
+async def stats_marker_page(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    try:
+        page = int(cb.data.split(":")[1])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    await prompt_since_marker(
+        cb,
+        repo,
+        user,
+        page=page,
+        pick_prefix="stmk",
+        page_prefix="stmkp",
+        back=NAV_STATS,
+        prompt=STATS_MARKER_PROMPT,
+    )
+
+
+@router.callback_query(F.data.startswith("stmk:"))
+async def stats_marker_picked(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    try:
+        marker_id = int(cb.data.split(":")[1])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    bounds = await dates_from_marker(repo, user, marker_id)
+    if bounds is None:
+        await cb.answer("Метка не найдена", show_alert=True)
+        return
+    await state.update_data(period="marker", stats_marker_id=marker_id)
+    await _ask_metrics(cb, state, repo, user)
 
 
 @router.callback_query(F.data.startswith("scalm:"))
@@ -110,6 +210,11 @@ async def stats_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
         await cb.answer()
         return
     data = await state.get_data()
+    if data.get("stats_mode") == "since":
+        await state.update_data(since_start=day.isoformat(), period="since")
+        await state.set_state(None)
+        await _ask_metrics(cb, state, repo, user)
+        return
     if not data.get("range_start"):
         await state.update_data(range_start=day.isoformat())
         await state.set_state(StatsSG.range_end)
@@ -118,9 +223,7 @@ async def stats_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
         return
     await state.update_data(range_end=day.isoformat(), period="custom")
     await state.set_state(None)
-    selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
-    await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
+    await _ask_metrics(cb, state, repo, user)
 
 
 @router.callback_query(F.data.startswith("scal:"), StatsSG.range_end)

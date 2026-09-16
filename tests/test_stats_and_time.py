@@ -405,3 +405,33 @@ async def test_all_time_period_starts_at_first_entry_not_registration(repo, monk
     msk_start, msk_end = await _period(repo, msk, "all", {})
     assert msk_start == date(2026, 8, 10)
     assert msk_end == date(2026, 8, 20)
+
+
+@pytest.mark.asyncio
+async def test_since_and_marker_periods_run_until_today(repo, monkeypatch):
+    from handlers.statistics import _period, dates_from_marker, dates_until_today
+
+    user = await repo.create_user(63, "s", "S", None, "UTC", 10, "23:00")
+    monkeypatch.setattr("handlers.statistics.user_today", lambda _tz: date(2026, 8, 20))
+    assert dates_until_today(date(2026, 8, 25), date(2026, 8, 20)) == (
+        date(2026, 8, 20),
+        date(2026, 8, 20),
+    )
+    start, end = await _period(repo, user, "since", {"since_start": "2026-08-12"})
+    assert start == date(2026, 8, 12)
+    assert end == date(2026, 8, 20)
+    missing = await _period(repo, user, "since", {})
+    assert missing is None
+
+    marker_id = await repo.add_marker(user.telegram_id, "2026-08-11T22:30:00+00:00", "Рестарт", None)
+    start, end = await _period(repo, user, "marker", {"stats_marker_id": marker_id})
+    assert start == date(2026, 8, 11)
+    assert end == date(2026, 8, 20)
+    bounds = await dates_from_marker(repo, user, 999999)
+    assert bounds is None
+
+    msk = await repo.create_user(64, "m", "M", None, "Europe/Moscow", 10, "23:00")
+    marker_id = await repo.add_marker(msk.telegram_id, "2026-08-10T22:00:00+00:00", "Старт", None)
+    msk_start, msk_end = await _period(repo, msk, "marker", {"stats_marker_id": marker_id})
+    assert msk_start == date(2026, 8, 11)
+    assert msk_end == date(2026, 8, 20)

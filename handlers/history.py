@@ -13,7 +13,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_active, start_time_pick
+from handlers.common import prompt_since_marker, require_active, start_time_pick
+from handlers.statistics import dates_from_first_entry, dates_from_marker, dates_until_today
 from keyboards.main import (
     calendar_kb,
     cancel_kb,
@@ -34,6 +35,8 @@ router = Router(name="history")
 MAX_HISTORY_DAYS = 365
 DAYS_PROMPT = "Сколько дней показать? Напишите число от 1 до 365, например 7 или 21."
 DAYS_ERROR = "Введите целое число от 1 до 365, например 7."
+HIST_SINCE_PROMPT = "С какой даты показать историю?"
+HIST_MARKER_PROMPT = "С какой метки показать историю?"
 _DAYS_RE = re.compile(r"^(\d{1,3})(?:\s*д(?:ень|ня|ней))?$", re.IGNORECASE)
 
 
@@ -184,6 +187,92 @@ async def hist_got_days(message: Message, state: FSMContext, repo: Repo, db_user
     await _show_last_days(message, state, repo, user, days)
 
 
+@router.callback_query(F.data == "hist:all")
+async def hist_all(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    start, end = await dates_from_first_entry(repo, user)
+    await _show_day(cb, state, repo, user, end, start, end)
+
+
+@router.callback_query(F.data == "hist:since")
+async def hist_since(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    today = user_today(user.timezone)
+    await state.set_state(HistorySG.custom_date)
+    await state.update_data(hist_mode="since")
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        HIST_SINCE_PROMPT,
+        calendar_kb(today.year, today.month, prefix="hcal", back=NAV_HISTORY),
+    )
+
+
+@router.callback_query(F.data == "hist:marker")
+async def hist_marker(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await prompt_since_marker(
+        cb,
+        repo,
+        user,
+        pick_prefix="hmk",
+        page_prefix="hmkp",
+        back=NAV_HISTORY,
+        prompt=HIST_MARKER_PROMPT,
+    )
+
+
+@router.callback_query(F.data.startswith("hmkp:"))
+async def hist_marker_page(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    try:
+        page = int(cb.data.split(":")[1])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    await prompt_since_marker(
+        cb,
+        repo,
+        user,
+        page=page,
+        pick_prefix="hmk",
+        page_prefix="hmkp",
+        back=NAV_HISTORY,
+        prompt=HIST_MARKER_PROMPT,
+    )
+
+
+@router.callback_query(F.data.startswith("hmk:"))
+async def hist_marker_picked(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    try:
+        marker_id = int(cb.data.split(":")[1])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    bounds = await dates_from_marker(repo, user, marker_id)
+    if bounds is None:
+        await cb.answer("Метка не найдена", show_alert=True)
+        return
+    start, end = bounds
+    await _show_day(cb, state, repo, user, end, start, end)
+
+
 @router.callback_query(F.data == "hist:date")
 async def hist_pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
@@ -230,6 +319,11 @@ async def hist_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
         await cb.answer()
         return
     data = await state.get_data()
+    if data.get("hist_mode") == "since":
+        start, end = dates_until_today(day, user_today(user.timezone))
+        await state.set_state(None)
+        await _show_day(cb, state, repo, user, end, start, end)
+        return
     if data.get("hist_mode") == "range" and not data.get("range_start"):
         await state.update_data(range_start=day.isoformat())
         await state.set_state(HistorySG.range_end)

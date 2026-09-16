@@ -10,7 +10,16 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from config import Config
 from database.models import SleepRecord, User
 from database.queries import Repo
-from keyboards.main import back_kb, calendar_kb, hours_kb, legal_consent_kb, main_menu, timezone_kb, when_kb
+from keyboards.main import (
+    back_kb,
+    calendar_kb,
+    hours_kb,
+    legal_consent_kb,
+    main_menu,
+    since_marker_pick_kb,
+    timezone_kb,
+    when_kb,
+)
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import hide_reply_keyboard, safe_edit
@@ -37,7 +46,6 @@ LEGAL_PROMPT = (
     "по Политике конфиденциальности.\n\n"
     "Дальше нужно выбрать часовой пояс."
 )
-
 
 HOW_TO = (
     "📓 <b>Для чего этот бот</b>\n\n"
@@ -244,3 +252,42 @@ async def start_time_pick(
         prompt_with_hint("Выберите дату:", payload),
         calendar_kb(today.year, today.month, back=NAV_BACK),
     )
+
+
+MARKER_SINCE_PAGE = 8
+NO_MARKERS_ALERT = "Нет меток. Сначала поставьте метку."
+
+
+async def prompt_since_marker(
+    cb: CallbackQuery,
+    repo: Repo,
+    user: User,
+    *,
+    page: int = 0,
+    pick_prefix: str,
+    page_prefix: str,
+    back: str,
+    prompt: str,
+) -> bool:
+    markers = await repo.list_recent_markers(user.telegram_id, 200)
+    if not markers:
+        await cb.answer(NO_MARKERS_ALERT, show_alert=True)
+        return False
+    pages = max(1, (len(markers) + MARKER_SINCE_PAGE - 1) // MARKER_SINCE_PAGE)
+    page = max(0, min(page, pages - 1))
+    chunk = markers[page * MARKER_SINCE_PAGE : (page + 1) * MARKER_SINCE_PAGE]
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        prompt,
+        since_marker_pick_kb(
+            chunk,
+            user.timezone,
+            pick_prefix=pick_prefix,
+            page_prefix=page_prefix,
+            page=page,
+            pages=pages,
+            back=back,
+        ),
+    )
+    return True
