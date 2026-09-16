@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 
+from config import REQUIRED_DB_VERSION
 from utils.app_version import app_build_identity
 from utils.formatting import colon_block, pre_html, seconds_human
 
@@ -52,13 +53,19 @@ def bot_uptime_seconds() -> float | None:
         return None
 
 
-def uptime_report_lines(extra: list[tuple[str, str]] | None = None) -> list[str]:
+def uptime_report_lines(
+    extra: list[tuple[str, str]] | None = None,
+    *,
+    db_version: int | None = REQUIRED_DB_VERSION,
+) -> list[str]:
     commit, title = app_build_identity()
     rows = [
         ("Аптайм бота", seconds_human(bot_uptime_seconds())),
         ("Аптайм сервера", seconds_human(host_uptime_seconds())),
         ("Коммит", f"{title} ({commit})"),
     ]
+    if db_version is not None:
+        rows.append(("Версия БД", str(db_version)))
     if extra:
         rows.extend(extra)
     return [pre_html(colon_block(rows))]
