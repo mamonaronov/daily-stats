@@ -515,6 +515,8 @@ def minutes_kb(prefix: str = "mn", back: str | None = NAV_BACK) -> InlineKeyboar
 def history_period_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "hist:today"), _btn("Вчера", "hist:yesterday"))
+    b.row(_btn("7 дней", "hist:7"), _btn("14 дней", "hist:14"))
+    b.row(_btn("30 дней", "hist:30"), _btn("Сколько дней", "hist:ndays"))
     b.row(_btn("📅 Дата", "hist:date"), _btn("📆 Период", "hist:range"))
     return with_nav(b)
 

@@ -16,6 +16,7 @@ from matplotlib.lines import Line2D
 
 from database.models import EventMarker, EventPeriod, User
 from database.queries import Repo
+from services.chart_theme import AXIS, BAR, BG, FG, GRID, LINE, apply_dark, save_png
 from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from services.markers import period_title
 from services.sleep_strips import (
@@ -43,14 +44,14 @@ _PERIOD_COLORS = (
     "#B279A2",
     "#FF9DA6",
 )
-_MARK_COLOR = "#5B5B5B"
+_MARK_COLOR = AXIS
 
 
 def _png(fig, *, tight: bool = True, dpi: int = 140) -> bytes:
     buf = io.BytesIO()
     if tight:
         fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=dpi, bbox_inches=None if tight else "tight")
+    save_png(fig, buf, format="png", dpi=dpi, bbox_inches=None if tight else "tight")
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -87,7 +88,7 @@ def _paint_events(ax, days: list[date], user: User, markers: list[EventMarker], 
         if x1 < x0:
             x0, x1 = x1, x0
         color = color_of[period.id]
-        ax.axvspan(x0 - 0.4, x1 + 0.4, color=color, alpha=0.12, zorder=0)
+        ax.axvspan(x0 - 0.4, x1 + 0.4, color=color, alpha=0.18, zorder=0)
         mid = (x0 + x1) / 2
         ax.annotate(
             period_title(period)[:18],
@@ -142,13 +143,13 @@ def _line(
 ) -> bytes:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     idx = _apply_day_axis(ax, xs)
-    ax.plot(idx, ys, marker="o", linewidth=2)
+    ax.plot(idx, ys, marker="o", linewidth=2, color=LINE)
     ax.set_title(title)
     ax.set_ylabel(ylabel)
-    ax.grid(True, alpha=0.3)
     if days and user:
         _paint_events(ax, days, user, markers or [], periods or [])
     fig.autofmt_xdate(rotation=45)
+    apply_dark(fig, ax, grid="both")
     return _png(fig)
 
 
@@ -165,23 +166,19 @@ def _bar(
 ) -> bytes:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     idx = _apply_day_axis(ax, xs)
-    ax.bar(idx, ys)
+    ax.bar(idx, ys, color=BAR)
     ax.set_title(title)
     ax.set_ylabel(ylabel)
-    ax.grid(True, axis="y", alpha=0.3)
     if days and user:
         _paint_events(ax, days, user, markers or [], periods or [])
     fig.autofmt_xdate(rotation=45)
+    apply_dark(fig, ax, grid="y")
     return _png(fig)
 
 
-_AWAKE_COLOR = "#DDE2EA"
+_AWAKE_COLOR = "#4a5160"
 _AWAKE_LABEL = "Бодрствование"
 _SLEEP_COLOR = "#3B6FE8"
-_BG = "#F6F7FB"
-_INK = "#1E293B"
-_MUTED = "#64748B"
-_GRID = "#0F172A"
 
 
 def _sleep_strip_png(strip: SleepStrip) -> bytes:
@@ -189,8 +186,8 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
     n = len(rows)
     bar_h = 0.46 if n <= 21 else 0.32 if n <= 60 else 0.2
     fig_h = min(22.0, max(3.4, bar_h * n + 2.0))
-    fig, ax = plt.subplots(figsize=(11.4, fig_h), facecolor=_BG)
-    ax.set_facecolor(_BG)
+    fig, ax = plt.subplots(figsize=(11.4, fig_h), facecolor=BG)
+    apply_dark(fig, ax, grid=False)
     fig.subplots_adjust(left=0.15, right=0.985, top=0.96, bottom=0.2)
     ys = list(range(n))
     ax.invert_yaxis()
@@ -219,19 +216,19 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
     ax.set_yticklabels(
         [rows[i].label for i in ys[::step]],
         fontsize=9 if n <= 40 else 8,
-        color=_INK,
+        color=FG,
     )
     ticks = [0, 6, 12, 18, 24]
     ax.set_xticks(ticks)
     ax.set_xticks(list(range(0, 25, 3)), minor=True)
-    ax.set_xticklabels([f"{(strip.day_hour + t) % 24:02d}:00" for t in ticks], color=_MUTED)
-    ax.tick_params(axis="x", which="major", labelsize=9, colors=_MUTED, length=4, color="#CBD5E1")
-    ax.tick_params(axis="x", which="minor", length=2, color="#E2E8F0")
-    ax.tick_params(axis="y", length=0, pad=8)
+    ax.set_xticklabels([f"{(strip.day_hour + t) % 24:02d}:00" for t in ticks], color=AXIS)
+    ax.tick_params(axis="x", which="major", labelsize=9, colors=AXIS, length=4, color=AXIS)
+    ax.tick_params(axis="x", which="minor", length=2, color=GRID)
+    ax.tick_params(axis="y", length=0, pad=8, colors=FG)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_visible(False)
-    ax.spines["bottom"].set_color("#E2E8F0")
+    ax.spines["bottom"].set_color(GRID)
     _draw_strip_legend(ax, strip, lw)
     ax.set_xlabel("")
     return _png(fig, tight=False, dpi=160)
@@ -245,7 +242,7 @@ def _strip_line_width(fig_h: float, n: int) -> float:
 def _draw_strip_hour_lines(ax, n: int) -> None:
     y0, y1 = -0.38, n - 0.62
     for hour in range(0, 25, 3):
-        ax.plot([hour, hour], [y0, y1], color=_GRID, lw=0.6, alpha=0.06, zorder=1, solid_capstyle="butt")
+        ax.plot([hour, hour], [y0, y1], color=FG, lw=0.6, alpha=0.08, zorder=1, solid_capstyle="butt")
 
 
 def _draw_strip_hour_overlay(ax, n: int) -> None:
@@ -255,9 +252,9 @@ def _draw_strip_hour_overlay(ax, n: int) -> None:
         ax.plot(
             [hour, hour],
             [y0, y1],
-            color=_GRID,
+            color=FG,
             lw=1.05 if major else 0.5,
-            alpha=0.22 if major else 0.1,
+            alpha=0.18 if major else 0.08,
             zorder=4,
             solid_capstyle="butt",
         )
@@ -294,7 +291,7 @@ def _draw_strip_legend(ax, strip: SleepStrip, lw: float) -> None:
         handlelength=1.6,
         columnspacing=1.4,
         borderaxespad=0.4,
-        labelcolor=_INK,
+        labelcolor=FG,
     )
 
 

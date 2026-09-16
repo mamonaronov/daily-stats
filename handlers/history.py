@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+import re
+from datetime import date
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -15,6 +16,7 @@ from database.queries import Repo
 from handlers.common import require_active, start_time_pick
 from keyboards.main import (
     calendar_kb,
+    cancel_kb,
     confirm_remove_kb,
     entry_actions,
     history_day_kb,
@@ -28,6 +30,23 @@ from utils.telegram import safe_edit
 from utils.time import add_days, format_dt, parse_calendar_token, parse_iso, user_today
 
 router = Router(name="history")
+
+MAX_HISTORY_DAYS = 365
+DAYS_PROMPT = "Сколько дней показать? Напишите число от 1 до 365, например 7 или 21."
+DAYS_ERROR = "Введите целое число от 1 до 365, например 7."
+_DAYS_RE = re.compile(r"^(\d{1,3})(?:\s*д(?:ень|ня|ней))?$", re.IGNORECASE)
+
+
+def parse_history_days(raw: str, *, maximum: int = MAX_HISTORY_DAYS) -> int:
+    text = re.sub(r"\s+", " ", (raw or "").strip().lower())
+    match = _DAYS_RE.fullmatch(text)
+    if not match:
+        raise ValueError("days")
+    days = int(match.group(1))
+    if days < 1 or days > maximum:
+        raise ValueError("days")
+    return days
+
 
 KIND_MAP = {
     "cigarette": "cig",
@@ -85,7 +104,7 @@ def _cursor_from_data(data: dict) -> str | None:
 
 
 async def _show_history(
-    cb: CallbackQuery,
+    event: CallbackQuery | Message,
     state: FSMContext,
     repo: Repo,
     user: User,
@@ -115,19 +134,31 @@ async def _show_history(
         hist_to=view_end.isoformat(),
         hist_page=page,
     )
-    await cb.answer(toast or "")
-    await safe_edit(
-        cb.message,
-        text,
-        history_day_kb(
-            rows,
-            page=page,
-            pages=pages,
-            view_start=view_start,
-            view_end=view_end,
-            today=user_today(user.timezone),
-        ),
+    markup = history_day_kb(
+        rows,
+        page=page,
+        pages=pages,
+        view_start=view_start,
+        view_end=view_end,
+        today=user_today(user.timezone),
     )
+    if isinstance(event, CallbackQuery):
+        await event.answer(toast or "")
+        await safe_edit(event.message, text, markup)
+        return
+    await event.answer(text, reply_markup=markup)
+
+
+async def _show_last_days(
+    event: CallbackQuery | Message,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    days: int,
+) -> None:
+    today = user_today(user.timezone)
+    start = add_days(today, -(days - 1))
+    await _show_history(event, state, repo, user, start, today)
 
 
 async def _return_to_history(
@@ -197,6 +228,39 @@ async def hist_yesterday(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
         return
     day = add_days(user_today(user.timezone), -1)
     await _show_history(cb, state, repo, user, day, day)
+
+
+@router.callback_query(F.data.in_({"hist:7", "hist:14", "hist:30"}))
+async def hist_last_days(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    days = int(cb.data.split(":")[1])
+    await _show_last_days(cb, state, repo, user, days)
+
+
+@router.callback_query(F.data == "hist:ndays")
+async def hist_ask_days(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    await state.set_state(HistorySG.days_count)
+    await cb.answer()
+    await safe_edit(cb.message, DAYS_PROMPT, cancel_kb(NAV_HISTORY))
+
+
+@router.message(HistorySG.days_count)
+async def hist_got_days(message: Message, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_active(message, db_user)
+    if user is None:
+        return
+    try:
+        days = parse_history_days(message.text or "")
+    except ValueError:
+        await message.answer(DAYS_ERROR, reply_markup=cancel_kb(NAV_HISTORY))
+        return
+    await state.set_state(None)
+    await _show_last_days(message, state, repo, user, days)
 
 
 @router.callback_query(F.data == "hist:date")

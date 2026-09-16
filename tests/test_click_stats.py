@@ -222,6 +222,13 @@ async def test_click_report_and_charts_exclude_owner(repo):
     charts = await build_click_charts(clicks, start, end, title, "UTC")
     assert charts
     assert all(png.startswith(b"\x89PNG") for _, png in charts)
+    from io import BytesIO
+
+    from PIL import Image
+
+    for _, png in charts:
+        red, green, blue = Image.open(BytesIO(png)).convert("RGB").getpixel((4, 4))
+        assert (red + green + blue) / 3 < 50
 
 
 @pytest.mark.asyncio

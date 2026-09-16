@@ -18,6 +18,15 @@ from tests.conftest import make_config
 from utils.time import now_utc, to_iso, user_today
 
 
+def _png_is_dark(png: bytes) -> bool:
+    from io import BytesIO
+
+    from PIL import Image
+
+    red, green, blue = Image.open(BytesIO(png)).convert("RGB").getpixel((4, 4))
+    return (red + green + blue) / 3 < 50
+
+
 class _OnbState:
     async def clear(self) -> None:
         return None
@@ -271,6 +280,23 @@ async def test_stats_and_charts_use_only_selected_custom(repo):
     titles = [title for title, _png in charts]
     assert any("Вода" in title for title in titles)
     assert all("Вес" not in title for title in titles)
+    assert all(_png_is_dark(png) for _, png in charts)
+
+
+def test_chart_renderers_use_dark_background():
+    from datetime import date
+
+    from services.charts import _bar, _line
+    from services.click_charts import _daily_chart, _hourly_chart, _kind_chart
+
+    samples = [
+        _line("Сигареты", ["01.01", "02.01"], [1, 2], "шт."),
+        _bar("Шаги", ["01.01", "02.01"], [100, 200], "шаги"),
+        _kind_chart([("menu", 3), ("cigarettes", 1)], "кнопки"),
+        _daily_chart([(date(2026, 1, 1), 2), (date(2026, 1, 2), 4)], "дни"),
+        _hourly_chart([1] * 24, "часы"),
+    ]
+    assert all(png.startswith(b"\x89PNG") and _png_is_dark(png) for png in samples)
 
 
 @pytest.mark.asyncio
