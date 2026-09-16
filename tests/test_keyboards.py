@@ -553,6 +553,10 @@ def test_stats_period_kb_has_all_time():
     pairs = _pairs(stats_period_kb())
     assert ("Всё время", "stp:all") in pairs
     assert ("30 дней", "stp:30") in pairs
+    assert ("С даты", "stp:since") in pairs
+    assert ("С метки", "stp:marker") in pairs
+    assert ("📆 Период", "stp:range") in pairs
+    assert all(data and len(data.encode()) <= 64 for _, data in pairs)
 
 
 def test_history_period_kb_has_day_counts():
@@ -567,6 +571,42 @@ def test_history_period_kb_has_day_counts():
     assert ("Сколько дней", "hist:ndays") in pairs
     assert ("📅 Дата", "hist:date") in pairs
     assert ("📆 Период", "hist:range") in pairs
+    assert ("Всё время", "hist:all") in pairs
+    assert ("С даты", "hist:since") in pairs
+    assert ("С метки", "hist:marker") in pairs
+    assert all(data and len(data.encode()) <= 64 for _, data in pairs)
+
+
+def test_since_marker_pick_kb_pages():
+    from keyboards.main import since_marker_pick_kb
+    from utils.callbacks import NAV_STATS
+
+    items = [
+        SimpleNamespace(
+            id=n,
+            occurred_at="2026-08-10T08:00:00+00:00",
+            name=f"Метка {n}",
+            period_role=None,
+        )
+        for n in range(1, 4)
+    ]
+    pairs = _pairs(
+        since_marker_pick_kb(
+            items,
+            "UTC",
+            pick_prefix="stmk",
+            page_prefix="stmkp",
+            page=1,
+            pages=3,
+            back=NAV_STATS,
+        )
+    )
+    assert any(data == "stmk:1" for _, data in pairs)
+    assert ("«", "stmkp:0") in pairs
+    assert ("2/3", "noop") in pairs
+    assert ("»", "stmkp:2") in pairs
+    assert ("⬅️ Назад", NAV_STATS) in pairs
+    assert all(data and len(data.encode()) <= 64 for _, data in pairs)
 
 def test_score_kb_is_one_row():
     from utils.formatting import SCORE_EMOJI
