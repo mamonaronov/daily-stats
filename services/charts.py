@@ -12,7 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 
 from database.models import EventMarker, EventPeriod, User
 from database.queries import Repo
@@ -46,11 +46,11 @@ _PERIOD_COLORS = (
 _MARK_COLOR = "#5B5B5B"
 
 
-def _png(fig, *, tight: bool = True) -> bytes:
+def _png(fig, *, tight: bool = True, dpi: int = 140) -> bytes:
     buf = io.BytesIO()
     if tight:
         fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches=None if tight else "tight")
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches=None if tight else "tight")
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -175,85 +175,126 @@ def _bar(
     return _png(fig)
 
 
-_AWAKE_COLOR = "#B4B4B4"
-_SLEEP_COLOR = "#1D4ED8"
-_STRIP_EDGE = "#5A6F8F"
+_AWAKE_COLOR = "#DDE2EA"
+_AWAKE_LABEL = "Бодрствование"
+_SLEEP_COLOR = "#3B6FE8"
+_BG = "#F6F7FB"
+_INK = "#1E293B"
+_MUTED = "#64748B"
+_GRID = "#0F172A"
 
 
 def _sleep_strip_png(strip: SleepStrip) -> bytes:
     rows = strip.rows
     n = len(rows)
-    bar_h = 0.42 if n <= 31 else 0.28 if n <= 90 else 0.16
-    fig_h = min(22.0, max(3.4, bar_h * n + 2.2))
-    fig, ax = plt.subplots(figsize=(11, fig_h))
+    bar_h = 0.46 if n <= 21 else 0.32 if n <= 60 else 0.2
+    fig_h = min(22.0, max(3.4, bar_h * n + 2.0))
+    fig, ax = plt.subplots(figsize=(11.4, fig_h), facecolor=_BG)
+    ax.set_facecolor(_BG)
+    fig.subplots_adjust(left=0.15, right=0.985, top=0.96, bottom=0.2)
     ys = list(range(n))
+    ax.invert_yaxis()
+    ax.set_xlim(-0.4, 24.4)
+    ax.set_ylim(n - 0.45, -0.55)
+    lw = _strip_line_width(fig_h, n)
+    _draw_strip_hour_lines(ax, n)
     for y, row in zip(ys, rows):
-        duration = max((row.end - row.start).total_seconds() / 3600, 1e-6)
-        ax.barh(y, duration, left=0, height=0.62, color=_AWAKE_COLOR, edgecolor=_STRIP_EDGE, linewidth=0.6, zorder=1)
+        ax.plot([0, 24], [y, y], color=_AWAKE_COLOR, lw=lw, solid_capstyle="round", zorder=2, clip_on=False)
         for seg in row.segments:
-            ax.barh(
-                y,
-                seg.width,
-                left=seg.offset,
-                height=0.62,
+            x0, x1 = seg.offset, seg.offset + seg.width
+            if x1 - x0 < 0.02:
+                continue
+            ax.plot(
+                [x0, x1],
+                [y, y],
                 color=PHASE_COLORS.get(seg.phase, _SLEEP_COLOR),
-                edgecolor=_STRIP_EDGE,
-                linewidth=0.4,
-                zorder=2,
+                lw=lw * 0.92,
+                solid_capstyle="butt",
+                zorder=3,
+                clip_on=True,
             )
+    _draw_strip_hour_overlay(ax, n)
     step = 1 if n <= 40 else 2 if n <= 80 else max(1, n // 25)
     ax.set_yticks(ys[::step])
-    ax.set_yticklabels([rows[i].label for i in ys[::step]], fontsize=9 if n <= 40 else 8)
-    ax.invert_yaxis()
-    ax.set_xlim(0, 24)
-    ax.set_ylim(n - 0.45, -1.35)
+    ax.set_yticklabels(
+        [rows[i].label for i in ys[::step]],
+        fontsize=9 if n <= 40 else 8,
+        color=_INK,
+    )
     ticks = [0, 6, 12, 18, 24]
     ax.set_xticks(ticks)
-    ax.set_xticklabels([f"{(strip.day_hour + t) % 24:02d}:00" for t in ticks])
-    ax.tick_params(axis="x", labelsize=9)
+    ax.set_xticks(list(range(0, 25, 3)), minor=True)
+    ax.set_xticklabels([f"{(strip.day_hour + t) % 24:02d}:00" for t in ticks], color=_MUTED)
+    ax.tick_params(axis="x", which="major", labelsize=9, colors=_MUTED, length=4, color="#CBD5E1")
+    ax.tick_params(axis="x", which="minor", length=2, color="#E2E8F0")
+    ax.tick_params(axis="y", length=0, pad=8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    _draw_strip_headers(ax, strip)
-    _draw_strip_legend(ax, strip)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#E2E8F0")
+    _draw_strip_legend(ax, strip, lw)
     ax.set_xlabel("")
-    fig.subplots_adjust(left=0.18, right=0.98, top=0.86, bottom=0.2)
-    return _png(fig, tight=False)
+    return _png(fig, tight=False, dpi=160)
 
 
-def _draw_strip_headers(ax, strip: SleepStrip) -> None:
-    ax.text(0, -1.05, "Начало дня", ha="left", va="center", fontsize=10, clip_on=False)
-    ax.text(24, -1.05, "конец дня", ha="right", va="center", fontsize=10, clip_on=False)
-    onset = strip.mean_onset_axis
-    wake = strip.mean_wake_axis
-    if onset is not None and 1.5 < onset < 22.5:
-        ax.text(onset, -1.05, "заснул", ha="center", va="center", fontsize=10, clip_on=False)
-    if wake is not None and 1.5 < wake < 22.5:
-        if onset is None or abs(wake - onset) >= 2.2:
-            ax.text(wake, -1.05, "проснулся", ha="center", va="center", fontsize=10, clip_on=False)
+def _strip_line_width(fig_h: float, n: int) -> float:
+    ax_h = fig_h * 0.76
+    return max(5.0, min(26.0, ax_h / max(n, 1) * 0.56 * 72))
 
 
-def _draw_strip_legend(ax, strip: SleepStrip) -> None:
+def _draw_strip_hour_lines(ax, n: int) -> None:
+    y0, y1 = -0.38, n - 0.62
+    for hour in range(0, 25, 3):
+        ax.plot([hour, hour], [y0, y1], color=_GRID, lw=0.6, alpha=0.06, zorder=1, solid_capstyle="butt")
+
+
+def _draw_strip_hour_overlay(ax, n: int) -> None:
+    y0, y1 = -0.38, n - 0.62
+    for hour in range(1, 24):
+        major = hour % 6 == 0
+        ax.plot(
+            [hour, hour],
+            [y0, y1],
+            color=_GRID,
+            lw=1.05 if major else 0.5,
+            alpha=0.22 if major else 0.1,
+            zorder=4,
+            solid_capstyle="butt",
+        )
+
+
+def _draw_strip_legend(ax, strip: SleepStrip, lw: float) -> None:
     used = []
     for row in strip.rows:
         for seg in row.segments:
             if seg.phase not in used:
                 used.append(seg.phase)
-    if not used:
-        return
     handles = [
-        Patch(facecolor=PHASE_COLORS[phase], edgecolor=_STRIP_EDGE, label=PHASE_LABELS[phase])
+        Line2D([0], [0], color=_AWAKE_COLOR, lw=min(8.5, lw), solid_capstyle="round", label=_AWAKE_LABEL)
+    ]
+    handles.extend(
+        Line2D(
+            [0],
+            [0],
+            color=PHASE_COLORS[phase],
+            lw=min(8.5, lw),
+            solid_capstyle="round",
+            label=PHASE_LABELS[phase],
+        )
         for phase in used
         if phase in PHASE_LABELS
-    ]
-    if not handles:
-        return
+    )
     ax.legend(
         handles=handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
-        ncol=min(4, len(handles)),
+        bbox_to_anchor=(0.5, -0.11),
+        ncol=min(5, len(handles)),
         frameon=False,
         fontsize=9,
+        handlelength=1.6,
+        columnspacing=1.4,
+        borderaxespad=0.4,
+        labelcolor=_INK,
     )
 
 
