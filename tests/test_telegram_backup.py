@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import tarfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -202,6 +203,80 @@ def test_app_build_identity_from_env(monkeypatch):
     from utils.app_version import app_build_identity
 
     assert app_build_identity() == ("deadbeef", "bake commit into image")
+
+
+def test_is_merge_commit_title():
+    from utils.app_version import is_merge_commit_title
+
+    assert is_merge_commit_title(
+        "Merge branch 'main' of https://github.com/mamonaronov/daily-stats"
+    )
+    assert is_merge_commit_title("Merge pull request #12 from foo/bar")
+    assert is_merge_commit_title("Merge remote-tracking branch 'origin/main'")
+    assert not is_merge_commit_title("fix: merge overlapping dates")
+    assert not is_merge_commit_title("add merge button")
+
+
+def test_app_build_identity_replaces_merge_title(monkeypatch):
+    monkeypatch.setenv("APP_GIT_COMMIT", "82194a8")
+    monkeypatch.setenv(
+        "APP_GIT_COMMIT_TITLE",
+        "Merge branch 'main' of https://github.com/mamonaronov/daily-stats",
+    )
+    monkeypatch.setattr(
+        "utils.app_version.non_merge_title_from_git",
+        lambda: "fix vpn report",
+    )
+    from utils.app_version import app_build_identity
+
+    assert app_build_identity() == ("82194a8", "fix vpn report")
+
+
+def test_non_merge_title_from_git(tmp_path, monkeypatch):
+    import os
+
+    if shutil.which("git") is None:
+        pytest.skip("git is required")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t.t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t.t",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+    }
+
+    def git(*args: str) -> None:
+        subprocess.check_call(["git", "-C", str(repo), *args], env=env)
+
+    git("init", "-b", "main")
+    git("config", "user.name", "t")
+    git("config", "user.email", "t@t.t")
+    git("config", "commit.gpgsign", "false")
+    (repo / "a.txt").write_text("a", encoding="utf-8")
+    git("add", "a.txt")
+    git("commit", "-m", "real feature")
+    git("checkout", "-b", "other")
+    (repo / "b.txt").write_text("b", encoding="utf-8")
+    git("add", "b.txt")
+    git("commit", "-m", "side work")
+    git("checkout", "main")
+    git(
+        "merge",
+        "other",
+        "--no-ff",
+        "-m",
+        "Merge branch 'main' of https://github.com/mamonaronov/daily-stats",
+    )
+    monkeypatch.setattr("utils.app_version._REPO_ROOT", tmp_path / "missing")
+    monkeypatch.setenv("TELEGRAM_BACKUP_ROOT", str(repo))
+    from utils.app_version import non_merge_title_from_git
+
+    assert non_merge_title_from_git() == "real feature"
 
 
 def test_telegram_backup_job_scheduled(tmp_path):

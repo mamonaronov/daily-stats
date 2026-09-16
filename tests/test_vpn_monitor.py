@@ -631,6 +631,7 @@ async def test_vpn_report_hides_live_status_and_supports_all_time(repo):
     assert "Возраст сервиса:" in text
     assert "Следующий бекап" in text
     assert "Коммит:" in text
+    assert "Версия БД:" in text
     assert "За последние сутки" in text
     assert "Замеров: 0 из 8640" in text
     assert "должно быть 8640 зам." in text

@@ -94,6 +94,8 @@ def test_uptime_report_lines(monkeypatch):
 
     import utils.uptime as uptime
 
+    from config import REQUIRED_DB_VERSION
+
     monkeypatch.setattr(uptime, "bot_uptime_seconds", lambda: 90)
     monkeypatch.setattr(uptime, "host_uptime_seconds", lambda: 26 * 3600)
     monkeypatch.setattr(uptime, "app_build_identity", lambda: ("deadbeef", "fix: uptime <commit>"))
@@ -106,6 +108,7 @@ def test_uptime_report_lines(monkeypatch):
     assert rows[0].endswith("Аптайм бота: 1 мин 30 с")
     assert rows[1].endswith("Аптайм сервера: 1 д 2 ч")
     assert rows[2].endswith("Коммит: fix: uptime <commit> (deadbeef)")
+    assert rows[3].endswith(f"Версия БД: {REQUIRED_DB_VERSION}")
     assert len({row.index(":") for row in rows}) == 1
     extra = uptime.uptime_report_lines([("Возраст сервиса", "3 д")])
     extra_body = html.unescape(extra[0].removeprefix("<pre>").removesuffix("</pre>"))
