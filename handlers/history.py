@@ -272,7 +272,7 @@ async def hist_all(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: Us
     if user is None:
         return
     start, end = await dates_from_first_entry(repo, user)
-    await _show_day(cb, state, repo, user, end, start, end)
+    await _show_history(cb, state, repo, user, start, end)
 
 
 @router.callback_query(F.data == "hist:since")
@@ -349,7 +349,7 @@ async def hist_marker_picked(
         await cb.answer("Метка не найдена", show_alert=True)
         return
     start, end = bounds
-    await _show_day(cb, state, repo, user, end, start, end)
+    await _show_history(cb, state, repo, user, start, end)
 
 
 @router.callback_query(F.data == "hist:date")
@@ -401,7 +401,7 @@ async def hist_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     if data.get("hist_mode") == "since":
         start, end = dates_until_today(day, user_today(user.timezone))
         await state.set_state(None)
-        await _show_day(cb, state, repo, user, end, start, end)
+        await _show_history(cb, state, repo, user, start, end)
         return
     if data.get("hist_mode") == "range" and not data.get("range_start"):
         await state.update_data(range_start=day.isoformat())
