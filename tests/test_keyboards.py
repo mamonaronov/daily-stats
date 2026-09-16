@@ -194,12 +194,21 @@ def test_settings_kb_includes_legal_docs():
     )
     pairs = _pairs(settings_kb(user))
     assert ("📋 Метрики", "set:trk") in pairs
+    assert ("☐ Прятать пустые края сна", "set:sedge") in pairs
     assert ("⏰ Напомнить встать: выкл", "set:wake") in pairs
     assert ("🙂 Напомнить оценить: выкл", "set:dsr") in pairs
     assert ("📄 Политика и соглашение", "lg:docs") in pairs
     assert all(data not in {"lg:p:0:s", "lg:t:0:s"} for _, data in pairs)
     assert ("🗑 Удалить аккаунт", "set:del") in pairs
     assert all(text != "📋 Кнопки меню" for text, _ in pairs)
+    hidden = SimpleNamespace(
+        timezone="Europe/Moscow",
+        default_sleep_time="23:00",
+        wake_up_reminder_time=None,
+        daily_score_reminder_time=None,
+        ui_prefs_json='{"tracked": [], "hide_sleep_empty_edges": true}',
+    )
+    assert ("☑ Прятать пустые края сна", "set:sedge") in _pairs(settings_kb(hidden))
 
 
 def test_balance_kb_links_owner_and_drops_paid_button():
