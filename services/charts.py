@@ -218,12 +218,13 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
         fontsize=9 if n <= 40 else 8,
         color=FG,
     )
-    ticks = [0, 6, 12, 18, 24]
-    ax.set_xticks(ticks)
-    ax.set_xticks(list(range(0, 25, 3)), minor=True)
-    ax.set_xticklabels([f"{(strip.day_hour + t) % 24:02d}:00" for t in ticks], color=AXIS)
-    ax.tick_params(axis="x", which="major", labelsize=9, colors=AXIS, length=4, color=AXIS)
-    ax.tick_params(axis="x", which="minor", length=2, color=GRID)
+    hours = list(range(25))
+    ax.set_xticks(hours)
+    ax.set_xticklabels(
+        [f"{(strip.day_hour + t) % 24:02d}" for t in hours],
+        color=AXIS,
+    )
+    ax.tick_params(axis="x", which="major", labelsize=8, colors=AXIS, length=3, color=AXIS, pad=3)
     ax.tick_params(axis="y", length=0, pad=8, colors=FG)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
