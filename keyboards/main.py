@@ -524,26 +524,24 @@ def history_day_kb(
     *,
     page: int,
     pages: int,
-    day: date,
-    period_start: date,
-    period_end: date,
+    view_start: date,
+    view_end: date,
     today: date,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for label, data in rows:
-        b.row(_btn(label[:40], data))
-    nav: list[InlineKeyboardButton] = []
-    prev_day = day - timedelta(days=1)
-    next_day = day + timedelta(days=1)
-    if prev_day >= period_start:
+        b.row(_btn(label[:64], data))
+    if view_start == view_end:
+        nav: list[InlineKeyboardButton] = []
+        prev_day = view_start - timedelta(days=1)
+        next_day = view_start + timedelta(days=1)
         left = "‹ вчера" if prev_day == today - timedelta(days=1) else f"‹ {prev_day.strftime('%d.%m')}"
         nav.append(_btn(left, f"h:d:{prev_day.isoformat()}"))
-    mid = "сегодня" if day == today else day.strftime("%d.%m")
-    nav.append(_btn(mid, "noop"))
-    if next_day <= period_end:
-        right = "завтра ›" if next_day == today + timedelta(days=1) else f"{next_day.strftime('%d.%m')} ›"
-        nav.append(_btn(right, f"h:d:{next_day.isoformat()}"))
-    if nav:
+        mid = "сегодня" if view_start == today else view_start.strftime("%d.%m")
+        nav.append(_btn(mid, "noop"))
+        if next_day <= today:
+            right = "завтра ›" if next_day == today else f"{next_day.strftime('%d.%m')} ›"
+            nav.append(_btn(right, f"h:d:{next_day.isoformat()}"))
         b.row(*nav)
     if pages > 1:
         prow: list[InlineKeyboardButton] = []
@@ -761,6 +759,10 @@ def confirm_delete_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def _hist_tail(hist: str | None) -> str:
+    return f":{hist}" if hist else ""
+
+
 def entry_actions(
     kind: str,
     item_id: int,
@@ -768,11 +770,13 @@ def entry_actions(
     *,
     undo: bool = False,
     from_history: bool = False,
+    hist: str | None = None,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    tail = _hist_tail(hist) if from_history or hist else ""
     if writable:
         delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
-        delete_cb = f"un:{kind}:{item_id}" if undo else f"rm:{kind}:{item_id}"
+        delete_cb = f"un:{kind}:{item_id}{tail}" if undo else f"rm:{kind}:{item_id}{tail}"
         if kind == "stp":
             b.row(_btn("✏️ Изменить", f"stp:e:{item_id}"), _btn(delete_label, delete_cb))
         elif kind == "dsc":
@@ -781,17 +785,30 @@ def entry_actions(
             b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
         if kind == "act":
             b.row(_btn("💬 Коммент", f"act:cmt:{item_id}"))
-    hist = _btn("⬅️ Назад", "h:back") if from_history else _btn("📅 История", NAV_HISTORY)
-    b.row(hist, _btn("🏠 Меню", NAV_MAIN))
+    if from_history:
+        hist_btn = _btn("⬅️ Назад", f"h:back{tail}")
+    else:
+        hist_btn = _btn("📅 История", NAV_HISTORY)
+    b.row(hist_btn, _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
-def confirm_remove_kb(kind: str, item_id: int, *, undo: bool = False) -> InlineKeyboardMarkup:
+def confirm_remove_kb(
+    kind: str,
+    item_id: int,
+    *,
+    undo: bool = False,
+    hist: str | None = None,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    tail = _hist_tail(hist)
     if undo:
-        b.row(_btn("Отменить", f"unok:{kind}:{item_id}"), _btn("Оставить", f"sv:{kind}:{item_id}"))
+        b.row(_btn("Отменить", f"unok:{kind}:{item_id}{tail}"), _btn("Оставить", f"sv:{kind}:{item_id}"))
     else:
-        b.row(_btn("Удалить", f"rmok:{kind}:{item_id}"), _btn("Отмена", f"h:o:{kind}:{item_id}"))
+        b.row(
+            _btn("Удалить", f"rmok:{kind}:{item_id}{tail}"),
+            _btn("Отмена", f"h:o:{kind}:{item_id}{tail}"),
+        )
     return b.as_markup()
 
 
@@ -1237,16 +1254,22 @@ def marker_card_kb(
     *,
     period_id: int | None = None,
     undo: bool = False,
+    from_history: bool = False,
+    hist: str | None = None,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    tail = _hist_tail(hist) if from_history or hist else ""
     if writable:
         delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
-        delete_cb = f"un:mk:{marker_id}" if undo else f"rm:mk:{marker_id}"
+        delete_cb = f"un:mk:{marker_id}{tail}" if undo else f"rm:mk:{marker_id}{tail}"
         b.row(_btn("✏️ Время", f"ed:mk:{marker_id}"), _btn(delete_label, delete_cb))
         b.row(_btn("📝 Название", f"mk:nm:{marker_id}"), _btn("💬 Комментарий", f"mk:cm:{marker_id}"))
         if period_id is not None:
             b.row(_btn("🔓 Убрать период", f"mk:u:{period_id}"))
-    b.row(_btn("🔖 К меткам", NAV_MARKERS), _btn("🏠 Меню", NAV_MAIN))
+    if from_history:
+        b.row(_btn("⬅️ Назад", f"h:back{tail}"), _btn("🏠 Меню", NAV_MAIN))
+    else:
+        b.row(_btn("🔖 К меткам", NAV_MARKERS), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 

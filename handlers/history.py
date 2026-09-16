@@ -20,7 +20,7 @@ from keyboards.main import (
     history_day_kb,
     history_period_kb,
 )
-from services.history import build_timeline, format_timeline, paginate
+from services.history import build_timeline, format_timeline, history_button_label, paginate
 from services.users import can_write
 from states.diary import HistorySG, TimePickSG
 from utils.callbacks import NAV_HISTORY
@@ -40,6 +40,7 @@ KIND_MAP = {
     "sleep_onset": "so",
     "sleep_wake": "sw",
     "sleep_up": "su",
+    "sleep_night": "slp",
     "caffeine": "caf",
     "alcohol": "alc",
     "activity": "act",
@@ -51,32 +52,70 @@ KIND_MAP = {
 }
 
 
-async def _show_day(
+def pack_hist_cursor(view_start: date, view_end: date, page: int) -> str:
+    return f"{view_start.isoformat()}:{view_end.isoformat()}:{page}"
+
+
+def unpack_hist_cursor(parts: list[str]) -> tuple[date, date, int] | None:
+    if len(parts) < 2:
+        return None
+    try:
+        start = date.fromisoformat(parts[0])
+        end = date.fromisoformat(parts[1])
+        page = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        return None
+    return start, end, page
+
+
+def _pack_optional(cursor: tuple[date, date, int] | None) -> str | None:
+    if cursor is None:
+        return None
+    return pack_hist_cursor(*cursor)
+
+
+def _cursor_from_data(data: dict) -> str | None:
+    if not data.get("hist_from") or not data.get("hist_to"):
+        return None
+    return pack_hist_cursor(
+        date.fromisoformat(data["hist_from"]),
+        date.fromisoformat(data["hist_to"]),
+        int(data.get("hist_page") or 0),
+    )
+
+
+async def _show_history(
     cb: CallbackQuery,
     state: FSMContext,
     repo: Repo,
     user: User,
-    day: date,
-    period_start: date,
-    period_end: date,
+    view_start: date,
+    view_end: date,
     page: int = 0,
+    *,
+    toast: str | None = None,
 ) -> None:
-    items = await build_timeline(repo, user, day, day)
+    items = await build_timeline(repo, user, view_start, view_end)
     page_items, page, pages = paginate(items, page)
-    text = format_timeline(user, day, page_items)
+    text = format_timeline(user, view_start, page_items, end=view_end)
     if pages > 1:
         text += f"\n\n{page + 1}/{pages} · всего {len(items)}"
+    cursor = pack_hist_cursor(view_start, view_end, page)
     rows = [
-        (item.title, f"h:o:{KIND_MAP.get(item.kind, item.kind)}:{item.id}")
+        (
+            history_button_label(user, item),
+            f"h:o:{KIND_MAP.get(item.kind, item.kind)}:{item.id}:{cursor}",
+        )
         for item in page_items
     ]
+    await state.set_state(HistorySG.browsing)
     await state.update_data(
-        hist_day=day.isoformat(),
-        hist_from=period_start.isoformat(),
-        hist_to=period_end.isoformat(),
+        hist_day=view_start.isoformat(),
+        hist_from=view_start.isoformat(),
+        hist_to=view_end.isoformat(),
         hist_page=page,
     )
-    await cb.answer()
+    await cb.answer(toast or "")
     await safe_edit(
         cb.message,
         text,
@@ -84,12 +123,52 @@ async def _show_day(
             rows,
             page=page,
             pages=pages,
-            day=day,
-            period_start=period_start,
-            period_end=period_end,
+            view_start=view_start,
+            view_end=view_end,
             today=user_today(user.timezone),
         ),
     )
+
+
+async def _return_to_history(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    cursor: tuple[date, date, int] | None = None,
+    *,
+    toast: str | None = None,
+) -> bool:
+    if cursor is not None:
+        start, end, page = cursor
+        await _show_history(cb, state, repo, user, start, end, page, toast=toast)
+        return True
+    return await _history_from_state(cb, state, repo, user, toast=toast)
+
+
+async def _history_from_state(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    *,
+    toast: str | None = None,
+    page: int | None = None,
+) -> bool:
+    data = await state.get_data()
+    if not data.get("hist_from") or not data.get("hist_to"):
+        return False
+    await _show_history(
+        cb,
+        state,
+        repo,
+        user,
+        date.fromisoformat(data["hist_from"]),
+        date.fromisoformat(data["hist_to"]),
+        int(data.get("hist_page") or 0) if page is None else page,
+        toast=toast,
+    )
+    return True
 
 
 @router.callback_query(F.data == NAV_HISTORY)
@@ -108,7 +187,7 @@ async def hist_today(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
     if user is None:
         return
     today = user_today(user.timezone)
-    await _show_day(cb, state, repo, user, today, today, today)
+    await _show_history(cb, state, repo, user, today, today)
 
 
 @router.callback_query(F.data == "hist:yesterday")
@@ -117,7 +196,7 @@ async def hist_yesterday(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
     if user is None:
         return
     day = add_days(user_today(user.timezone), -1)
-    await _show_day(cb, state, repo, user, day, day, day)
+    await _show_history(cb, state, repo, user, day, day)
 
 
 @router.callback_query(F.data == "hist:date")
@@ -177,7 +256,7 @@ async def hist_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     if end < start:
         start, end = end, start
     await state.set_state(None)
-    await _show_day(cb, state, repo, user, end, start, end)
+    await _show_history(cb, state, repo, user, start, end)
 
 
 @router.callback_query(F.data.startswith("hcal:"), HistorySG.range_end)
@@ -193,14 +272,29 @@ async def _entry_markup(
     *,
     undo: bool = False,
     from_history: bool = False,
+    hist: str | None = None,
 ):
     if kind == "mk":
         from keyboards.main import marker_card_kb
 
         rec = await repo.get_marker(item_id, user.telegram_id)
         period_id = rec.period_id if rec else None
-        return marker_card_kb(item_id, can_write(user), period_id=period_id, undo=undo)
-    return entry_actions(kind, item_id, can_write(user), undo=undo, from_history=from_history)
+        return marker_card_kb(
+            item_id,
+            can_write(user),
+            period_id=period_id,
+            undo=undo,
+            from_history=from_history,
+            hist=hist,
+        )
+    return entry_actions(
+        kind,
+        item_id,
+        can_write(user),
+        undo=undo,
+        from_history=from_history,
+        hist=hist,
+    )
 
 
 _HIST_KEYS = ("hist_day", "hist_from", "hist_to", "hist_page")
@@ -231,7 +325,15 @@ async def show_saved_entry(
         markup = None
     else:
         text = await entry_text(repo, user, kind, item_id, heading=heading)
-        markup = await _entry_markup(repo, user, kind, item_id, undo=True, from_history=keep_history)
+        markup = await _entry_markup(
+            repo,
+            user,
+            kind,
+            item_id,
+            undo=True,
+            from_history=keep_history,
+            hist=_cursor_from_data(kept) if keep_history else None,
+        )
     if isinstance(event, CallbackQuery):
         await event.answer(toast)
         await safe_edit(event.message, text, markup)
@@ -244,22 +346,8 @@ async def hist_page(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: U
     user = await require_active(cb, db_user)
     if user is None:
         return
-    data = await state.get_data()
-    if not data.get("hist_day"):
+    if not await _history_from_state(cb, state, repo, user, page=int(cb.data.split(":")[2])):
         await cb.answer()
-        return
-    page = int(cb.data.split(":")[2])
-    day = date.fromisoformat(data["hist_day"])
-    await _show_day(
-        cb,
-        state,
-        repo,
-        user,
-        day,
-        date.fromisoformat(data["hist_from"]),
-        date.fromisoformat(data["hist_to"]),
-        page,
-    )
 
 
 @router.callback_query(F.data.startswith("h:d:"))
@@ -267,62 +355,59 @@ async def hist_neighbor(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     user = await require_active(cb, db_user)
     if user is None:
         return
-    data = await state.get_data()
-    if not data.get("hist_from"):
-        await cb.answer()
-        return
     day = date.fromisoformat(cb.data.split(":", 2)[2])
-    await _show_day(
-        cb,
-        state,
-        repo,
-        user,
-        day,
-        date.fromisoformat(data["hist_from"]),
-        date.fromisoformat(data["hist_to"]),
-        0,
-    )
+    today = user_today(user.timezone)
+    if day > today:
+        day = today
+    await _show_history(cb, state, repo, user, day, day)
 
 
-@router.callback_query(F.data == "h:back")
+@router.callback_query(F.data.startswith("h:back"))
 async def hist_back(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
-    data = await state.get_data()
-    if not data.get("hist_day"):
-        await history_root(cb, state, db_user)
+    cursor = unpack_hist_cursor(cb.data.split(":")[2:])
+    if await _return_to_history(cb, state, repo, user, cursor):
         return
-    await _show_day(
-        cb,
-        state,
-        repo,
-        user,
-        date.fromisoformat(data["hist_day"]),
-        date.fromisoformat(data["hist_from"]),
-        date.fromisoformat(data["hist_to"]),
-        int(data.get("hist_page") or 0),
-    )
+    await history_root(cb, state, db_user)
 
 
 @router.callback_query(F.data.startswith("h:o:"))
 @router.callback_query(F.data.startswith("sv:"))
-async def hist_open(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+async def hist_open(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
     parts = cb.data.split(":")
-    kind, item_id = parts[1] if cb.data.startswith("sv:") else parts[2], int(parts[-1])
     if cb.data.startswith("sv:"):
-        _, kind, raw_id = parts
-        item_id = int(raw_id)
+        kind = parts[1]
+        item_id = int(parts[2])
+        cursor = unpack_hist_cursor(parts[3:])
         text = await entry_text(repo, user, kind, item_id, heading="✅ Записано")
-        markup = await _entry_markup(repo, user, kind, item_id, undo=True)
+        markup = await _entry_markup(repo, user, kind, item_id, undo=True, from_history=cursor is not None, hist=_pack_optional(cursor))
     else:
-        _, _, kind, raw_id = parts
-        item_id = int(raw_id)
+        kind = parts[2]
+        item_id = int(parts[3])
+        cursor = unpack_hist_cursor(parts[4:])
+        if cursor is not None:
+            start, end, page = cursor
+            await state.set_state(HistorySG.browsing)
+            await state.update_data(
+                hist_day=start.isoformat(),
+                hist_from=start.isoformat(),
+                hist_to=end.isoformat(),
+                hist_page=page,
+            )
         text = await entry_text(repo, user, kind, item_id)
-        markup = await _entry_markup(repo, user, kind, item_id, from_history=True)
+        markup = await _entry_markup(
+            repo,
+            user,
+            kind,
+            item_id,
+            from_history=True,
+            hist=_pack_optional(cursor) or _cursor_from_data(await state.get_data()),
+        )
     await cb.answer()
     await safe_edit(cb.message, text, markup)
 
@@ -484,7 +569,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    _, kind, raw_id = cb.data.split(":")
+    _, kind, raw_id = cb.data.split(":")[:3]
     item_id = int(raw_id)
     tid = user.telegram_id
     mapping = {
@@ -513,6 +598,9 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
     fn = mapping.get(kind)
     if fn:
         await fn(item_id, tid)
+    cursor = unpack_hist_cursor(cb.data.split(":")[3:])
+    if await _return_to_history(cb, state, repo, user, cursor, toast="Удалено"):
+        return
     await cb.answer("Удалено")
     await show_main(cb, user, config, is_owner, state, repo)
 
@@ -524,9 +612,10 @@ async def remove_ask(cb: CallbackQuery, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    _, kind, raw_id = cb.data.split(":")
+    _, kind, raw_id = cb.data.split(":")[:3]
+    cursor = unpack_hist_cursor(cb.data.split(":")[3:])
     await cb.answer()
-    await safe_edit(cb.message, "Удалить запись?", confirm_remove_kb(kind, int(raw_id)))
+    await safe_edit(cb.message, "Удалить запись?", confirm_remove_kb(kind, int(raw_id), hist=_pack_optional(cursor)))
 
 
 @router.callback_query(F.data.startswith("unok:"))
@@ -537,10 +626,13 @@ async def undo_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config: C
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    _, kind, raw_id = cb.data.split(":")
+    _, kind, raw_id = cb.data.split(":")[:3]
     error = await undo_entry(repo, user, kind, int(raw_id))
     if error:
         await cb.answer(error, show_alert=True)
+        return
+    cursor = unpack_hist_cursor(cb.data.split(":")[3:])
+    if await _return_to_history(cb, state, repo, user, cursor, toast="Отменено"):
         return
     await cb.answer("Отменено")
     await show_main(cb, user, config, is_owner, state, repo)
@@ -553,10 +645,11 @@ async def undo_ask(cb: CallbackQuery, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    _, kind, raw_id = cb.data.split(":")
+    _, kind, raw_id = cb.data.split(":")[:3]
+    cursor = unpack_hist_cursor(cb.data.split(":")[3:])
     await cb.answer()
     await safe_edit(
         cb.message,
         "Отменить эту запись? Если нажали случайно — так и нужно.",
-        confirm_remove_kb(kind, int(raw_id), undo=True),
+        confirm_remove_kb(kind, int(raw_id), undo=True, hist=_pack_optional(cursor)),
     )

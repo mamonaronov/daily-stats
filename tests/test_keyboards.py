@@ -668,7 +668,7 @@ def test_main_menu_shows_pinned_period_metric():
 
 
 def test_entry_actions_repeat_and_history_back():
-    from keyboards.main import entry_actions
+    from keyboards.main import confirm_remove_kb, entry_actions
 
     cig = dict(_pairs(entry_actions("cig", 4, True, undo=True)))
     assert "Ещё одну" not in cig
@@ -681,6 +681,15 @@ def test_entry_actions_repeat_and_history_back():
     assert "Как тогда" not in alc
     hist = dict(_pairs(entry_actions("cig", 4, True, from_history=True)))
     assert hist["⬅️ Назад"] == "h:back"
+    assert hist["🗑 Удалить"] == "rm:cig:4"
+    with_cursor = dict(
+        _pairs(entry_actions("cig", 4, True, from_history=True, hist="2026-08-08:2026-08-15:0"))
+    )
+    assert with_cursor["⬅️ Назад"] == "h:back:2026-08-08:2026-08-15:0"
+    assert with_cursor["🗑 Удалить"] == "rm:cig:4:2026-08-08:2026-08-15:0"
+    confirm = dict(_pairs(confirm_remove_kb("cig", 4, hist="2026-08-08:2026-08-15:0")))
+    assert confirm["Удалить"] == "rmok:cig:4:2026-08-08:2026-08-15:0"
+    assert confirm["Отмена"] == "h:o:cig:4:2026-08-08:2026-08-15:0"
     steps = dict(_pairs(entry_actions("stp", 8, True, undo=True)))
     assert steps["✏️ Изменить"] == "stp:e:8"
     assert steps["🗑 Отменить"] == "un:stp:8"
@@ -695,21 +704,42 @@ def test_history_day_kb_paginates_and_neighbors():
 
     today = date(2026, 8, 23)
     markup = history_day_kb(
-        [("🚬 12:00", "h:o:cig:1")],
+        [("12:00 🚬 Сигарета", "h:o:cig:1")],
         page=1,
         pages=3,
-        day=today,
-        period_start=date(2026, 8, 22),
-        period_end=date(2026, 8, 24),
+        view_start=today,
+        view_end=today,
         today=today,
     )
     pairs = dict(_pairs(markup))
     assert pairs["‹ вчера"] == "h:d:2026-08-22"
     assert pairs["сегодня"] == "noop"
-    assert pairs["завтра ›"] == "h:d:2026-08-24"
+    assert "завтра ›" not in pairs
     assert pairs["«"] == "h:p:0"
     assert pairs["2/3"] == "noop"
     assert pairs["»"] == "h:p:2"
+    yesterday = history_day_kb(
+        [("12:00 🚬 Сигарета", "h:o:cig:1")],
+        page=0,
+        pages=1,
+        view_start=date(2026, 8, 22),
+        view_end=date(2026, 8, 22),
+        today=today,
+    )
+    ypairs = dict(_pairs(yesterday))
+    assert ypairs["‹ 21.08"] == "h:d:2026-08-21"
+    assert ypairs["22.08"] == "noop"
+    assert ypairs["завтра ›"] == "h:d:2026-08-23"
+    period = history_day_kb(
+        [("😴 Сон 8–15 августа", "h:o:slp:1")],
+        page=0,
+        pages=1,
+        view_start=date(2026, 8, 8),
+        view_end=date(2026, 8, 15),
+        today=today,
+    )
+    ppairs = dict(_pairs(period))
+    assert not any("‹" in text or "›" in text for text in ppairs)
 
 
 def test_track_metrics_kb_toggles_like_stats():

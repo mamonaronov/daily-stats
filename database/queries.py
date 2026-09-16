@@ -1014,6 +1014,26 @@ class Repo:
         )
         return [SleepRecord(**dict(r)) for r in rows]
 
+    async def list_sleep_overlapping(self, telegram_id: int, start: str, end: str) -> list[SleepRecord]:
+        rows = await self.fetchall(
+            """
+            SELECT * FROM sleep_records
+            WHERE telegram_id = ?
+              AND COALESCE(
+                    phone_in_bed_at, phone_away_at, bedtime, sleep_onset_at, wake_time, out_of_bed_at
+                  ) < ?
+              AND (
+                    (wake_time IS NULL AND out_of_bed_at IS NULL)
+                 OR COALESCE(out_of_bed_at, wake_time) >= ?
+              )
+            ORDER BY COALESCE(
+                sleep_onset_at, bedtime, phone_in_bed_at, phone_away_at, wake_time, out_of_bed_at
+            ) ASC
+            """,
+            (telegram_id, end, start),
+        )
+        return [SleepRecord(**dict(r)) for r in rows]
+
     # snus packs
     async def add_snus_pack(
         self,

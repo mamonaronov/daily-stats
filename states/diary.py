@@ -67,6 +67,7 @@ class MarkerSG(StatesGroup):
 
 
 class HistorySG(StatesGroup):
+    browsing = State()
     custom_date = State()
     range_end = State()
 
