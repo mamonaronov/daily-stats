@@ -1091,6 +1091,7 @@ def render_vpn_charts(
     samples: list[VpnLatencySample],
     period_title: str,
     *,
+    color_by_sub: bool = False,
     window_start: datetime | None = None,
     window_end: datetime | None = None,
     tz_name: str = "Europe/Moscow",
@@ -1098,8 +1099,6 @@ def render_vpn_charts(
     if not samples:
         return []
     ok_latencies = [int(sample.latency_ms) for sample in samples if sample.ok and sample.latency_ms is not None]
-    unique_nodes = {short_node_name(sample.node_name) for sample in samples if sample.node_name}
-    color_by_sub = len(unique_nodes) > _MAX_LEGEND_NODES
     points = samples_to_timeline(samples, color_by_sub=color_by_sub)
     points = fill_downtime_gaps(
         points,
@@ -1167,12 +1166,19 @@ def render_availability_charts(
 
 
 async def build_vpn_charts(
-    repo: Repo, start: str, end: str, period_title: str, *, tz_name: str = "Europe/Moscow"
+    repo: Repo,
+    start: str,
+    end: str,
+    period_title: str,
+    *,
+    color_by_sub: bool = False,
+    tz_name: str = "Europe/Moscow",
 ) -> list[tuple[str, bytes]]:
     samples = await repo.list_vpn_samples(start, end)
     return render_vpn_charts(
         samples,
         period_title,
+        color_by_sub=color_by_sub,
         window_start=parse_iso(start),
         window_end=parse_iso(end),
         tz_name=tz_name,

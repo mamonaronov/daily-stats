@@ -1174,7 +1174,8 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
     if view == "a":
         b.row(_btn(f"📈 Доступность за {span}", f"advc:{period}:a" + (":r" if rounded else "")))
     else:
-        b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}"))
+        chart_view = ":s" if view == "s" else ""
+        b.row(_btn(f"📈 Картинки за {span}", f"advc:{period}{chart_view}"))
     b.row(_btn("🛠 Админка", NAV_ADMIN))
     return b.as_markup()
 

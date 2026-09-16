@@ -548,7 +548,8 @@ def test_admin_vpn_kb_callback_limit():
     week_datas = [btn.callback_data for row in week.inline_keyboard for btn in row]
     assert "adv:7d:s" in week_datas
     assert "advl:7d" in week_datas
-    assert "advc:7d" in week_datas
+    assert "advc:7d:s" in week_datas
+    assert "advc:7d" not in week_datas
     labels = [btn.text for row in week.inline_keyboard for btn in row]
     assert any(text and "Логи за неделю" in text for text in labels)
     assert any(text and "Картинки за неделю" in text for text in labels)
@@ -697,6 +698,38 @@ def test_timeline_down_has_nan_ping_but_keeps_time():
     assert points[1].time.second == 10
     assert points[2].ping_ms == 90
     assert points[1].node == "s3 · n1"
+    assert points[0].color_key == "s3 · n1"
+    assert points[2].color_key == "s1 · n2"
+
+
+def test_timeline_keeps_servers_when_many_nodes():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import render_vpn_charts, samples_to_timeline, short_node_name
+    from services.vpn_monitor import subscription_label
+
+    samples = [
+        VpnLatencySample(
+            i,
+            f"2026-08-19T10:00:{i:02d}+00:00",
+            1,
+            80,
+            f"s3 | City {i} | n{i:02d}",
+            "sub3",
+            None,
+        )
+        for i in range(20)
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    keys = {point.color_key for point in points}
+    assert len(keys) == 20
+    assert subscription_label("sub3") not in keys
+    assert short_node_name("s3 | City 0 | n00") in keys
+
+    sub_points = samples_to_timeline(samples, color_by_sub=True)
+    assert {point.color_key for point in sub_points} == {subscription_label("sub3")}
+
+    charts = render_vpn_charts(samples, "сутки")
+    assert any(caption.startswith("Пинг по времени") for caption, _png in charts)
 
 
 def test_downsample_keeps_outages():
@@ -1263,12 +1296,14 @@ def test_parse_vpn_view_availability():
     assert _parse_vpn_view("adv:30m:a") == ("30m", "a", False)
     assert _parse_vpn_view("adv:6h:n") == ("6h", "n", False)
     assert _parse_vpn_view("adv:12h:a:r") == ("12h", "a", True)
-    assert _parse_vpn_chart("advc:7d") == ("7d", False, False)
-    assert _parse_vpn_chart("advc:6h") == ("6h", False, False)
-    assert _parse_vpn_chart("advc:12h:a:r") == ("12h", True, True)
-    assert _parse_vpn_chart("advc:24h:a") == ("24h", True, False)
-    assert _parse_vpn_chart("advc:30m:a:r") == ("30m", True, True)
-    assert _parse_vpn_chart("advc:all:a:r") == ("all", True, True)
+    assert _parse_vpn_chart("advc:7d") == ("7d", False, False, False)
+    assert _parse_vpn_chart("advc:6h") == ("6h", False, False, False)
+    assert _parse_vpn_chart("advc:12h:a:r") == ("12h", True, True, False)
+    assert _parse_vpn_chart("advc:24h:a") == ("24h", True, False, False)
+    assert _parse_vpn_chart("advc:30m:a:r") == ("30m", True, True, False)
+    assert _parse_vpn_chart("advc:all:a:r") == ("all", True, True, False)
+    assert _parse_vpn_chart("advc:24h:s") == ("24h", False, False, True)
+    assert _parse_vpn_chart("advc:7d:s") == ("7d", False, False, True)
 
 
 def test_ping_bucket_key_ranges():
