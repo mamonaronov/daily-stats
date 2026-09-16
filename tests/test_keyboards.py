@@ -554,6 +554,20 @@ def test_stats_period_kb_has_all_time():
     assert ("Всё время", "stp:all") in pairs
     assert ("30 дней", "stp:30") in pairs
 
+
+def test_history_period_kb_has_day_counts():
+    from keyboards.main import history_period_kb
+
+    pairs = _pairs(history_period_kb())
+    assert ("Сегодня", "hist:today") in pairs
+    assert ("Вчера", "hist:yesterday") in pairs
+    assert ("7 дней", "hist:7") in pairs
+    assert ("14 дней", "hist:14") in pairs
+    assert ("30 дней", "hist:30") in pairs
+    assert ("Сколько дней", "hist:ndays") in pairs
+    assert ("📅 Дата", "hist:date") in pairs
+    assert ("📆 Период", "hist:range") in pairs
+
 def test_score_kb_is_one_row():
     from utils.formatting import SCORE_EMOJI
 

@@ -69,6 +69,7 @@ class MarkerSG(StatesGroup):
 class HistorySG(StatesGroup):
     custom_date = State()
     range_end = State()
+    days_count = State()
 
 
 class StatsSG(StatesGroup):

@@ -164,6 +164,21 @@ def test_parse_minutes_ago_units():
     assert parse_minutes_ago("1.5 часа") == 90
 
 
+def test_parse_history_days():
+    from handlers.history import parse_history_days
+
+    assert parse_history_days("7") == 7
+    assert parse_history_days("21 день") == 21
+    assert parse_history_days("3 дня") == 3
+    assert parse_history_days("14 дней") == 14
+    with pytest.raises(ValueError):
+        parse_history_days("0")
+    with pytest.raises(ValueError):
+        parse_history_days("366")
+    with pytest.raises(ValueError):
+        parse_history_days("неделя")
+
+
 def test_parse_when_text_clock_or_minutes_ago():
     from datetime import datetime, timezone
 
