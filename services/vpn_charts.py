@@ -143,17 +143,33 @@ def classify_vpn_signal(*, ok: bool, latency_ms: int | None, error: str | None) 
     return None
 
 
+def _is_subscription_prefix(part: str) -> bool:
+    return len(part) >= 2 and part[0] == "s" and part[1:].isdigit()
+
+
 def short_node_name(name: str | None) -> str:
+    """Legend label: sN subscription plus server, so nodes stay distinct."""
     if not name or not str(name).strip():
         return "нет ноды"
-    parts = [part.strip() for part in str(name).split("|")]
+    parts = [part.strip() for part in str(name).split("|") if part.strip()]
+    prefix = None
+    if len(parts) >= 2 and _is_subscription_prefix(parts[0]):
+        prefix = parts[0]
+        parts = parts[1:]
     if len(parts) >= 2:
         tail = parts[-1]
         if len(tail) > 28:
             tail = tail[:27] + "…"
-        return f"{parts[0]} · {tail}"
-    text = parts[0]
-    return text if len(text) <= 32 else text[:31] + "…"
+        body = f"{parts[0]} · {tail}"
+    else:
+        body = parts[0] if parts else ""
+        if len(body) > 32:
+            body = body[:31] + "…"
+    if not body:
+        return prefix or "нет ноды"
+    if prefix:
+        return f"{prefix} · {body}"
+    return body
 
 
 def latency_central_tendency(values: list[int]) -> CentralTendency | None:

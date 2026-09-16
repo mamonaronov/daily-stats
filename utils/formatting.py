@@ -111,12 +111,33 @@ def duration_human(minutes: int | None) -> str:
     return " ".join(parts)
 
 
+def _paren_suffix(value: str) -> tuple[str, str | None]:
+    prefix, sep, rest = value.rpartition(" (")
+    if not sep or not rest.endswith(")"):
+        return value, None
+    return prefix, rest[:-1]
+
+
 def colon_block(rows: list[tuple[str, str]]) -> str:
-    """Right-align labels so colons share one column in a monospace font."""
+    """Right-align labels so colons share one column in a monospace font.
+
+    Values that end with a parenthetical suffix keep those suffixes in a
+    second column, with the text inside the parentheses right-aligned.
+    """
     if not rows:
         return ""
-    width = max(len(label) for label, _ in rows)
-    return "\n".join(f"{label.rjust(width)}: {value}" for label, value in rows)
+    label_width = max(len(label) for label, _ in rows)
+    parts = [_paren_suffix(value) for _, value in rows]
+    prefix_width = max((len(prefix) for prefix, inner in parts if inner is not None), default=0)
+    inner_width = max((len(inner) for _, inner in parts if inner is not None), default=0)
+    lines: list[str] = []
+    for (label, _), (prefix, inner) in zip(rows, parts, strict=True):
+        if inner is None:
+            value = prefix
+        else:
+            value = f"{prefix.ljust(prefix_width)} ({inner.rjust(inner_width)})"
+        lines.append(f"{label.rjust(label_width)}: {value}")
+    return "\n".join(lines)
 
 
 def pre_html(text: str) -> str:

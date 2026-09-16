@@ -651,7 +651,12 @@ async def test_vpn_report_hides_live_status_and_supports_all_time(repo):
 def test_short_node_name():
     from services.vpn_charts import short_node_name
 
-    assert short_node_name("s3 | 🇨🇾yprus, Nicosia | [BL]-01") == "s3 · [BL]-01"
+    assert short_node_name("s3 | 🇨🇾yprus, Nicosia | [BL]-01") == "s3 · 🇨🇾yprus, Nicosia · [BL]-01"
+    assert short_node_name("s3 | Anycast-IP | 🇸🇪 | [BL]") == "s3 · Anycast-IP · [BL]"
+    assert short_node_name("s1 | 🇳🇱he Netherlands, Amsterdam | [BL]-12") == (
+        "s1 · 🇳🇱he Netherlands, Amsterdam · [BL]-12"
+    )
+    assert short_node_name("s3 | Estonia") == "s3 · Estonia"
     assert short_node_name(None) == "нет ноды"
     assert short_node_name("DIRECT") == "DIRECT"
 
@@ -698,9 +703,9 @@ def test_timeline_down_has_nan_ping_but_keeps_time():
     assert points[1].time.hour == 10
     assert points[1].time.second == 10
     assert points[2].ping_ms == 90
-    assert points[1].node == "s3 · n1"
-    assert points[0].color_key == "s3 · n1"
-    assert points[2].color_key == "s1 · n2"
+    assert points[1].node == "s3 · A · n1"
+    assert points[0].color_key == "s3 · A · n1"
+    assert points[2].color_key == "s1 · B · n2"
 
 
 def test_timeline_keeps_servers_when_many_nodes():
@@ -731,6 +736,28 @@ def test_timeline_keeps_servers_when_many_nodes():
 
     charts = render_vpn_charts(samples, "сутки")
     assert any(caption.startswith("Пинг по времени") for caption, _png in charts)
+
+
+def test_timeline_keeps_servers_when_suffix_is_shared():
+    from database.models import VpnLatencySample
+    from services.vpn_charts import samples_to_timeline
+    from services.vpn_monitor import subscription_label
+
+    samples = [
+        VpnLatencySample(1, "2026-08-19T10:00:00+00:00", 1, 80, "s3 | Cyprus, Nicosia | [BL]", "sub3", None),
+        VpnLatencySample(2, "2026-08-19T10:00:10+00:00", 1, 90, "s3 | France, Paris | [BL]", "sub3", None),
+        VpnLatencySample(3, "2026-08-19T10:00:20+00:00", 1, 70, "s1 | Netherlands, Amsterdam | [BL]", "sub1", None),
+    ]
+    points = samples_to_timeline(samples, color_by_sub=False)
+    keys = [point.color_key for point in points]
+    assert keys == [
+        "s3 · Cyprus, Nicosia · [BL]",
+        "s3 · France, Paris · [BL]",
+        "s1 · Netherlands, Amsterdam · [BL]",
+    ]
+    assert subscription_label("sub3") not in keys
+    assert "s3 · [BL]" not in keys
+    assert all(key.startswith(("s3 · ", "s1 · ")) for key in keys)
 
 
 def test_downsample_keeps_outages():
@@ -1171,14 +1198,17 @@ def test_vpn_bucket_lines_exclusive_layout():
     assert "&gt; 1000 мс:" in lines[1]
     body = html.unescape(lines[1].removeprefix("<pre>").removesuffix("</pre>"))
     rows = body.splitlines()
-    assert rows[0].endswith("0–100 мс: 1 мин 40 с (10,0%)")
-    assert rows[1].endswith("100–500 мс: 3 мин 20 с (20,0%)")
-    assert rows[2].endswith("500–1000 мс: 50 с (5,0%)")
-    assert rows[3].endswith("> 1000 мс: 2 мин 30 с (15,0%)")
-    assert rows[4].endswith("Нет пинга/соединения: 5 мин (30,0%)")
-    assert rows[5].endswith("сервис не запущен: 1 мин 20 с (8,0%)")
-    assert rows[6].endswith("сервер выключен: 2 мин (12,0%)")
+    assert rows == [
+        "            0–100 мс: 1 мин 40 с (10,0%)",
+        "          100–500 мс: 3 мин 20 с (20,0%)",
+        "         500–1000 мс: 50 с       ( 5,0%)",
+        "           > 1000 мс: 2 мин 30 с (15,0%)",
+        "Нет пинга/соединения: 5 мин      (30,0%)",
+        "   сервис не запущен: 1 мин 20 с ( 8,0%)",
+        "     сервер выключен: 2 мин      (12,0%)",
+    ]
     assert len({row.index(":") for row in rows}) == 1
+    assert len({row.index("(") for row in rows}) == 1
 
 
 def test_vpn_bucket_lines_use_expected_period_ticks():
