@@ -96,3 +96,5 @@ def test_guide_explains_core_flows():
     assert "я оплатил" not in PAGES["bal"].lower()
     assert "напишите владельцу" in PAGES["bal"].lower()
     assert "прошедш" in PAGES["mk"].lower()
+    assert "настройках" in PAGES["cm"].lower()
+    assert "кастомн" in PAGES["set"].lower()

@@ -37,10 +37,14 @@ router = Router(name="settings")
 TRACK_PROMPT = "Какие метрики вести:"
 
 
-async def show_track_metrics(cb: CallbackQuery, user: User) -> None:
+async def show_track_metrics(event: CallbackQuery | Message, user: User) -> None:
     from services.ui_prefs import prefs_of
 
-    await safe_edit(cb.message, TRACK_PROMPT, track_metrics_kb(prefs_of(user).tracked))
+    text, markup = TRACK_PROMPT, track_metrics_kb(prefs_of(user).tracked)
+    if isinstance(event, Message):
+        await event.answer(text, reply_markup=markup)
+        return
+    await safe_edit(event.message, text, markup)
 
 
 @router.callback_query(F.data == NAV_SETTINGS)
