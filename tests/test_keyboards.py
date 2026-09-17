@@ -340,14 +340,19 @@ def test_daily_scores_day_and_value_keyboards():
     assert pairs["Вчера"] == "ds:yest"
     assert pairs["📅 Другая дата"] == "ds:date"
     specs = [spec_of("mood"), spec_of("energy")]
-    pairs = _pairs(daily_scores_value_kb(specs, {"mood": 4}))
+    markup = daily_scores_value_kb(specs, {"mood": 4})
+    mood_row, energy_row = markup.inline_keyboard[:2]
+    assert len(mood_row) == len(energy_row) == 7
+    assert mood_row[-1].text == energy_row[-1].text == "✖️"
+    pairs = _pairs(markup)
     assert ("😊", "noop") in pairs
-    assert ("·🙂", "ds:q:md:4") in pairs
+    assert ("[🙂]", "ds:q:md:4") in pairs
     assert ("🤩", "ds:q:md:5") in pairs
     assert ("⚡", "noop") in pairs
     assert ("😢", "ds:q:md:1") in pairs
     assert ("😢", "ds:q:en:1") in pairs
     assert ("✖️", "ds:x:md") in pairs
+    assert ("✖️", "noop") in pairs
     assert ("✖️", "ds:x:en") not in pairs
 
 

@@ -429,10 +429,11 @@ def daily_scores_value_kb(
         row = [_btn(spec.emoji, "noop")]
         chosen = current.get(spec.key)
         for score in range(1, 6):
-            mark = "·" if chosen == score else ""
-            row.append(_btn(f"{mark}{SCORE_EMOJI[score]}", f"ds:q:{spec.code}:{score}"))
-        if chosen is not None:
-            row.append(_btn("✖️", f"ds:x:{spec.code}"))
+            face = SCORE_EMOJI[score]
+            label = f"[{face}]" if chosen == score else face
+            row.append(_btn(label, f"ds:q:{spec.code}:{score}"))
+        clear = f"ds:x:{spec.code}" if chosen is not None else "noop"
+        row.append(_btn("✖️", clear))
         b.row(*row)
     b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
