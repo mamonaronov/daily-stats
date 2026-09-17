@@ -64,6 +64,9 @@ def test_admin_clicks_kb_callback_limit():
     root = [(btn.text, btn.callback_data) for row in admin_root_kb().inline_keyboard for btn in row]
     assert ("🖱 Нажатия", "ad:clk") in root
     kb = admin_clicks_kb("7")
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert "[7 дней]" in labels
+    assert "Сегодня" in labels
     datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
     assert "adclk:7" in datas
     assert "adclkc:7" in datas

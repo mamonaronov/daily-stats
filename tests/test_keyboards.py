@@ -533,6 +533,28 @@ def test_markers_root_and_card():
     assert same["Как у начала: Экзамен"] == "mk:samename"
 
 
+def test_marker_pick_kb_wraps_selected():
+    from keyboards.main import marker_pick_kb
+
+    first = SimpleNamespace(
+        id=4,
+        name="Экзамен",
+        occurred_at="2026-05-12T07:00:00+00:00",
+        period_role=None,
+    )
+    second = SimpleNamespace(
+        id=5,
+        name="Встреча",
+        occurred_at="2026-05-12T08:00:00+00:00",
+        period_role=None,
+    )
+    pairs = dict(_pairs(marker_pick_kb([first, second], "mk:js", "UTC", selected_id=4)))
+    selected = [text for text, data in pairs.items() if data == "mk:js:4"][0]
+    other = [text for text, data in pairs.items() if data == "mk:js:5"][0]
+    assert selected.startswith("[") and selected.endswith("]")
+    assert not other.startswith("[")
+
+
 def test_when_kb_marker_goes_back_to_markers():
     from keyboards.main import DATE_WHEN_PREFIXES, SLEEP_WHEN_PREFIXES
 

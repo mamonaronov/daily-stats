@@ -42,6 +42,10 @@ def _btn(text: str, data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=data)
 
 
+def _selected(text: str, on: bool) -> str:
+    return f"[{text}]" if on else text
+
+
 def nav_row(back: str | None = None, *, menu: bool = True) -> list[InlineKeyboardButton]:
     row = []
     if back and back != NAV_MAIN:
@@ -435,9 +439,7 @@ def daily_scores_value_kb(
         row = [_btn(spec.emoji, "noop")]
         chosen = current.get(spec.key)
         for score in range(1, 6):
-            face = SCORE_EMOJI[score]
-            label = f"[{face}]" if chosen == score else face
-            row.append(_btn(label, f"ds:q:{spec.code}:{score}"))
+            row.append(_btn(_selected(SCORE_EMOJI[score], chosen == score), f"ds:q:{spec.code}:{score}"))
         clear = f"ds:x:{spec.code}" if chosen is not None else "noop"
         row.append(_btn("✖️", clear))
         b.row(*row)
@@ -1082,12 +1084,12 @@ def admin_clicks_kb(period: str = "today") -> InlineKeyboardMarkup:
         period = "today"
     b = InlineKeyboardBuilder()
     b.row(
-        _btn(("• " if period == "today" else "") + "Сегодня", "adclk:today"),
-        _btn(("• " if period == "7" else "") + "7 дней", "adclk:7"),
+        _btn(_selected("Сегодня", period == "today"), "adclk:today"),
+        _btn(_selected("7 дней", period == "7"), "adclk:7"),
     )
     b.row(
-        _btn(("• " if period == "30" else "") + "30 дней", "adclk:30"),
-        _btn(("• " if period == "all" else "") + "Всё время", "adclk:all"),
+        _btn(_selected("30 дней", period == "30"), "adclk:30"),
+        _btn(_selected("Всё время", period == "all"), "adclk:all"),
     )
     span = {"today": "сегодня", "7": "7 дней", "30": "30 дней", "all": "всё время"}[period]
     b.row(_btn(f"📈 Графики за {span}", f"adclkc:{period}"))
@@ -1196,15 +1198,15 @@ def admin_vpn_kb(period: str = "24h", view: str = "n", *, rounded: bool = False)
         (("7d", "неделя"), ("30d", "месяц"), ("all", "всё время")),
     )
     for labels in rows:
-        b.row(*[_btn(("• " if key == period else "") + label, f"adv:{key}:{token}") for key, label in labels])
+        b.row(*[_btn(_selected(label, key == period), f"adv:{key}:{token}") for key, label in labels])
     b.row(
-        _btn(("• " if view == "n" else "") + "Ноды", f"adv:{period}:n"),
-        _btn(("• " if view == "s" else "") + "Подписки", f"adv:{period}:s"),
-        _btn(("• " if view == "a" else "") + "Доступность", f"adv:{period}:a" + (":r" if rounded else "")),
+        _btn(_selected("Ноды", view == "n"), f"adv:{period}:n"),
+        _btn(_selected("Подписки", view == "s"), f"adv:{period}:s"),
+        _btn(_selected("Доступность", view == "a"), f"adv:{period}:a" + (":r" if rounded else "")),
     )
     span = _VPN_SPAN_LABELS.get(period, "сутки")
     if view == "a":
-        b.row(_btn(("• " if rounded else "") + "Округление", f"adv:{period}:a" + ("" if rounded else ":r")))
+        b.row(_btn(_selected("Округление", rounded), f"adv:{period}:a" + ("" if rounded else ":r")))
     b.row(_btn(f"📄 Логи за {span}", f"advl:{period}"))
     if view == "a":
         b.row(_btn(f"📈 Доступность за {span}", f"advc:{period}:a" + (":r" if rounded else "")))
@@ -1250,8 +1252,9 @@ def marker_name_kb(same_as: str | None = None) -> InlineKeyboardMarkup:
 def marker_pick_kb(items, prefix: str, tz: str, *, selected_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for item in items:
-        mark = "• " if selected_id is not None and item.id == selected_id else ""
-        b.row(_btn(truncate(f"{mark}{_marker_btn_label(item, tz)}", 40), f"{prefix}:{item.id}"))
+        on = selected_id is not None and item.id == selected_id
+        label = truncate(_marker_btn_label(item, tz), 38 if on else 40)
+        b.row(_btn(_selected(label, on), f"{prefix}:{item.id}"))
     return with_nav(b, NAV_MARKERS)
 
 

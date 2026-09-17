@@ -529,7 +529,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "advc:24h" in datas
     assert all(len(data.encode()) <= 64 for data in datas)
     labels = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert any(text and text.startswith("• Ноды") for text in labels)
+    assert any(text == "[Ноды]" for text in labels)
     assert any(text == "Доступность" for text in labels)
     assert any(text == "30 мин" for text in labels)
     assert any(text == "6 ч" for text in labels)
@@ -540,7 +540,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:30m:n" in half_datas
     assert "advl:30m" in half_datas
     assert "advc:30m" in half_datas
-    assert any(text and text.startswith("• 30 мин") for text in half_labels)
+    assert any(text == "[30 мин]" for text in half_labels)
     assert any(text and "Логи за 30 мин" in text for text in half_labels)
     assert any(text and "Картинки за 30 мин" in text for text in half_labels)
 
@@ -553,7 +553,7 @@ def test_admin_vpn_kb_callback_limit():
     labels = [btn.text for row in week.inline_keyboard for btn in row]
     assert any(text and "Логи за неделю" in text for text in labels)
     assert any(text and "Картинки за неделю" in text for text in labels)
-    assert any(text and text.startswith("• Подписки") for text in labels)
+    assert any(text == "[Подписки]" for text in labels)
 
     avail = admin_vpn_kb("24h", "a")
     avail_datas = [btn.callback_data for row in avail.inline_keyboard for btn in row]
@@ -562,7 +562,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:24h:a:r" in avail_datas
     assert "advc:24h:a" in avail_datas
     assert "advc:24h" not in avail_datas
-    assert any(text and text.startswith("• Доступность") for text in avail_labels)
+    assert any(text == "[Доступность]" for text in avail_labels)
     assert any(text == "Округление" for text in avail_labels)
     assert any(text and "Доступность за сутки" in text for text in avail_labels)
     assert all(text and "Картинки" not in text for text in avail_labels)
@@ -572,7 +572,7 @@ def test_admin_vpn_kb_callback_limit():
     rounded_labels = [btn.text for row in rounded.inline_keyboard for btn in row]
     assert "adv:7d:a:r" in rounded_datas
     assert "advc:7d:a:r" in rounded_datas
-    assert any(text and text.startswith("• Округление") for text in rounded_labels)
+    assert any(text == "[Округление]" for text in rounded_labels)
     assert any(text and "Доступность за неделю" in text for text in rounded_labels)
     assert all(len(data.encode()) <= 64 for data in rounded_datas)
 
@@ -582,7 +582,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:6h:n" in six_datas
     assert "advl:6h" in six_datas
     assert "advc:6h" in six_datas
-    assert any(text and text.startswith("• 6 ч") for text in six_labels)
+    assert any(text == "[6 ч]" for text in six_labels)
     assert any(text and "Логи за 6 часов" in text for text in six_labels)
     assert any(text and "Картинки за 6 часов" in text for text in six_labels)
 
@@ -592,7 +592,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:12h:a" in twelve_datas
     assert "advl:12h" in twelve_datas
     assert "advc:12h:a" in twelve_datas
-    assert any(text and text.startswith("• 12 ч") for text in twelve_labels)
+    assert any(text == "[12 ч]" for text in twelve_labels)
     assert any(text and "Логи за 12 часов" in text for text in twelve_labels)
     assert any(text and "Доступность за 12 часов" in text for text in twelve_labels)
 
@@ -602,7 +602,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:all:n" in all_datas
     assert "advl:all" in all_datas
     assert "advc:all" in all_datas
-    assert any(text and text.startswith("• всё время") for text in all_labels)
+    assert any(text == "[всё время]" for text in all_labels)
     assert any(text and "Логи за всё время" in text for text in all_labels)
     assert any(text and "Картинки за всё время" in text for text in all_labels)
 
