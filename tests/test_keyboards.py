@@ -38,6 +38,7 @@ from keyboards.main import (
     steps_value_kb,
     timezone_kb,
     track_metrics_kb,
+    wake_kind_kb,
     wake_reminder_kb,
     wake_up_reminder_kb,
     when_kb,
@@ -434,7 +435,7 @@ def test_saved_entry_actions_use_undo():
     assert onset["5 мин назад"] == "slo:ago:5"
 
 
-def test_when_kb_sleep_wake_goes_back_to_quality():
+def test_when_kb_sleep_wake_goes_back_to_wake_kind():
     pairs = dict(_pairs(when_kb("slw")))
     assert pairs["Сейчас"] == "slw:now"
     assert pairs["Сегодня"] == "slw:today"
@@ -442,6 +443,13 @@ def test_when_kb_sleep_wake_goes_back_to_quality():
     assert pairs["Позавчера"] == "slw:daybefore"
     assert pairs["📅 Другая дата"] == "slw:date"
     assert pairs["🕐 Указать время"] == "slw:time"
+    assert pairs["⬅️ Назад"] == "slp:wk"
+
+
+def test_wake_kind_kb_two_options():
+    pairs = dict(_pairs(wake_kind_kb("slp:ql")))
+    assert pairs["Сам"] == "slk:self"
+    assert pairs["Из-за чего-то"] == "slk:other"
     assert pairs["⬅️ Назад"] == "slp:ql"
 
 

@@ -45,6 +45,8 @@ def test_classify_button_kinds():
     assert classify_button("ds:x:md") == "daily_scores"
     assert classify_button("dscal:2026-09-02") == "daily_scores"
     assert classify_button("slp:wake") == "sleep"
+    assert classify_button("slk:self") == "sleep"
+    assert classify_button("slq:4") == "sleep"
     assert classify_button("slb:now") == "sleep"
     assert classify_button("sln:time") == "sleep"
     assert classify_button("mkt:yesterday") == "markers"

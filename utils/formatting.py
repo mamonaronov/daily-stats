@@ -44,6 +44,14 @@ ACTIVITY_TYPES = {
     "other": "другое",
 }
 
+WAKE_KIND_SELF = "self"
+WAKE_KIND_OTHER = "other"
+WAKE_KIND_LABELS = {
+    WAKE_KIND_SELF: "сам",
+    WAKE_KIND_OTHER: "из-за чего-то",
+}
+WAKE_KINDS = frozenset(WAKE_KIND_LABELS)
+
 METRIC_TYPE_LABELS = {
     "number": "число",
     "text": "текст",
@@ -175,6 +183,12 @@ def bytes_human(size: int) -> str:
 
 def score_text(score: int) -> str:
     return f"{SCORE_EMOJI.get(score, '')} {SCORE_LABELS.get(score, str(score))}".strip()
+
+
+def wake_kind_text(kind: str | None) -> str | None:
+    if not kind:
+        return None
+    return WAKE_KIND_LABELS.get(kind)
 
 
 def _days_ru(n: int) -> str:

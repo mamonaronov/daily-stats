@@ -204,7 +204,7 @@ _WHEN_BACK = {
     "alct": ENTRY_ALC,
     "actt": ENTRY_ACT,
     "wgt": ENTRY_WGT,
-    "slw": "slp:ql",
+    "slw": "slp:wk",
     "slu": ENTRY_SLEEP,
     "slb": ENTRY_SLEEP,
     "sln": ENTRY_SLEEP,
@@ -297,6 +297,12 @@ def score_kb(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b.row(*[_btn(SCORE_EMOJI[score], f"{prefix}:{score}") for score in range(1, 6)])
     b.row(*nav_row(back))
     return b.as_markup()
+
+
+def wake_kind_kb(back: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Сам", "slk:self"), _btn("Из-за чего-то", "slk:other"))
+    return with_nav(b, back)
 
 
 def caffeine_types() -> InlineKeyboardMarkup:

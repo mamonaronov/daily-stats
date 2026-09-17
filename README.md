@@ -250,7 +250,7 @@ SQLite + aiosqlite, режим **WAL**, `foreign_keys=ON`, `busy_timeout=5000`, 
 
 Все SQL-запросы параметризованы. Пользовательские данные не конкатенируются в текст запроса.
 
-Версия схемы хранится в `PRAGMA user_version`. Требуемая версия приложения — константа `REQUIRED_DB_VERSION` в `config.py` (сейчас `16`).
+Версия схемы хранится в `PRAGMA user_version`. Требуемая версия приложения — константа `REQUIRED_DB_VERSION` в `config.py` (сейчас `17`).
 
 При старте:
 

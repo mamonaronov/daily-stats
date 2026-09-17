@@ -16,6 +16,7 @@ from utils.formatting import (
     format_int_spaces,
     format_kg,
     score_text,
+    wake_kind_text,
 )
 from utils.quantity import format_quantity, format_volume_ml, milliliters_of
 from utils.time import day_bounds_utc, format_time, parse_iso, to_iso, user_today
@@ -89,6 +90,9 @@ def sleep_status_line(sleep: SleepRecord | None) -> str:
         line = duration_human(sleep.duration_minutes)
         if sleep.quality:
             line += f", {score_text(sleep.quality)}"
+        kind_label = wake_kind_text(sleep.wake_kind)
+        if kind_label:
+            line += f", {kind_label}"
         return line
     if phase in SLEEP_OPEN:
         return "не закрыт"

@@ -97,6 +97,7 @@ class SleepRecord:
     phone_away_at: str | None = None
     sleep_onset_at: str | None = None
     out_of_bed_at: str | None = None
+    wake_kind: str | None = None
 
     def phase(self) -> str:
         if self.wake_time is None:
