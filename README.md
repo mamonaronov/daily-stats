@@ -94,18 +94,19 @@ Telegram  →  aiogram Dispatcher  →  handlers  →  services  →  SQLite (ai
 
 ## Быстрый запуск
 
-На машине с Docker, systemd и mihomo достаточно применить конфиги из репозитория:
+На машине с Docker и systemd достаточно заполнить `.env` и применить конфиги из репозитория. Этот репозиторий — только бот: SOCKS/API живут в отдельном проекте **mihomo-proxy**.
 
 ```bash
 cp .env.example .env
 # Заполните BOT_TOKEN, OWNER_TELEGRAM_ID, OWNER_CONTACT
+# Если Telegram с VPS недоступен — сначала поднимите mihomo-proxy (см. ниже)
 
 chmod +x deploy.sh
 ./deploy.sh
 docker compose logs -f bot
 ```
 
-`./deploy.sh` ставит mihomo (`11808` / `19090`), systemd-юниты, `docker-compose.override.yml` и поднимает контейнер. Пакет: `yay -S mihomo`. Нужен sudo.
+`./deploy.sh` ставит systemd-юнит бота и поднимает контейнер. Mihomo на Arch он **не** ставит. Нужен sudo.
 
 Вручную, без скрипта:
 
@@ -116,6 +117,8 @@ mkdir -p data backups
 
 docker compose build
 docker compose up -d
+# Если TELEGRAM_PROXY_URL задан:
+# docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
 docker compose logs -f bot
 ```
 
@@ -147,56 +150,70 @@ docker compose down -t -1
 
 ## Прокси (блокировки Telegram)
 
-Если Telegram недоступен с сервера, бот ходит через **отдельный** mihomo на хосте, а не через личный v2rayN.
+Если Telegram недоступен с сервера, бот ходит через **отдельный** compose **mihomo-proxy** на той же машине (Docker-сеть `telegram-proxy`, DNS-имя `proxy`). В этом репозитории нет сервиса `proxy`, нет `network_mode: host` и нет подписок.
 
-Порты специально разведены, чтобы оба клиента могли работать одновременно:
-
-| Клиент | Назначение | Порты |
+| Что | Где | Порты |
 |---|---|---|
-| v2rayN | ваш трафик | SOCKS/HTTP `10808` / `10809` |
-| mihomo | только бот | mixed `11808`, API `19090` |
+| daily-stats | этот compose | ничего не публикует на `11808` / `19090` |
+| mihomo-proxy | другой compose, сеть `telegram-proxy` | SOCKS `11808`, API `19090` (hostname `proxy`) |
 
-1. Порты берутся из `deploy/mihomo/config.yaml`, а не с `10808` v2rayN.
-2. Примените всё сразу:
+Секрет API и URL подписок живут в `.env` **mihomo-proxy**, не здесь. Смена списка нод — не этот репозиторий.
 
-```bash
-./deploy.sh
-```
+### 1. Сначала mihomo-proxy
 
-Только override (без systemd/mihomo):
+В репозитории mihomo-proxy:
 
 ```bash
-chmod +x generate-docker-override.sh
-./generate-docker-override.sh
-docker compose up -d --build
+cp .env.example .env
+# MIHOMO_API_SECRET и SUB*_URL — там
+docker compose up -d
 ```
 
-Получится примерно:
+Состояние прокси (кэш нод) — в `mihomo-proxy/data/`, не в `/var/lib` и не в `data/` бота.
 
-```yaml
-services:
-  bot:
-    network_mode: host
-    environment:
-      HTTP_PROXY: http://127.0.0.1:11808
-      HTTPS_PROXY: http://127.0.0.1:11808
-      NO_PROXY: localhost,127.0.0.1
-      ALL_PROXY: socks5://127.0.0.1:11808
-      TELEGRAM_PROXY_URL: socks5://127.0.0.1:11808
-```
+### 2. Затем бот
 
-`network_mode: host` нужен, чтобы `127.0.0.1:11808` внутри контейнера был тем же портом, что слушает mihomo на машине. Файл override не коммитится.
-
-Проверка:
+В `.env` **этого** бота (не коммитится) — тот же секрет и адреса внутри Docker-сети:
 
 ```bash
-curl -s --max-time 5 -x "socks5://127.0.0.1:11808" https://api.telegram.org
-docker compose logs -f | grep telegram_proxy
+TELEGRAM_PROXY_URL=socks5://proxy:11808
+MIHOMO_API_URL=http://proxy:19090
+MIHOMO_API_SECRET=          # точно как в .env mihomo-proxy
+MIHOMO_PROXY_GROUP=AUTO
 ```
 
-В логах должно быть `telegram_proxy_enabled`. Aiogram ходит через `AiohttpSession(proxy=...)` (пакет `aiohttp-socks`).
+`./deploy.sh` при непустом `TELEGRAM_PROXY_URL` поднимает контейнер с `docker-compose.yml` и `docker-compose.proxy.yml` (сеть `telegram-proxy` как `external`). Сеть создаёт proxy-проект; скрипт на всякий случай делает `docker network create telegram-proxy`, если её ещё нет, и напоминает поднять mihomo-proxy.
 
-Где Telegram доступен напрямую, оставьте `TELEGRAM_PROXY_URL` пустым и **не** запускайте `generate-docker-override.sh`.
+### 3. Смена подписки
+
+Правите `.env` в **mihomo-proxy**. Файлы daily-stats не трогайте: `SUB1_URL`… сюда не входят.
+
+### 4. Деплой бота
+
+`./deploy.sh` больше **не** ставит пакет mihomo на Arch, не копирует конфиг в `/etc/mihomo` и не пишет `docker-compose.override.yml`.
+
+### 5. Проверка
+
+В логах бота должно быть `telegram_proxy_enabled`. Aiogram ходит через `AiohttpSession(proxy=...)` (пакет `aiohttp-socks`). Проверка SOCKS — **из сети** `telegram-proxy`, не `localhost` хоста:
+
+```bash
+docker compose logs bot | grep telegram_proxy
+docker run --rm --network telegram-proxy curlimages/curl -sS --max-time 8 \
+  -x socks5h://proxy:11808 https://api.telegram.org
+```
+
+### 6. Прямой Telegram
+
+Оставьте `TELEGRAM_PROXY_URL` пустым. Тогда `./deploy.sh` поднимает только `docker-compose.yml`, без proxy-сети.
+
+### 7. Миграция с хостового mihomo
+
+1. Поднимите mihomo-proxy рядом (свой compose, своё `.env` с секретом и URL подписок).
+2. Скопируйте кэш нод в `mihomo-proxy/data/providers`, **не** в `data/` бота (`vpn.sqlite3` — это пинги бота, его оставьте в `./data`).
+3. В `.env` бота замените `socks5://127.0.0.1:11808` на `socks5://proxy:11808` и `http://127.0.0.1:19090` на `http://proxy:19090`. Секрет тот же, что в mihomo-proxy. `./deploy.sh` `.env` не затирает.
+4. Удалите оставшийся `docker-compose.override.yml`, если в нём ещё `network_mode: host` (скрипт уберёт его сам).
+5. `./deploy.sh` в каталоге бота.
+6. `sudo systemctl disable --now mihomo.service` — хостовый юнит больше не нужен.
 
 ---
 
@@ -223,7 +240,10 @@ docker compose logs -f | grep telegram_proxy
 | `TELEGRAM_BACKUP_ROOT` | нет | корень приложения | Откуда брать `.env` и конфиги для архива. В Docker — `/host` |
 | `BILLING_CHECK_MINUTES` | нет | `15` | Интервал проверки ежедневных списаний |
 | `LOG_LEVEL` | нет | `INFO` | Уровень JSON-логов |
-| `TELEGRAM_PROXY_URL` | нет | пусто | SOCKS5 для Telegram API, например `socks5://127.0.0.1:11808` (mihomo). Пусто, если Telegram доступен напрямую |
+| `TELEGRAM_PROXY_URL` | нет | пусто | SOCKS5 для Telegram API, в Docker: `socks5://proxy:11808`. Пусто, если Telegram доступен напрямую |
+| `MIHOMO_API_URL` | нет | `http://127.0.0.1:19090` (pytest) | REST mihomo. В Docker: `http://proxy:19090` |
+| `MIHOMO_API_SECRET` | нет | пусто | Тот же секрет, что `MIHOMO_API_SECRET` в `.env` mihomo-proxy |
+| `MIHOMO_PROXY_GROUP` | нет | `AUTO` | Группа, у которой монитор читает текущую ноду |
 | `SPAM_BUTTON_COUNT` | нет | `20` | Алерт, если столько нажатий кнопок за окно. `0` — выкл. Пользователя не ограничивает |
 | `SPAM_BUTTON_WINDOW_SECONDS` | нет | `8` | Окно для подсчёта нажатий |
 | `SPAM_WRITE_COUNT` | нет | `15` | Алерт, если столько новых записей за окно. `0` — выкл. |
@@ -286,7 +306,7 @@ Backup идёт через SQLite Online Backup API: в копию попада�
 
 Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются. Пинги VPN живут в отдельном `vpn.sqlite3`, нажатия кнопок — в `clicks.sqlite3` (по умолчанию оба в `./data`) и **не входят** ни в копии на диск, ни в архив в Telegram.
 
-Отдельно в привязанную группу уходит архив `.tgz` (gzip-tar, сжатие однопоточным **gzip**; расширение одно, чтобы Telegram/Ark не принимали файл за «просто .gz»): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.override.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10-10-10_{short-hash}_{тема-коммита}_db{версия}.tgz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_MINUTES`, по умолчанию **30 минут**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает автоотправку. Пока группа не привязана, задание пропускается. Владелец добавляет бота в группу (или пишет там `/backup_here`) — архивы начинают уходить туда. В личку владельцу архив приходит только по кнопке **📤 Сделать бэкап сейчас**. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
+Отдельно в привязанную группу уходит архив `.tgz` (gzip-tar, сжатие однопоточным **gzip**; расширение одно, чтобы Telegram/Ark не принимали файл за «просто .gz»): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.proxy.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10-10-10_{short-hash}_{тема-коммита}_db{версия}.tgz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_MINUTES`, по умолчанию **30 минут**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает автоотправку. Пока группа не привязана, задание пропускается. Владелец добавляет бота в группу (или пишет там `/backup_here`) — архивы начинают уходить туда. В личку владельцу архив приходит только по кнопке **📤 Сделать бэкап сейчас**. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
 
 Docker-логи ограничены: `max-size: 10m`, `max-file: 5`.
 
@@ -301,7 +321,7 @@ git pull --ff-only
 ./deploy.sh
 ```
 
-`./deploy.sh` применяет конфиги, systemd-юнит бота, собирает образ и перезапускает контейнер. Старый таймер самообновления (`daily-stats-update.timer`) при этом снимается, если ещё стоял.
+`./deploy.sh` ставит systemd-юнит бота, собирает образ и перезапускает контейнер (с `docker-compose.proxy.yml`, если задан `TELEGRAM_PROXY_URL`). Старый таймер самообновления (`daily-stats-update.timer`) при этом снимается, если ещё стоял.
 
 Откат:
 
@@ -378,7 +398,7 @@ cd daily-stats
 ./deploy.sh
 ```
 
-Если Telegram с этой машины доступен напрямую, без mihomo:
+Если Telegram с этой машины доступен напрямую (`TELEGRAM_PROXY_URL` пустой):
 
 ```bash
 ./restore.sh ~/Downloads/daily-stats-backup_….tgz --start
@@ -497,9 +517,11 @@ Telegram отдаёт боту файлы **не больше 20 МБ**. Есл�
 ```text
 bot.py                 точка входа, один Bot(), polling, shutdown-backup
 config.py              окружение, REQUIRED_DB_VERSION, TELEGRAM_PROXY_URL
-deploy.sh              применяет mihomo, systemd (бот), override и поднимает контейнер
+deploy.sh              systemd-юнит бота и docker compose up (без установки mihomo)
+deploy/daily-stats.service   systemd-юнит бота
+docker-compose.yml     бот; bind ./data, ./backups, . → /host:ro
+docker-compose.proxy.yml     сеть telegram-proxy: external (если TELEGRAM_PROXY_URL задан)
 restore.sh             поднимает БД и .env из архива, который бот слал в Telegram
-generate-docker-override.sh  host-network + HTTP(S)_PROXY из mihomo config.yaml
 handlers/              Telegram-сценарии (FSM, inline-кнопки)
 legal/                 политика конфиденциальности и пользовательское соглашение
 services/              биллинг, статистика, графики, записи, telegram backup/restore

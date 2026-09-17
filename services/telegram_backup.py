@@ -31,6 +31,7 @@ CONFIG_ITEMS = (
     ".env.example",
     "config.py",
     "docker-compose.yml",
+    "docker-compose.proxy.yml",
     "docker-compose.override.yml",
     "Dockerfile",
     "docker-entrypoint.sh",

@@ -25,8 +25,8 @@ Usage: $(basename "$0") ARCHIVE [--start] [--keep-env]
 
   git clone <repo> && cd daily-stats
   ./restore.sh ~/Downloads/daily-stats-backup_….tgz
-  ./deploy.sh          # mihomo + контейнер
-  # или, если Telegram доступен напрямую:
+  ./deploy.sh          # контейнер (+ docker-compose.proxy.yml, если TELEGRAM_PROXY_URL задан)
+  # или, если Telegram доступен напрямую (пустой TELEGRAM_PROXY_URL):
   ./restore.sh ~/Downloads/daily-stats-backup_….tgz --start
 
 Если бот уже запущен, скрипт сначала остановит контейнер.
@@ -164,6 +164,6 @@ if [[ "$START" -eq 1 ]]; then
 else
   echo
   echo "next:"
-  echo "  ./deploy.sh                 # новый сервер (mihomo + контейнер)"
+  echo "  ./deploy.sh                 # новый сервер (контейнер; прокси — отдельный mihomo-proxy)"
   echo "  docker compose up -d --build"
 fi

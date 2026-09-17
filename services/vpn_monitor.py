@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 NODE_PREFIX_RE = re.compile(r"^(s\d+)\s+\|")
 
-# Labels match deploy/mihomo/config.yaml proxy-providers.
+# Labels match mihomo-proxy subscription prefixes (s1 | …).
 SUBSCRIPTION_LABELS = {
     "sub1": "VLESS / все конфиги",
     "sub2": "Shadowsocks+All",

@@ -1,4 +1,6 @@
 # Installed by ./deploy.sh (WorkingDirectory is rewritten to the repo path).
+# ExecStart/ExecStop compose files are rewritten too: with proxy, both
+# docker-compose.yml and docker-compose.proxy.yml; without proxy, the default file.
 # Manual:
 #   sudo cp deploy/daily-stats.service /etc/systemd/system/daily-stats.service
 #   sudo systemctl daemon-reload
@@ -7,8 +9,8 @@
 [Unit]
 Description=Daily Stats Telegram bot
 Requires=docker.service
-Wants=mihomo.service network-online.target
-After=docker.service network-online.target mihomo.service
+Wants=network-online.target
+After=docker.service network-online.target
 
 [Service]
 Type=oneshot

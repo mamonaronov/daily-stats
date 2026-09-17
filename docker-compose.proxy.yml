@@ -1,0 +1,13 @@
+# Attach the bot to the mihomo-proxy compose network (created by that project).
+# DNS name: proxy   SOCKS: 11808   API: 19090
+# Do not add a proxy service here.
+networks:
+  telegram-proxy:
+    name: telegram-proxy
+    external: true
+
+services:
+  bot:
+    networks:
+      - default
+      - telegram-proxy

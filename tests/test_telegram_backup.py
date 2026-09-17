@@ -330,18 +330,21 @@ def test_write_env_snapshot_without_example(tmp_path, monkeypatch):
 
 def test_collect_configs(tmp_path):
     root = tmp_path / "host"
-    (root / "deploy" / "mihomo").mkdir(parents=True)
+    (root / "deploy").mkdir(parents=True)
     (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (root / "docker-compose.proxy.yml").write_text("networks: {}\n", encoding="utf-8")
     (root / "config.py").write_text("# cfg\n", encoding="utf-8")
-    (root / "deploy" / "mihomo" / "config.yaml").write_text("mixed-port: 1\n", encoding="utf-8")
+    (root / "deploy" / "daily-stats.service").write_text("[Unit]\n", encoding="utf-8")
     staging = tmp_path / "staging"
     staging.mkdir()
     packed = collect_configs(staging, root)
     assert "docker-compose.yml" in packed
+    assert "docker-compose.proxy.yml" in packed
     assert "config.py" in packed
     assert "deploy" in packed
     assert (staging / "configs" / "docker-compose.yml").is_file()
-    assert (staging / "configs" / "deploy" / "mihomo" / "config.yaml").is_file()
+    assert (staging / "configs" / "docker-compose.proxy.yml").is_file()
+    assert (staging / "configs" / "deploy" / "daily-stats.service").is_file()
 
 
 @pytest.mark.asyncio
