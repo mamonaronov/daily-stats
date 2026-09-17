@@ -87,6 +87,8 @@ def test_guide_explains_core_flows():
     assert "во сколько проснулись" in PAGES["sleep"].lower()
     assert "указать время" in PAGES["sleep"].lower()
     assert "когда заснули" in PAGES["sleep"].lower()
+    assert "во сколько уснули" in PAGES["sleep"].lower()
+    assert "затем когда заснули" in PAGES["sleep"].lower()
     assert "с телефоном и без" in PAGES["sleep"].lower()
     assert "отдельн" in PAGES["sleep"].lower() or "метрик" in PAGES["sleep"].lower()
     assert "в любой момент" in PAGES["sleep"].lower()

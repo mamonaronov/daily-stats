@@ -81,13 +81,45 @@ def _attach_bed_to_open(rec, iso: str) -> bool:
     return False
 
 
+def _onset_before_rise(rec, iso: str) -> bool:
+    return _not_after(iso, rec.wake_time) and _not_after(iso, rec.out_of_bed_at)
+
+
 def _onset_fits(rec, iso: str) -> bool:
     if rec.sleep_onset_at:
         return False
-    if not rec.wake_time and not rec.out_of_bed_at and not _has_sleep_night(rec):
+    if rec.wake_time or rec.out_of_bed_at:
+        return _onset_before_rise(rec, iso)
+    if not _has_sleep_night(rec):
         return False
     bed = rec.phone_away_at or rec.phone_in_bed_at or rec.bedtime
-    return _not_after(bed, iso) and _not_after(iso, rec.wake_time) and _not_after(iso, rec.out_of_bed_at)
+    return _not_after(bed, iso)
+
+
+def _is_orphan_onset(item, rec_id: int, before_iso: str | None) -> bool:
+    if item.id == rec_id or not item.sleep_onset_at:
+        return False
+    if item.wake_time is not None or item.out_of_bed_at is not None:
+        return False
+    if _has_sleep_night(item):
+        return False
+    return bool(before_iso) and _not_after(item.sleep_onset_at, before_iso)
+
+
+def needs_onset_prompt(rec, records: list) -> bool:
+    if rec is None or rec.sleep_onset_at:
+        return False
+    bound = rec.wake_time or rec.out_of_bed_at
+    for other in records:
+        if other.id == rec.id:
+            continue
+        if not other.sleep_onset_at:
+            continue
+        if rec.wake_time and other.wake_time == rec.wake_time:
+            return False
+        if _is_orphan_onset(other, rec.id, bound):
+            return False
+    return True
 
 
 def _wake_fits(rec, iso: str) -> bool:
@@ -235,6 +267,19 @@ async def add_sleep_wake_and_up(
     return _saved(user, "сон (проснулся и встал)", when, item_id)
 
 
+async def _absorb_orphan_onset(repo: Repo, user: User, rec, before_iso: str) -> str | None:
+    if rec.sleep_onset_at:
+        return rec.sleep_onset_at
+    orphan = _pick_sleep(
+        await repo.list_recent_sleep(user.telegram_id),
+        lambda item: _is_orphan_onset(item, rec.id, before_iso),
+    )
+    if orphan is None:
+        return None
+    await repo.delete_sleep(orphan.id, user.telegram_id)
+    return orphan.sleep_onset_at
+
+
 async def add_sleep_up(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
@@ -243,7 +288,12 @@ async def add_sleep_up(repo: Repo, user: User, when: datetime) -> tuple[int | No
     records = await repo.list_recent_sleep(user.telegram_id)
     rec = _pick_sleep(records, lambda item: _up_fits_after_wake(item, iso))
     if rec is not None:
-        await repo.update_sleep(rec.id, user.telegram_id, out_of_bed_at=iso)
+        fields: dict = {"out_of_bed_at": iso}
+        onset = await _absorb_orphan_onset(repo, user, rec, rec.wake_time or iso)
+        if onset and onset != rec.sleep_onset_at:
+            fields["sleep_onset_at"] = onset
+            fields["duration_minutes"] = _sleep_duration(onset, rec.wake_time)
+        await repo.update_sleep(rec.id, user.telegram_id, **fields)
         return _saved(user, "сон (встал)", when, rec.id)
     rec = _pick_sleep(records, lambda item: _up_fits_open_night(item, iso))
     if rec is not None:
@@ -257,15 +307,46 @@ async def add_sleep_up(repo: Repo, user: User, when: datetime) -> tuple[int | No
         )
         return _saved(user, "сон (встал)", when, rec.id)
     item_id = await repo.add_sleep(user.telegram_id, wake_time=iso, out_of_bed_at=iso)
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    if rec is not None:
+        onset = await _absorb_orphan_onset(repo, user, rec, iso)
+        if onset:
+            await repo.update_sleep(
+                item_id,
+                user.telegram_id,
+                sleep_onset_at=onset,
+                duration_minutes=_sleep_duration(onset, iso),
+            )
     return _saved(user, "сон (встал)", when, item_id)
 
 
-async def add_sleep_onset(repo: Repo, user: User, when: datetime) -> tuple[int | None, str | None]:
+def _preferred_onset_record(records: list, prefer_id: int | None):
+    if prefer_id is None:
+        return None
+    rec = next((item for item in records if item.id == prefer_id), None)
+    if rec is None or rec.sleep_onset_at:
+        return None
+    return rec
+
+
+async def add_sleep_onset(
+    repo: Repo, user: User, when: datetime, *, prefer_id: int | None = None
+) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
     iso = to_iso(when)
-    rec = _pick_sleep(await repo.list_recent_sleep(user.telegram_id), lambda item: _onset_fits(item, iso))
+    records = await repo.list_recent_sleep(user.telegram_id)
+    rec = _preferred_onset_record(records, prefer_id)
+    if rec is None:
+        rec = _pick_sleep(records, lambda item: _onset_fits(item, iso))
+    elif rec.wake_time or rec.out_of_bed_at:
+        if not _onset_before_rise(rec, iso):
+            return None, "Время засыпания позже пробуждения."
+    elif _has_sleep_night(rec):
+        bed = rec.phone_away_at or rec.phone_in_bed_at or rec.bedtime
+        if not _not_after(bed, iso):
+            rec = _pick_sleep(records, lambda item: _onset_fits(item, iso))
     if rec is None:
         item_id = await repo.add_sleep(user.telegram_id, sleep_onset_at=iso)
         return _saved(user, "сон (заснул)", when, item_id)

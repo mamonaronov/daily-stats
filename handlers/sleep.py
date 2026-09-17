@@ -46,6 +46,13 @@ def onset_prompt_text(user: User, rec: SleepRecord | None) -> str:
     return f"Когда заснули?\n\n{hint}"
 
 
+def _onset_prefer_id(data: dict) -> int | None:
+    raw = data.get("onset_undo_id")
+    if raw is None:
+        return None
+    return int(raw)
+
+
 def _onset_extra(user: User, data: dict) -> dict:
     extra = {"tz": user.timezone, "time_exit": "slp_onset"}
     if data.get("onset_undo_kind") is not None and data.get("onset_undo_id") is not None:
@@ -139,7 +146,8 @@ async def _maybe_prompt_onset(
     toast: str,
 ) -> None:
     rec = await repo.get_sleep(item_id, user.telegram_id) if item_id else None
-    if rec is not None and rec.sleep_onset_at is None:
+    records = await repo.list_recent_sleep(user.telegram_id)
+    if rec is not None and entries.needs_onset_prompt(rec, records):
         if isinstance(event, CallbackQuery):
             await event.answer(toast)
         await _prompt_onset(event, state, undo_kind, rec.id, user, rec)
@@ -481,7 +489,9 @@ async def sleep_onset_now(
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    item_id, error = await entries.add_sleep_onset(repo, user, user_now(user.timezone))
+    item_id, error = await entries.add_sleep_onset(
+        repo, user, user_now(user.timezone), prefer_id=_onset_prefer_id(await state.get_data())
+    )
     if error:
         await cb.answer(error, show_alert=True)
         return

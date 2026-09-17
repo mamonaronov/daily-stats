@@ -141,6 +141,89 @@ async def test_sleep_onset_after_wake_without_getting_up(repo):
 
 
 @pytest.mark.asyncio
+async def test_sleep_up_after_wake_and_onset_does_not_need_prompt(repo):
+    from services.entries import needs_onset_prompt
+
+    user = await repo.create_user(46, "s", "S", None, "UTC", 0, "23:00")
+    wake = datetime(2026, 8, 17, 7, 0, tzinfo=timezone.utc)
+    onset = datetime(2026, 8, 16, 23, 0, tzinfo=timezone.utc)
+    up = datetime(2026, 8, 17, 7, 20, tzinfo=timezone.utc)
+
+    wake_id, error = await add_sleep_wake(repo, user, wake, quality=4, wake_kind="self")
+    assert error is None
+    same_id, error = await add_sleep_onset(repo, user, onset)
+    assert error is None
+    assert same_id == wake_id
+    up_id, error = await add_sleep_up(repo, user, up)
+    assert error is None
+    assert up_id == wake_id
+    rec = await repo.get_sleep(wake_id, user.telegram_id)
+    records = await repo.list_recent_sleep(user.telegram_id)
+    assert rec.sleep_onset_at is not None
+    assert rec.out_of_bed_at is not None
+    assert needs_onset_prompt(rec, records) is False
+
+
+@pytest.mark.asyncio
+async def test_onset_attaches_to_wake_even_if_earlier_than_bed(repo):
+    user = await repo.create_user(47, "s", "S", None, "UTC", 0, "23:00")
+    bed = datetime(2026, 8, 16, 23, 0, tzinfo=timezone.utc)
+    wake = datetime(2026, 8, 17, 7, 0, tzinfo=timezone.utc)
+    onset = datetime(2026, 8, 16, 22, 30, tzinfo=timezone.utc)
+
+    item_id, error = await add_sleep_phone_away(repo, user, bed)
+    assert error is None
+    _, error = await add_sleep_wake(repo, user, wake, quality=3)
+    assert error is None
+    same_id, error = await add_sleep_onset(repo, user, onset, prefer_id=item_id)
+    assert error is None
+    assert same_id == item_id
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.sleep_onset_at is not None
+    nights = await repo.list_recent_sleep(user.telegram_id)
+    assert len(nights) == 1
+
+
+@pytest.mark.asyncio
+async def test_orphan_onset_is_absorbed_when_getting_up(repo):
+    from services.entries import needs_onset_prompt
+    from utils.time import to_iso
+
+    user = await repo.create_user(48, "s", "S", None, "UTC", 0, "23:00")
+    wake = datetime(2026, 8, 17, 7, 0, tzinfo=timezone.utc)
+    onset = datetime(2026, 8, 16, 23, 10, tzinfo=timezone.utc)
+    up = datetime(2026, 8, 17, 7, 25, tzinfo=timezone.utc)
+
+    wake_id, error = await add_sleep_wake(repo, user, wake, quality=5, wake_kind="self")
+    assert error is None
+    orphan_id = await repo.add_sleep(user.telegram_id, sleep_onset_at=to_iso(onset))
+    up_id, error = await add_sleep_up(repo, user, up)
+    assert error is None
+    assert up_id == wake_id
+    rec = await repo.get_sleep(wake_id, user.telegram_id)
+    records = await repo.list_recent_sleep(user.telegram_id)
+    assert rec.sleep_onset_at is not None
+    assert rec.out_of_bed_at is not None
+    assert await repo.get_sleep(orphan_id, user.telegram_id) is None
+    assert needs_onset_prompt(rec, records) is False
+
+
+@pytest.mark.asyncio
+async def test_onset_after_wake_with_prefer_id_does_not_split_night(repo):
+    user = await repo.create_user(49, "s", "S", None, "UTC", 0, "23:00")
+    wake = datetime(2026, 8, 17, 7, 0, tzinfo=timezone.utc)
+    later = datetime(2026, 8, 17, 7, 5, tzinfo=timezone.utc)
+    wake_id, error = await add_sleep_wake(repo, user, wake, quality=4, wake_kind="self")
+    assert error is None
+    item_id, error = await add_sleep_onset(repo, user, later, prefer_id=wake_id)
+    assert item_id is None
+    assert error == "Время засыпания позже пробуждения."
+    nights = await repo.list_recent_sleep(user.telegram_id)
+    assert len(nights) == 1
+    assert nights[0].sleep_onset_at is None
+
+
+@pytest.mark.asyncio
 async def test_bedtime_after_wake_attaches_when_earlier(repo):
     user = await repo.create_user(35, "s", "S", None, "UTC", 0, "23:00")
     wake = datetime(2026, 8, 17, 8, 0, tzinfo=timezone.utc)

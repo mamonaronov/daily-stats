@@ -105,7 +105,11 @@ async def _finish(
     elif purpose == "fool":
         item_id, error = await entries.add_fooling(repo, user, when)
     elif purpose == "slp_onset":
-        item_id, error = await entries.add_sleep_onset(repo, user, when)
+        from handlers.sleep import _onset_prefer_id
+
+        item_id, error = await entries.add_sleep_onset(
+            repo, user, when, prefer_id=_onset_prefer_id(data)
+        )
     elif purpose == "snus_buy":
         item_id, error = await entries.add_snus_bought(repo, user, when)
     elif purpose == "snus_end":
