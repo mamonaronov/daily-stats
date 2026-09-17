@@ -25,6 +25,7 @@ async def test_sleep_events_stay_on_their_own_days(repo):
         out_of_bed_at=to_iso(_at(wake_day, 7, 20)),
         duration_minutes=8 * 60,
         quality=4,
+        wake_kind="self",
     )
     onset_items = await build_timeline(repo, user, onset_day, onset_day)
     assert [item.kind for item in onset_items] == ["sleep_onset"]
@@ -33,6 +34,7 @@ async def test_sleep_events_stay_on_their_own_days(repo):
     text = format_timeline(user, wake_day, wake_items)
     assert "23:00 💤" not in text
     assert "☀️ Проснулся" in text
+    assert "сам" in wake_items[0].detail
 
 
 @pytest.mark.asyncio

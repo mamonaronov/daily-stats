@@ -613,7 +613,7 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         )
         return f"{heading}\n\n{body}" if heading else body
     if kind in {"sb", "sp", "sa", "so", "sw", "su", "slp", "wu"}:
-        from utils.formatting import duration_human, score_text
+        from utils.formatting import duration_human, score_text, wake_kind_text
 
         def _stamp(value: str | None) -> str:
             return format_dt(parse_iso(value), user.timezone) if value else "—"
@@ -629,6 +629,9 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         ]
         if rec.quality:
             lines.append(f"Качество: {score_text(rec.quality)}")
+        kind_label = wake_kind_text(rec.wake_kind)
+        if kind_label:
+            lines.append(f"Как проснулся: {kind_label}")
         body = "\n".join(lines)
         return f"{heading}\n\n{body}" if heading else body
     when = getattr(rec, "occurred_at", None) or getattr(rec, "bedtime", None) or getattr(rec, "wake_time", None)

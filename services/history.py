@@ -15,6 +15,7 @@ from utils.formatting import (
     duration_human,
     format_int_spaces,
     score_text,
+    wake_kind_text,
 )
 from utils.quantity import format_quantity
 from utils.time import (
@@ -235,6 +236,9 @@ def _sleep_timeline_items(
         detail = duration_human(rec.duration_minutes)
         if rec.quality:
             detail += f", {score_text(rec.quality)}"
+        kind_label = wake_kind_text(rec.wake_kind)
+        if kind_label:
+            detail = f"{detail}, {kind_label}" if detail else kind_label
         add("sleep_wake", rec.wake_time, "☀️ Проснулся", detail, extra={"kind": "wake"})
     add("sleep_up", rec.out_of_bed_at, "🛏 Встал", extra={"kind": "up"})
 

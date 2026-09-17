@@ -204,7 +204,7 @@ _WHEN_BACK = {
     "alct": ENTRY_ALC,
     "actt": ENTRY_ACT,
     "wgt": ENTRY_WGT,
-    "slw": "slp:ql",
+    "slw": "slp:wk",
     "slu": ENTRY_SLEEP,
     "slb": ENTRY_SLEEP,
     "sln": ENTRY_SLEEP,
@@ -297,6 +297,12 @@ def score_kb(prefix: str, back: str | None = None) -> InlineKeyboardMarkup:
     b.row(*[_btn(SCORE_EMOJI[score], f"{prefix}:{score}") for score in range(1, 6)])
     b.row(*nav_row(back))
     return b.as_markup()
+
+
+def wake_kind_kb(back: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Сам", "slk:self"), _btn("Из-за чего-то", "slk:other"))
+    return with_nav(b, back)
 
 
 def caffeine_types() -> InlineKeyboardMarkup:
@@ -672,6 +678,7 @@ def track_metrics_kb(tracked: set[str]) -> InlineKeyboardMarkup:
     for key in TRACKABLE_TYPES:
         mark = "☑" if key in tracked else "☐"
         b.row(_btn(f"{mark} {TRACKABLE_LABELS[key]}", f"set:trk:{key}"))
+    b.row(_btn("➕ Кастомная метрика", "cm:new"))
     return with_nav(b, NAV_SETTINGS)
 
 
@@ -853,8 +860,6 @@ def custom_metrics_kb(
             b.row(name_btn, _btn("➕", f"cm:add:{metric.id}"))
         else:
             b.row(name_btn)
-    if writable:
-        b.row(_btn("➕ Создать метрику", "cm:new"))
     return with_nav(b)
 
 
@@ -862,7 +867,7 @@ def metric_types_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for key, spec in METRIC_TYPES.items():
         b.row(_btn(spec.button_label, f"cm:t:{key}"))
-    b.row(_btn("✖️ Отмена", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
+    b.row(_btn("✖️ Отмена", "set:trk"), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 
@@ -950,6 +955,7 @@ def metric_card_kb(
     can_pin: bool = True,
     data_type: str | None = None,
     has_open: bool = False,
+    back: str = NAV_METRICS,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
@@ -969,7 +975,8 @@ def metric_card_kb(
             b.row(_btn("📍 Убрать с главной", f"cm:pin:{metric_id}"))
         elif can_pin:
             b.row(_btn("📌 На главную", f"cm:pin:{metric_id}"))
-    b.row(_btn("⬅️ К метрикам", NAV_METRICS), _btn("🏠 Меню", NAV_MAIN))
+    back_label = "⬅️ К метрикам" if back == NAV_METRICS else "⬅️ Назад"
+    b.row(_btn(back_label, back), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
 

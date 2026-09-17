@@ -234,7 +234,43 @@ async def test_onboarding_ok_edits_to_track_metrics(repo):
     assert text == TRACK_PROMPT
     labels = [btn.text for row in markup.inline_keyboard for btn in row]
     assert any(item.startswith("☐ 🚬") for item in labels)
+    assert "➕ Кастомная метрика" in labels
     assert "🏠 Меню" in labels
+
+
+@pytest.mark.asyncio
+async def test_creating_metric_enables_custom_tracking(repo):
+    from handlers.custom_metrics import _finish_create
+    from services.ui_prefs import prefs_of
+
+    class State:
+        async def clear(self) -> None:
+            return None
+
+    class Msg:
+        def __init__(self) -> None:
+            self.answers: list[tuple] = []
+
+        async def answer(self, text, reply_markup=None, **kwargs):
+            self.answers.append((text, reply_markup))
+            return self
+
+    user = await repo.create_user(88, "u", "U", None, "UTC", 10, "23:00")
+    assert "custom" not in prefs_of(user).tracked
+    msg = Msg()
+    await _finish_create(msg, State(), repo, user, "Вода", "number", "мл", None)
+    user = await repo.get_user(user.telegram_id)
+    assert "custom" in prefs_of(user).tracked
+    metrics = await repo.list_metrics(user.telegram_id)
+    assert [item.name for item in metrics] == ["Вода"]
+    assert msg.answers
+    assert "создана" in msg.answers[0][0].lower()
+    pairs = [
+        (btn.text, btn.callback_data)
+        for row in msg.answers[0][1].inline_keyboard
+        for btn in row
+    ]
+    assert ("⬅️ Назад", "set:trk") in pairs
 
 
 def test_bot_commands_exist():

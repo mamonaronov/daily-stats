@@ -889,6 +889,7 @@ class Repo:
         phone_away_at: str | None = None,
         sleep_onset_at: str | None = None,
         out_of_bed_at: str | None = None,
+        wake_kind: str | None = None,
     ) -> int:
         ts = to_iso(now_utc())
         return await self._insert(
@@ -896,8 +897,8 @@ class Repo:
             INSERT INTO sleep_records (
                 telegram_id, bedtime, wake_time, duration_minutes, quality,
                 phone_in_bed_at, phone_away_at, sleep_onset_at, out_of_bed_at,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                wake_kind, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 telegram_id,
@@ -909,6 +910,7 @@ class Repo:
                 phone_away_at,
                 sleep_onset_at,
                 out_of_bed_at,
+                wake_kind,
                 ts,
                 ts,
             ),
@@ -971,6 +973,7 @@ class Repo:
             "phone_away_at",
             "sleep_onset_at",
             "out_of_bed_at",
+            "wake_kind",
         }
         sets = []
         params: list[Any] = []

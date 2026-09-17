@@ -13,10 +13,11 @@ from database.models import SleepRecord, User
 from database.queries import Repo
 from handlers.common import require_writable
 from handlers.history import show_saved_entry
-from keyboards.main import score_kb, sleep_onset_kb, when_kb, when_title
+from keyboards.main import score_kb, sleep_onset_kb, wake_kind_kb, when_kb, when_title
 from services import entries
 from states.diary import SleepSG
 from utils.callbacks import NAV_MAIN
+from utils.formatting import WAKE_KINDS
 from utils.telegram import safe_edit
 from utils.time import format_dt, parse_iso, user_now
 
@@ -108,6 +109,12 @@ async def _ask_quality(cb: CallbackQuery, state: FSMContext, action: str) -> Non
     await safe_edit(cb.message, "Как спалось?", score_kb("slq", back=NAV_MAIN))
 
 
+async def _ask_wake_kind(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(SleepSG.wake_kind)
+    await cb.answer()
+    await safe_edit(cb.message, "Как проснулись?", wake_kind_kb("slp:ql"))
+
+
 async def _ask_wake_when(cb: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(SleepSG.when)
     await cb.answer()
@@ -152,12 +159,20 @@ async def complete_sleep_wake(
     if quality is None:
         await _fail(event, "Сначала оцените, как спалось.")
         return
+    wake_kind = data.get("sleep_wake_kind")
+    if wake_kind not in WAKE_KINDS:
+        await _fail(event, "Сначала укажите, как проснулись.")
+        return
     action = data.get("sleep_action") or "wake"
     if action == "wake_up":
-        item_id, error = await entries.add_sleep_wake_and_up(repo, user, when, int(quality))
+        item_id, error = await entries.add_sleep_wake_and_up(
+            repo, user, when, int(quality), wake_kind
+        )
         undo_kind = "wu"
     else:
-        item_id, error = await entries.add_sleep_wake(repo, user, when, int(quality))
+        item_id, error = await entries.add_sleep_wake(
+            repo, user, when, int(quality), wake_kind
+        )
         undo_kind = "sw"
     if error:
         await _fail(event, error)
@@ -322,12 +337,33 @@ async def sleep_quality_back(cb: CallbackQuery, state: FSMContext, db_user: User
     await _ask_quality(cb, state, data.get("sleep_action") or "wake")
 
 
+@router.callback_query(F.data == "slp:wk")
+async def sleep_wake_kind_back(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await _ask_wake_kind(cb, state)
+
+
 @router.callback_query(F.data.startswith("slq:"), SleepSG.quality)
 async def sleep_quality(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
     await state.update_data(sleep_quality=int(cb.data.split(":")[1]))
+    await _ask_wake_kind(cb, state)
+
+
+@router.callback_query(F.data.startswith("slk:"), SleepSG.wake_kind)
+async def sleep_wake_kind(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    kind = cb.data.split(":")[1]
+    if kind not in WAKE_KINDS:
+        await cb.answer()
+        return
+    await state.update_data(sleep_wake_kind=kind)
     await _ask_wake_when(cb, state)
 
 

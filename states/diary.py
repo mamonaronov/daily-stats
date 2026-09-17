@@ -23,6 +23,7 @@ class TimePickSG(StatesGroup):
 
 class SleepSG(StatesGroup):
     quality = State()
+    wake_kind = State()
     when = State()
 
 

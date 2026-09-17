@@ -46,14 +46,16 @@ from utils.time import parse_hhmm, parse_iso, parse_minutes_ago, to_iso, user_no
 
 router = Router(name="custom_metrics")
 
+CREATE_BACK = "set:trk"
 METRICS_EMPTY = (
     "📌 <b>Кастомные метрики</b>\n\n"
     "Свои записи, которых нет в меню: вода, страницы, ванная — что угодно.\n\n"
-    "Создайте первую метрику. Потом значения добавляются в пару нажатий."
+    "Пока нет своих метрик. Создайте в Настройках → Метрики."
 )
 METRICS_LIST = (
     "📌 <b>Кастомные метрики</b>\n\n"
-    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. Название — открыть метрику."
+    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. Название — открыть метрику. "
+    "Новые метрики — в Настройках → Метрики."
 )
 NAME_PROMPT = "Как назвать метрику? Например: вода, страницы, пульс."
 UNIT_PROMPT = (
@@ -96,6 +98,7 @@ async def _show_card(
     repo: Repo,
     *,
     text: str | None = None,
+    back: str = NAV_METRICS,
 ) -> None:
     from services.ui_prefs import MAX_PINS
 
@@ -112,6 +115,7 @@ async def _show_card(
         can_pin=bool(metric.pinned) or pinned_n < MAX_PINS,
         data_type=metric.data_type,
         has_open=open_period is not None,
+        back=back,
     )
     if isinstance(target, CallbackQuery):
         await safe_edit(target.message, body, markup)
@@ -142,17 +146,26 @@ async def _finish_create(
     *,
     toast: str = "Создано",
 ) -> None:
+    from handlers.settings import show_track_metrics
+    from services.ui_prefs import prefs_of, save_prefs
+
     metric_id = await repo.add_metric(user.telegram_id, name, data_type, unit, choices)
     metric = await repo.get_metric(metric_id, user.telegram_id)
+    prefs = prefs_of(user)
+    if "custom" not in prefs.tracked:
+        prefs.tracked.add("custom")
+        user = await save_prefs(repo, user, prefs)
     await state.clear()
     if metric is None:
         if isinstance(target, CallbackQuery):
             await target.answer(toast)
-        await show_custom_metrics(target, repo, user, state)
+        await show_track_metrics(target, user)
         return
     if isinstance(target, CallbackQuery):
         await target.answer(toast)
-    await _show_card(target, user, metric, repo, text=created_metric_text(metric))
+    await _show_card(
+        target, user, metric, repo, text=created_metric_text(metric), back=CREATE_BACK
+    )
 
 
 async def _ask_when(event: CallbackQuery | Message, state: FSMContext, payload: dict) -> None:
@@ -370,7 +383,7 @@ async def metric_new(cb: CallbackQuery, state: FSMContext, db_user: User | None)
     await state.clear()
     await state.set_state(CustomMetricSG.name)
     await cb.answer()
-    await safe_edit(cb.message, NAME_PROMPT, back_kb(NAV_METRICS))
+    await safe_edit(cb.message, NAME_PROMPT, back_kb(CREATE_BACK))
 
 
 @router.message(CustomMetricSG.name)
@@ -379,7 +392,7 @@ async def metric_name(message: Message, state: FSMContext, db_user: User | None)
         return
     name = (message.text or "").strip()
     if not name or len(name) > 40:
-        await message.answer("Имя 1–40 символов.", reply_markup=back_kb(NAV_METRICS))
+        await message.answer("Имя 1–40 символов.", reply_markup=back_kb(CREATE_BACK))
         return
     await state.update_data(metric_name=name)
     await state.set_state(CustomMetricSG.data_type)

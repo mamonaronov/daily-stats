@@ -14,6 +14,7 @@ from utils.formatting import (
     ACTIVITY_TYPES,
     ALCOHOL_TYPES,
     CAFFEINE_TYPES,
+    WAKE_KIND_LABELS,
     duration_human,
     format_int_spaces,
     format_kg,
@@ -262,6 +263,16 @@ def sleep_stats(user: User, items, start: date, end: date) -> str:
         lines.append(
             "Качество: "
             + ", ".join(f"{score_text(k)} — {dist[k]}" for k in sorted(dist))
+        )
+    wake_kinds = Counter(i.wake_kind for i in items if i.wake_kind)
+    if wake_kinds:
+        lines.append(
+            "Пробуждение: "
+            + ", ".join(
+                f"{WAKE_KIND_LABELS.get(key, key)} — {wake_kinds[key]}"
+                for key in WAKE_KIND_LABELS
+                if wake_kinds.get(key)
+            )
         )
     return "\n".join(lines)
 

@@ -38,6 +38,7 @@ from keyboards.main import (
     steps_value_kb,
     timezone_kb,
     track_metrics_kb,
+    wake_kind_kb,
     wake_reminder_kb,
     wake_up_reminder_kb,
     when_kb,
@@ -386,7 +387,8 @@ def test_custom_metrics_list_has_quick_add():
     pairs = _pairs(custom_metrics_kb([metric], True))
     assert ("Вода", "cm:o:3") in pairs
     assert ("➕", "cm:add:3") in pairs
-    assert ("➕ Создать метрику", "cm:new") in pairs
+    assert "➕ Создать метрику" not in {text for text, _ in pairs}
+    assert "➕ Кастомная метрика" not in {text for text, _ in pairs}
 
 
 def test_custom_metrics_disabled_has_no_quick_add():
@@ -402,6 +404,7 @@ def test_metric_types_explain_choice():
     assert types["📋 Выбор"] == "cm:t:choice"
     assert types["🕐 Время суток"] == "cm:t:time"
     assert types["▶️ Интервал"] == "cm:t:period"
+    assert types["✖️ Отмена"] == "set:trk"
 
 
 def test_metric_units_and_value_presets():
@@ -439,7 +442,7 @@ def test_saved_entry_actions_use_undo():
     assert onset["5 мин назад"] == "slo:ago:5"
 
 
-def test_when_kb_sleep_wake_goes_back_to_quality():
+def test_when_kb_sleep_wake_goes_back_to_wake_kind():
     pairs = dict(_pairs(when_kb("slw")))
     assert pairs["Сейчас"] == "slw:now"
     assert pairs["Сегодня"] == "slw:today"
@@ -447,6 +450,13 @@ def test_when_kb_sleep_wake_goes_back_to_quality():
     assert pairs["Позавчера"] == "slw:daybefore"
     assert pairs["📅 Другая дата"] == "slw:date"
     assert pairs["🕐 Указать время"] == "slw:time"
+    assert pairs["⬅️ Назад"] == "slp:wk"
+
+
+def test_wake_kind_kb_two_options():
+    pairs = dict(_pairs(wake_kind_kb("slp:ql")))
+    assert pairs["Сам"] == "slk:self"
+    assert pairs["Из-за чего-то"] == "slk:other"
     assert pairs["⬅️ Назад"] == "slp:ql"
 
 
@@ -817,13 +827,17 @@ def test_track_metrics_kb_toggles_like_stats():
     assert pairs["☑ 😴 Сон"] == "set:trk:sleep"
     assert pairs["☐ 🚶 Шаги"] == "set:trk:steps"
     assert pairs["☐ 📌 Кастом"] == "set:trk:custom"
-    assert pairs["☐ 📱 Лёг с телефоном"] == "set:trk:sleep_phone"
-    assert pairs["☐ 🛏️ Лёг без телефона"] == "set:trk:sleep_nophone"
+    assert pairs["➕ Кастомная метрика"] == "cm:new"
     assert {cb for cb in pairs.values() if cb.startswith("set:trk:")} == {
         f"set:trk:{key}" for key in TRACKABLE_TYPES
     }
     empty = dict(_pairs(track_metrics_kb(set())))
-    assert all(text.startswith("☐ ") for text in empty if text not in {"⬅️ Назад", "🏠 Меню"})
+    assert empty["➕ Кастомная метрика"] == "cm:new"
+    assert all(
+        text.startswith("☐ ")
+        for text in empty
+        if text not in {"⬅️ Назад", "🏠 Меню", "➕ Кастомная метрика"}
+    )
 
 
 def test_stats_metrics_kb_includes_custom():

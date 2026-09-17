@@ -37,13 +37,14 @@ async def test_sleep_phone_then_away_then_wake_up_and_onset(repo):
     assert rec.phase() == "no_phone"
     assert rec.phone_away_at is not None
 
-    _, error = await add_sleep_wake_and_up(repo, user, wake, quality=5)
+    _, error = await add_sleep_wake_and_up(repo, user, wake, quality=5, wake_kind="self")
     assert error is None
     rec = await repo.get_sleep(item_id, user.telegram_id)
     assert rec.phase() == "need_onset"
     assert rec.wake_time is not None
     assert rec.out_of_bed_at == rec.wake_time
     assert rec.quality == 5
+    assert rec.wake_kind == "self"
     assert rec.duration_minutes is None
 
     _, error = await add_sleep_onset(repo, user, onset)
@@ -302,6 +303,29 @@ async def test_undo_snus_finish_reopens_pack(repo):
     assert rec is not None
     assert rec.finished_at is None
     assert rec.duration_minutes is None
+
+
+@pytest.mark.asyncio
+async def test_sleep_wake_stores_kind_and_undo_clears_it(repo):
+    from services.entries import undo_entry
+
+    user = await repo.create_user(45, "s", "S", None, "UTC", 0, "23:00")
+    bed = datetime(2026, 8, 16, 22, 0, tzinfo=timezone.utc)
+    wake = datetime(2026, 8, 17, 7, 0, tzinfo=timezone.utc)
+    item_id, error = await add_sleep_phone_away(repo, user, bed)
+    assert error is None
+    same_id, error = await add_sleep_wake(repo, user, wake, quality=4, wake_kind="other")
+    assert error is None
+    assert same_id == item_id
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec.wake_kind == "other"
+    assert rec.quality == 4
+    assert await undo_entry(repo, user, "sw", item_id) is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec is not None
+    assert rec.wake_time is None
+    assert rec.quality is None
+    assert rec.wake_kind is None
 
 
 def _user_tz(name: str = "UTC"):

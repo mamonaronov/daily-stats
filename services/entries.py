@@ -178,7 +178,9 @@ async def add_sleep_phone_away(repo: Repo, user: User, when: datetime) -> tuple[
     return _saved(user, "сон (без телефона)", when, item_id)
 
 
-async def add_sleep_wake(repo: Repo, user: User, when: datetime, quality: int | None) -> tuple[int | None, str | None]:
+async def add_sleep_wake(
+    repo: Repo, user: User, when: datetime, quality: int | None, wake_kind: str | None = None
+) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
@@ -192,14 +194,19 @@ async def add_sleep_wake(repo: Repo, user: User, when: datetime, quality: int | 
             wake_time=iso,
             duration_minutes=duration,
             quality=quality,
+            wake_kind=wake_kind,
         )
         return _saved(user, "сон (проснулся)", when, rec.id)
-    item_id = await repo.add_sleep(user.telegram_id, wake_time=iso, quality=quality)
+    item_id = await repo.add_sleep(user.telegram_id, wake_time=iso, quality=quality, wake_kind=wake_kind)
     return _saved(user, "сон (проснулся)", when, item_id)
 
 
 async def add_sleep_wake_and_up(
-    repo: Repo, user: User, when: datetime, quality: int | None
+    repo: Repo,
+    user: User,
+    when: datetime,
+    quality: int | None,
+    wake_kind: str | None = None,
 ) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
@@ -215,6 +222,7 @@ async def add_sleep_wake_and_up(
             out_of_bed_at=iso,
             duration_minutes=duration,
             quality=quality,
+            wake_kind=wake_kind,
         )
         return _saved(user, "сон (проснулся и встал)", when, rec.id)
     item_id = await repo.add_sleep(
@@ -222,6 +230,7 @@ async def add_sleep_wake_and_up(
         wake_time=iso,
         quality=quality,
         out_of_bed_at=iso,
+        wake_kind=wake_kind,
     )
     return _saved(user, "сон (проснулся и встал)", when, item_id)
 
@@ -534,6 +543,7 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
                     wake_time=None,
                     duration_minutes=None,
                     quality=None,
+                    wake_kind=None,
                 )
                 return None
             await repo.delete_sleep(item_id, tid)
@@ -547,6 +557,7 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
                     out_of_bed_at=None,
                     duration_minutes=None,
                     quality=None,
+                    wake_kind=None,
                 )
                 return None
             await repo.delete_sleep(item_id, tid)

@@ -17,7 +17,7 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 16
+    assert version == config.required_db_version == 17
 
 
 @pytest.mark.asyncio
@@ -212,6 +212,7 @@ async def test_sleep_wake_can_be_logged_later(repo):
     assert rec is not None
     assert rec.wake_time is not None
     assert rec.quality == 4
+    assert rec.wake_kind is None
     assert rec.duration_minutes is None
     from services.entries import add_sleep_up
 
