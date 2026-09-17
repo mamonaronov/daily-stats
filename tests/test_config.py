@@ -27,6 +27,17 @@ def test_telegram_proxy_from_env(monkeypatch):
     assert load_config().telegram_proxy_url == "socks5://127.0.0.1:11808"
 
 
+def test_example_defaults_match_config(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
+    monkeypatch.setattr("config.load_dotenv", lambda: None)
+    for name in ("DEFAULT_DAILY_PRICE", "BACKUP_INTERVAL_HOURS"):
+        monkeypatch.delenv(name, raising=False)
+    cfg = load_config()
+    assert cfg.default_daily_price == 3.0
+    assert cfg.backup_interval_hours == 1
+
+
 def test_spam_alert_defaults_and_env(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "1:test")
     monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")

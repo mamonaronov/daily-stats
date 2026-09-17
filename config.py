@@ -110,7 +110,7 @@ def load_config() -> Config:
         owner_id=owner_id,
         owner_contact=os.getenv("OWNER_CONTACT", "").strip() or "владелец сервиса",
         default_timezone=os.getenv("DEFAULT_TIMEZONE", "Europe/Moscow").strip(),
-        default_daily_price=_float("DEFAULT_DAILY_PRICE", 10.0),
+        default_daily_price=_float("DEFAULT_DAILY_PRICE", 3.0),
         default_sleep_time=os.getenv("DEFAULT_SLEEP_TIME", "23:00").strip(),
         db_path=db_path,
         vpn_db_path=Path(os.getenv("VPN_DB_PATH", "").strip() or str(db_path.with_name("vpn.sqlite3"))),
@@ -118,7 +118,7 @@ def load_config() -> Config:
             os.getenv("CLICKS_DB_PATH", "").strip() or str(db_path.with_name("clicks.sqlite3"))
         ),
         backup_path=backup_path,
-        backup_interval_hours=_int("BACKUP_INTERVAL_HOURS", 6),
+        backup_interval_hours=_int("BACKUP_INTERVAL_HOURS", 1),
         backup_keep=_int("BACKUP_KEEP", 14),
         billing_check_minutes=_int("BILLING_CHECK_MINUTES", 15),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
