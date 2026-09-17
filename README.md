@@ -176,7 +176,7 @@ docker compose up -d
 В `.env` **этого** бота (не коммитится) — тот же секрет и адреса внутри Docker-сети:
 
 ```bash
-TELEGRAM_PROXY_URL=socks5://proxy:11808
+TELEGRAM_PROXY_URL=socks5h://proxy:11808
 MIHOMO_API_URL=http://proxy:19090
 MIHOMO_API_SECRET=          # точно как в .env mihomo-proxy
 MIHOMO_PROXY_GROUP=AUTO
@@ -210,7 +210,7 @@ docker run --rm --network telegram-proxy curlimages/curl -sS --max-time 8 \
 
 1. Поднимите mihomo-proxy рядом (свой compose, своё `.env` с секретом и URL подписок).
 2. Скопируйте кэш нод в `mihomo-proxy/data/providers`, **не** в `data/` бота (`vpn.sqlite3` — это пинги бота, его оставьте в `./data`).
-3. В `.env` бота замените `socks5://127.0.0.1:11808` на `socks5://proxy:11808` и `http://127.0.0.1:19090` на `http://proxy:19090`. Секрет тот же, что в mihomo-proxy. `./deploy.sh` `.env` не затирает.
+3. В `.env` бота замените `socks5://127.0.0.1:11808` на `socks5h://proxy:11808` (можно и `socks5://proxy:11808`) и `http://127.0.0.1:19090` на `http://proxy:19090`. Секрет тот же, что в mihomo-proxy. `./deploy.sh` `.env` не затирает. Схема `socks5h://` — как у curl (DNS через прокси); aiogram принимает только `socks5://`, бот сам нормализует.
 4. Удалите оставшийся `docker-compose.override.yml`, если в нём ещё `network_mode: host` (скрипт уберёт его сам).
 5. `./deploy.sh` в каталоге бота.
 6. `sudo systemctl disable --now mihomo.service` — хостовый юнит больше не нужен.
@@ -240,7 +240,7 @@ docker run --rm --network telegram-proxy curlimages/curl -sS --max-time 8 \
 | `TELEGRAM_BACKUP_ROOT` | нет | корень приложения | Откуда брать `.env` и конфиги для архива. В Docker — `/host` |
 | `BILLING_CHECK_MINUTES` | нет | `15` | Интервал проверки ежедневных списаний |
 | `LOG_LEVEL` | нет | `INFO` | Уровень JSON-логов |
-| `TELEGRAM_PROXY_URL` | нет | пусто | SOCKS5 для Telegram API, в Docker: `socks5://proxy:11808`. Пусто, если Telegram доступен напрямую |
+| `TELEGRAM_PROXY_URL` | нет | пусто | SOCKS5 для Telegram API, в Docker: `socks5h://proxy:11808` (DNS через прокси). Пусто, если Telegram доступен напрямую |
 | `MIHOMO_API_URL` | нет | `http://127.0.0.1:19090` (pytest) | REST mihomo. В Docker: `http://proxy:19090` |
 | `MIHOMO_API_SECRET` | нет | пусто | Тот же секрет, что `MIHOMO_API_SECRET` в `.env` mihomo-proxy |
 | `MIHOMO_PROXY_GROUP` | нет | `AUTO` | Группа, у которой монитор читает текущую ноду |

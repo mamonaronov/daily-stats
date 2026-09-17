@@ -82,7 +82,7 @@ if [[ -n "$proxy_url" ]]; then
   compose_extra=" -f docker-compose.yml -f docker-compose.proxy.yml"
   echo "==> Telegram proxy: ${proxy_url}"
   if [[ "$proxy_url" == *127.0.0.1* ]]; then
-    echo "warning: TELEGRAM_PROXY_URL points at 127.0.0.1; Docker should use socks5://proxy:11808" >&2
+    echo "warning: TELEGRAM_PROXY_URL points at 127.0.0.1; Docker should use socks5h://proxy:11808" >&2
   fi
   if [[ "$mihomo_api_url" == *127.0.0.1* ]]; then
     echo "warning: MIHOMO_API_URL points at 127.0.0.1; Docker should use http://proxy:19090" >&2

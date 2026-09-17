@@ -8,7 +8,11 @@ import pytest
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import GetMe
 
-from utils.telegram_session import AbandonableAiohttpSession, make_telegram_session
+from utils.telegram_session import (
+    AbandonableAiohttpSession,
+    make_telegram_session,
+    normalize_socks_proxy_url,
+)
 
 
 async def test_make_request_abandons_hang_and_raises_network_error(monkeypatch):
@@ -66,3 +70,13 @@ def test_make_telegram_session_with_and_without_proxy():
     assert isinstance(proxied, AbandonableAiohttpSession)
     assert proxied.proxy == "socks5://127.0.0.1:11808"
     assert proxied.timeout == 8
+
+    from_curl = make_telegram_session("socks5h://proxy:11808", 8)
+    assert from_curl.proxy == "socks5://proxy:11808"
+
+
+def test_normalize_socks_proxy_url():
+    assert normalize_socks_proxy_url(None) is None
+    assert normalize_socks_proxy_url("socks5://proxy:11808") == "socks5://proxy:11808"
+    assert normalize_socks_proxy_url("socks5h://proxy:11808") == "socks5://proxy:11808"
+    assert normalize_socks_proxy_url("http://proxy:8080") == "http://proxy:8080"

@@ -21,9 +21,25 @@ _CLOSE_TIMEOUT = 2.0
 _SSL_CLOSE_PAUSE = 0.25
 
 
+def normalize_socks_proxy_url(proxy_url: str | None) -> str | None:
+    """Map curl-style socks5h:// to socks5://. aiogram-socks already uses remote DNS."""
+    if not proxy_url:
+        return proxy_url
+    url = proxy_url.strip()
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    if scheme.lower() == "socks5h":
+        return f"socks5://{rest}"
+    return url
+
+
 def make_telegram_session(proxy_url: str | None, timeout: float) -> AiohttpSession:
     if proxy_url:
-        return AbandonableAiohttpSession(proxy=proxy_url, timeout=timeout)
+        return AbandonableAiohttpSession(
+            proxy=normalize_socks_proxy_url(proxy_url),
+            timeout=timeout,
+        )
     return AbandonableAiohttpSession(timeout=timeout)
 
 

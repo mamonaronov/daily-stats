@@ -83,15 +83,15 @@ def test_bot_session_without_proxy():
     session = _bot_session(None)
     assert isinstance(session, AbandonableAiohttpSession)
     assert session.proxy is None
-    assert session.timeout == 60.0
+    assert session.timeout == 25.0
 
 
 def test_bot_session_socks5():
     from bot import _bot_session
     from utils.telegram_session import AbandonableAiohttpSession
 
-    session = _bot_session("socks5://127.0.0.1:11808")
+    session = _bot_session("socks5h://127.0.0.1:11808")
     assert isinstance(session, AbandonableAiohttpSession)
     assert session.proxy is not None
     assert session.proxy == "socks5://127.0.0.1:11808"
-    assert session.timeout == 60.0
+    assert session.timeout == 25.0

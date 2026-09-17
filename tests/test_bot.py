@@ -56,6 +56,7 @@ async def test_polling_retries_telegram_network_error():
     assert bot.session is not session
     assert dp.kwargs.get("close_bot_session") is False
     assert dp.kwargs.get("handle_signals") is False
+    assert dp.kwargs.get("polling_timeout") == 20
     await bot.session.close()
 
 

@@ -42,7 +42,9 @@ logger = logging.getLogger("bot")
 
 _POLLING_RETRY_INITIAL = 2.0
 _POLLING_RETRY_MAX = 30.0
-_POLLING_SESSION_TIMEOUT = 60.0
+# getUpdates long-poll; aiogram HTTP timeout is session + this (not session alone).
+_POLLING_TIMEOUT = 20
+_POLLING_SESSION_TIMEOUT = 25.0
 _STARTUP_GET_ME_TIMEOUT = 20.0
 _SHUTDOWN_TELEGRAM_BACKUP_TIMEOUT = 15.0
 
@@ -121,6 +123,7 @@ async def _start_polling_with_retry(
                 allowed_updates=dp.resolve_used_update_types(),
                 handle_signals=False,
                 close_bot_session=False,
+                polling_timeout=_POLLING_TIMEOUT,
             )
             return
         except (TelegramNetworkError, TimeoutError) as exc:
