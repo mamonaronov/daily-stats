@@ -1130,6 +1130,30 @@ def test_merged_spans_keeps_downsampled_ok_run():
     assert (spans[0][1] - spans[0][0]).total_seconds() == 120 * 7 + 10
 
 
+def test_ping_polyline_keeps_sample_vertices():
+    from datetime import datetime, timedelta, timezone
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from services.vpn_charts import _plot_ping_polyline
+
+    utc = timezone.utc
+    t0 = datetime(2026, 8, 19, 10, 0, tzinfo=utc)
+    xs = [t0, t0 + timedelta(seconds=10), t0 + timedelta(seconds=20)]
+    ys = [80.0, 200.0, 90.0]
+    fig, ax = plt.subplots()
+    line = _plot_ping_polyline(ax, xs, ys)
+    _data_x, data_y = line.get_data()
+    assert len(data_y) == 3
+    assert list(data_y) == ys
+    assert line.get_marker() == "o"
+    assert line.get_solid_joinstyle() == "miter"
+    plt.close(fig)
+
+
 def test_finite_ping_segments_connect_sparse_ok_and_split_on_nan():
     import math
     from datetime import datetime, timedelta, timezone

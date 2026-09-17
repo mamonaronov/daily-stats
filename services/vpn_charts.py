@@ -613,6 +613,23 @@ def _curve_times(times: list[datetime], values: list[float], steps: int = _CURVE
     return [datetime.fromtimestamp(x, tz=tz) for x in xs], ys
 
 
+def _plot_ping_polyline(ax, xs: list[datetime], ys: list[float]):
+    """Ping samples as dots with straight segments — no Chaikin rounding."""
+    return ax.plot(
+        xs,
+        ys,
+        color="#e2e8f0",
+        linewidth=1.25,
+        marker="o",
+        markersize=3.4,
+        markeredgewidth=0,
+        alpha=0.92,
+        zorder=3,
+        solid_capstyle="butt",
+        solid_joinstyle="miter",
+    )[0]
+
+
 def _finite_ping_segments(points: list[TimelinePoint]) -> list[list[TimelinePoint]]:
     """Split ping only on missing samples. Downsampled OK runs stay one polyline."""
     segments: list[list[TimelinePoint]] = []
@@ -969,21 +986,11 @@ def render_timeline_chart(
     ping_segments = _finite_ping_segments(points)
     ping_handles: list = []
     for segment in ping_segments:
-        xs = [point.time for point in segment]
-        ys = _clip_ping_ys([point.ping_ms for point in segment])
-        if len(segment) >= 3:
-            xs, ys = _curve_times(xs, ys)
-            ys = _clip_ping_ys(ys)
-        line = ax.plot(
-            xs,
-            ys,
-            color="#e2e8f0",
-            linewidth=1.25,
-            alpha=0.92,
-            zorder=3,
-            solid_capstyle="round",
-            solid_joinstyle="round",
-        )[0]
+        line = _plot_ping_polyline(
+            ax,
+            [point.time for point in segment],
+            _clip_ping_ys([point.ping_ms for point in segment]),
+        )
         if not ping_handles:
             ping_handles.append(line)
 
