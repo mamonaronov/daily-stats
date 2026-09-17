@@ -614,17 +614,15 @@ def _curve_times(times: list[datetime], values: list[float], steps: int = _CURVE
 
 
 def _plot_ping_polyline(ax, xs: list[datetime], ys: list[float]):
-    """Ping samples as dots with straight segments — no Chaikin rounding."""
+    """Every ping sample as a vertex; straight segments, no dots or Chaikin rounding."""
     return ax.plot(
         xs,
         ys,
         color="#e2e8f0",
         linewidth=1.25,
-        marker="o",
-        markersize=3.4,
-        markeredgewidth=0,
+        marker="None",
         alpha=0.92,
-        zorder=3,
+        zorder=6,
         solid_capstyle="butt",
         solid_joinstyle="miter",
     )[0]
@@ -974,7 +972,8 @@ def render_timeline_chart(
             keys.append(point.color_key)
     colors = _palette(keys)
     step = sample_step([point for point in points if point.signal not in _GAP_SIGNALS] or points)
-    for start, end, key, signal in _merged_spans(points, step):
+    span_points = downsample_timeline(points)
+    for start, end, key, signal in _merged_spans(span_points, step):
         if signal:
             color = _SIGNAL_COLORS[signal]
             alpha = 0.62
@@ -995,10 +994,11 @@ def render_timeline_chart(
             ping_handles.append(line)
 
     finite = [point for point in points if not math.isnan(point.ping_ms)]
+    avg_source = [point for point in span_points if not math.isnan(point.ping_ms)]
     avg_handle = None
-    if len(finite) >= 2:
-        avg_times = [point.time for point in finite]
-        avg_values = _clip_ping_ys(smooth_ping_series(avg_times, [point.ping_ms for point in finite]))
+    if len(avg_source) >= 2:
+        avg_times = [point.time for point in avg_source]
+        avg_values = _clip_ping_ys(smooth_ping_series(avg_times, [point.ping_ms for point in avg_source]))
         avg_by_time = {time: value for time, value in zip(avg_times, avg_values)}
 
         def _plot_avg(seg_t: list[datetime], seg_y: list[float]):
@@ -1020,7 +1020,7 @@ def render_timeline_chart(
             if avg_handle is None:
                 avg_handle = handle
 
-        for segment in ping_segments:
+        for segment in _finite_ping_segments(span_points):
             _plot_avg(
                 [point.time for point in segment],
                 [avg_by_time[point.time] for point in segment],
@@ -1108,7 +1108,6 @@ def render_vpn_charts(
         window_end=window_end,
         now_host_uptime_s=host_uptime_seconds(),
     )
-    points = downsample_timeline(points)
     charts: list[tuple[str, bytes]] = []
     if ok_latencies:
         stats = latency_central_tendency(ok_latencies)
@@ -1147,7 +1146,6 @@ def render_availability_charts(
     )
     if rounded:
         points = round_availability_colors(points)
-    points = downsample_timeline(points)
     if not points:
         return []
     note = " · округление" if rounded else ""
