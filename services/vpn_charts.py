@@ -1014,7 +1014,7 @@ def render_timeline_chart(
                 color=_AVG_LINE,
                 linewidth=1.55,
                 alpha=0.95,
-                zorder=5,
+                zorder=7,
                 solid_capstyle="round",
             )[0]
             if avg_handle is None:
