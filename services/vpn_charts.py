@@ -623,7 +623,7 @@ def _plot_ping_polyline(ax, xs: list[datetime], ys: list[float]):
         xs,
         ys,
         color="#e2e8f0",
-        linewidth=1.25,
+        linewidth=0.5,
         marker="None",
         alpha=0.92,
         zorder=6,
@@ -1186,7 +1186,7 @@ def render_timeline_chart(
                 seg_t,
                 seg_y,
                 color=_AVG_LINE,
-                linewidth=1.55,
+                linewidth=0.5,
                 alpha=0.95,
                 zorder=7,
                 solid_capstyle="round",
@@ -1248,7 +1248,7 @@ def render_timeline_chart(
         avg_handle.set_label("сглаженный пинг")
         handles.append(avg_handle)
     elif len(finite) >= 2:
-        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=1.55, label="сглаженный пинг"))
+        handles.append(Line2D([0], [0], color=_AVG_LINE, linewidth=0.5, label="сглаженный пинг"))
     if handles:
         _style_legend(
             ax.legend(
