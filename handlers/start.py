@@ -142,17 +142,19 @@ async def cmd_menu(
 
 
 @router.message(Command("stats"))
-async def cmd_stats(message: Message, state: FSMContext, db_user: User | None) -> None:
+async def cmd_stats(message: Message, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     from handlers.common import require_active
-    from handlers.statistics import DEFAULT_METRICS
-    from keyboards.main import stats_period_kb
+    from handlers.statistics import DEFAULT_METRICS, period_keyboard
 
     user = await require_active(message, db_user)
     if user is None:
         return
     await state.clear()
     await state.update_data(stats_metrics=list(DEFAULT_METRICS))
-    await message.answer("📊 Статистика\nСначала выберите период:", reply_markup=stats_period_kb())
+    await message.answer(
+        "📊 Статистика\nСначала выберите период:",
+        reply_markup=await period_keyboard(repo, user),
+    )
 
 
 @router.callback_query(F.data == "onb:ok")

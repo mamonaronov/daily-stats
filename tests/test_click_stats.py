@@ -34,6 +34,7 @@ def test_classify_button_kinds():
     assert classify_button("stp:all") == "stats"
     assert classify_button("stp:since") == "stats"
     assert classify_button("stp:marker") == "stats"
+    assert classify_button("stre:0") == "stats"
     assert classify_button("stmk:12") == "stats"
     assert classify_button("stmkp:1") == "stats"
     assert classify_button("hist:since") == "history"

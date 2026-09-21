@@ -640,6 +640,26 @@ def test_stats_period_kb_has_all_time():
     assert all(data and len(data.encode()) <= 64 for _, data in pairs)
 
 
+def test_stats_recent_spans_are_buttons():
+    from keyboards.main import charts_done_kb, stats_metrics_kb, stats_period_kb
+
+    recent = [
+        ("С даты · 12 августа", "stre:0"),
+        ("С метки · Отпуск", "stre:1"),
+        ("Период · 1–15 августа", "stre:2"),
+    ]
+    period = dict(_pairs(stats_period_kb(recent)))
+    assert period["С даты · 12 августа"] == "stre:0"
+    assert period["Период · 1–15 августа"] == "stre:2"
+    metrics = _pairs(stats_metrics_kb({"sleep"}, recent=recent))
+    assert metrics[0] == ("С даты · 12 августа", "stre:0")
+    assert ("📝 Текст", "stv:text") in metrics
+    done = dict(_pairs(charts_done_kb(recent)))
+    assert done["С метки · Отпуск"] == "stre:1"
+    assert done["Другой период"] == "n:st"
+    assert all(data and len(data.encode()) <= 64 for _, data in metrics)
+
+
 def test_history_period_kb_has_day_counts():
     from keyboards.main import history_period_kb
 

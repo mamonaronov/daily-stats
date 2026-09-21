@@ -11,9 +11,15 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from database.models import User
 from database.queries import Repo
 from handlers.common import prompt_since_marker, require_active
-from keyboards.main import calendar_kb, stats_metrics_kb, stats_period_kb
+from keyboards.main import calendar_kb, charts_done_kb, stats_metrics_kb, stats_period_kb
 from services.charts import build_charts
 from services.statistics import choices_with_data, load_period, render_stats
+from services.stats_prefs import (
+    parse_recent,
+    recent_span_buttons,
+    remember_stats_span,
+    span_state,
+)
 from states.diary import StatsSG
 from utils.callbacks import NAV_STATS
 from utils.telegram import png_file, safe_edit
@@ -52,7 +58,12 @@ async def _metrics_view(
         return set(), None
     selected = _selected_for(set(data.get("stats_metrics") or DEFAULT_METRICS), available)
     await state.update_data(stats_metrics=list(selected))
-    return selected, stats_metrics_kb(selected, custom, only=available)
+    recent = await recent_span_buttons(repo, user)
+    return selected, stats_metrics_kb(selected, custom, only=available, recent=recent)
+
+
+async def period_keyboard(repo: Repo, user: User) -> InlineKeyboardMarkup:
+    return stats_period_kb(await recent_span_buttons(repo, user))
 
 
 def dates_until_today(start: date, today: date) -> tuple[date, date]:
@@ -114,24 +125,24 @@ async def _ask_metrics(cb: CallbackQuery, state: FSMContext, repo: Repo, user: U
     view = await _metrics_view(repo, user, state)
     await cb.answer()
     if view is None:
-        await safe_edit(cb.message, "Сначала выберите период:", stats_period_kb())
+        await safe_edit(cb.message, "Сначала выберите период:", await period_keyboard(repo, user))
         return
     selected, keyboard = view
     if not selected or keyboard is None:
-        await safe_edit(cb.message, STATS_EMPTY, stats_period_kb())
+        await safe_edit(cb.message, STATS_EMPTY, await period_keyboard(repo, user))
         return
     await safe_edit(cb.message, "Показатели и вид результата:", keyboard)
 
 
 @router.callback_query(F.data == NAV_STATS)
-async def stats_root(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def stats_root(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:
         return
     await state.clear()
     await state.update_data(stats_metrics=list(DEFAULT_METRICS))
     await cb.answer()
-    await safe_edit(cb.message, "📊 Статистика\nСначала выберите период:", stats_period_kb())
+    await safe_edit(cb.message, "📊 Статистика\nСначала выберите период:", await period_keyboard(repo, user))
 
 
 @router.callback_query(F.data.startswith("stp:"))
@@ -278,9 +289,74 @@ async def toggle_metric(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     view = await _metrics_view(repo, user, state)
     await cb.answer()
     if view is None or view[1] is None:
-        await safe_edit(cb.message, STATS_EMPTY, stats_period_kb())
+        await safe_edit(cb.message, STATS_EMPTY, await period_keyboard(repo, user))
         return
     await safe_edit(cb.message, "Показатели и вид результата:", view[1])
+
+
+async def _output_text(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+) -> None:
+    data = await state.get_data()
+    period = data.get("period")
+    if not period:
+        await cb.answer("Сначала выберите период", show_alert=True)
+        return
+    bounds = await _period(repo, user, period, data)
+    if bounds is None:
+        await cb.answer("Период не выбран", show_alert=True)
+        return
+    preview = await _metrics_view(repo, user, state)
+    if preview is None or preview[1] is None:
+        await cb.answer()
+        await safe_edit(cb.message, STATS_EMPTY, await period_keyboard(repo, user))
+        return
+    user = await remember_stats_span(repo, user, period, data)
+    view = await _metrics_view(repo, user, state)
+    if view is None or view[1] is None:
+        await cb.answer()
+        await safe_edit(cb.message, STATS_EMPTY, await period_keyboard(repo, user))
+        return
+    await cb.answer("Считаю…")
+    text = await render_stats(repo, user, *bounds, list(view[0]))
+    await safe_edit(cb.message, text[:4000], view[1])
+
+
+@router.callback_query(F.data.startswith("stre:"))
+async def stats_recent(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_active(cb, db_user)
+    if user is None:
+        return
+    try:
+        index = int(cb.data.split(":")[1])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    spans = parse_recent(user.stats_prefs_json)
+    if index < 0 or index >= len(spans):
+        await cb.answer("Этот вариант уже недоступен", show_alert=True)
+        await safe_edit(cb.message, "📊 Статистика\nСначала выберите период:", await period_keyboard(repo, user))
+        return
+    span = spans[index]
+    if span.kind == "marker":
+        if span.marker_id is None or await dates_from_marker(repo, user, span.marker_id) is None:
+            await cb.answer("Метка не найдена", show_alert=True)
+            await safe_edit(
+                cb.message,
+                "📊 Статистика\nСначала выберите период:",
+                await period_keyboard(repo, user),
+            )
+            return
+    await state.update_data(**span_state(span))
+    await _output_text(cb, state, repo, user)
 
 
 @router.callback_query(F.data.startswith("stv:"))
@@ -294,6 +370,9 @@ async def stats_view(
     if user is None:
         return
     mode = cb.data.split(":")[1]
+    if mode == "text":
+        await _output_text(cb, state, repo, user)
+        return
     data = await state.get_data()
     period = data.get("period")
     if not period:
@@ -307,20 +386,16 @@ async def stats_view(
     view = await _metrics_view(repo, user, state)
     if view is None or view[1] is None:
         await cb.answer()
-        await safe_edit(cb.message, STATS_EMPTY, stats_period_kb())
+        await safe_edit(cb.message, STATS_EMPTY, await period_keyboard(repo, user))
         return
     selected = list(view[0])
     await cb.answer("Считаю…")
-    if mode == "text":
-        text = await render_stats(repo, user, start, end, selected)
-        await safe_edit(cb.message, text[:4000], view[1])
-        return
     charts = await build_charts(repo, user, start, end, selected)
     if not charts:
         await safe_edit(cb.message, "Недостаточно данных для графика.")
         return
-    from keyboards.main import charts_done_kb
-
+    user = await remember_stats_span(repo, user, period, data)
+    recent = await recent_span_buttons(repo, user)
     for title, png in charts[:8]:
         await cb.message.answer_photo(png_file(png, f"{title}.png"), caption=title)
-    await cb.message.answer("Готово", reply_markup=charts_done_kb())
+    await cb.message.answer("Готово", reply_markup=charts_done_kb(recent))

@@ -136,6 +136,7 @@ _PREFIX_KIND: tuple[tuple[str, str], ...] = tuple(
             ("h:", "history"),
             ("stmkp:", "stats"),
             ("stmk:", "stats"),
+            ("stre:", "stats"),
             ("stm:", "stats"),
             ("stv:", "stats"),
             ("hmkp:", "history"),

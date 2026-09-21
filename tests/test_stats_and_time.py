@@ -458,3 +458,56 @@ async def test_choices_with_data_skips_empty_metrics(repo):
 
     empty = await load_period(repo, user, date(2026, 8, 11), date(2026, 8, 11))
     assert choices_with_data(empty) == (set(), [])
+
+
+@pytest.mark.asyncio
+async def test_recent_stats_spans_keep_last_three_custom_ranges(repo, monkeypatch):
+    from services.stats_prefs import (
+        parse_recent,
+        recent_label,
+        recent_span_buttons,
+        remember_stats_span,
+    )
+
+    monkeypatch.setattr("services.stats_prefs.user_today", lambda _tz: date(2026, 8, 20))
+    user = await repo.create_user(66, "r", "R", None, "UTC", 10, "23:00")
+    marker_id = await repo.add_marker(user.telegram_id, "2026-08-01T08:00:00+00:00", "Отпуск", None)
+
+    user = await remember_stats_span(repo, user, "7", {})
+    assert parse_recent(user.stats_prefs_json) == []
+
+    user = await remember_stats_span(repo, user, "since", {"since_start": "2026-08-12"})
+    user = await remember_stats_span(
+        repo, user, "marker", {"stats_marker_id": marker_id}
+    )
+    user = await remember_stats_span(
+        repo,
+        user,
+        "custom",
+        {"range_start": "2026-08-15", "range_end": "2026-08-01"},
+    )
+    user = await remember_stats_span(repo, user, "since", {"since_start": "2026-07-02"})
+    spans = parse_recent(user.stats_prefs_json)
+    assert [(item.kind, item.start, item.end, item.marker_id) for item in spans] == [
+        ("since", "2026-07-02", None, None),
+        ("range", "2026-08-01", "2026-08-15", None),
+        ("marker", None, None, marker_id),
+    ]
+
+    user = await remember_stats_span(repo, user, "since", {"since_start": "2026-07-02"})
+    spans = parse_recent(user.stats_prefs_json)
+    assert [item.kind for item in spans] == ["since", "range", "marker"]
+    assert spans[0].start == "2026-07-02"
+
+    today = date(2026, 8, 20)
+    assert recent_label(spans[0], marker_name=None, today=today) == "С даты · 2 июля"
+    assert recent_label(spans[1], marker_name=None, today=today) == "Период · 1–15 августа"
+    buttons = await recent_span_buttons(repo, user)
+    assert buttons[2] == ("С метки · Отпуск", "stre:2")
+
+    await repo.delete_marker(marker_id, user.telegram_id)
+    buttons = await recent_span_buttons(repo, user)
+    assert [data for _, data in buttons] == ["stre:0", "stre:1"]
+    fresh = await repo.get_user(user.telegram_id)
+    assert fresh is not None
+    assert all(item.kind != "marker" for item in parse_recent(fresh.stats_prefs_json))

@@ -611,13 +611,19 @@ def history_day_kb(
     return with_nav(b, NAV_HISTORY)
 
 
-def stats_period_kb() -> InlineKeyboardMarkup:
+def _recent_rows(builder: InlineKeyboardBuilder, recent: list[tuple[str, str]] | None) -> None:
+    for label, data in (recent or [])[:3]:
+        builder.row(_btn(label, data))
+
+
+def stats_period_kb(recent: list[tuple[str, str]] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("Сегодня", "stp:today"), _btn("Вчера", "stp:yesterday"))
     b.row(_btn("7 дней", "stp:7"), _btn("14 дней", "stp:14"))
     b.row(_btn("30 дней", "stp:30"), _btn("Всё время", "stp:all"))
     b.row(_btn("С даты", "stp:since"), _btn("С метки", "stp:marker"))
     b.row(_btn("📆 Период", "stp:range"))
+    _recent_rows(b, recent)
     return with_nav(b)
 
 
@@ -626,6 +632,7 @@ def stats_metrics_kb(
     custom: list | None = None,
     *,
     only: set[str] | None = None,
+    recent: list[tuple[str, str]] | None = None,
 ) -> InlineKeyboardMarkup:
     options = [
         ("cigarettes", "🚬 Сигареты"),
@@ -645,6 +652,7 @@ def stats_metrics_kb(
         ("stress", "😰 Стресс"),
     ]
     b = InlineKeyboardBuilder()
+    _recent_rows(b, recent)
     for key, label in options:
         if only is not None and key not in only:
             continue
@@ -768,8 +776,9 @@ def guide_page_kb() -> InlineKeyboardMarkup:
     return back_kb(NAV_GUIDE)
 
 
-def charts_done_kb() -> InlineKeyboardMarkup:
+def charts_done_kb(recent: list[tuple[str, str]] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    _recent_rows(b, recent)
     b.row(_btn("Другой период", NAV_STATS), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
