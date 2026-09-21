@@ -1355,6 +1355,94 @@ def test_server_colors_spread_then_pack():
     assert _server_colors(0) == []
 
 
+def test_server_colors_cluster_by_subscription():
+    from matplotlib.colors import rgb_to_hsv
+
+    from services.vpn_charts import _palette
+    from services.vpn_monitor import subscription_label
+
+    keys = [
+        "s1 · Amsterdam · a",
+        "s1 · Berlin · b",
+        "s1 · Cyprus · c",
+        "s2 · Paris · d",
+        "s2 · Rome · e",
+        "s5 · Oslo · f",
+        "s5 · Tokyo · g",
+    ]
+    colors = _palette(keys)
+
+    def hues(prefix: str) -> list[float]:
+        return [float(rgb_to_hsv(colors[key])[0]) for key in keys if key.startswith(prefix)]
+
+    s1, s2, s5 = hues("s1"), hues("s2"), hues("s5")
+    assert max(s1) - min(s1) <= 0.031
+    assert max(s2) - min(s2) <= 0.031
+    assert max(s5) - min(s5) <= 0.031
+    assert min(s2) - max(s1) >= 0.05
+    assert min(s5) - max(s2) >= 0.1
+    for key in keys:
+        r, g, b = colors[key][:3]
+        red_orange = r >= 0.72 and b <= 0.40 and g <= 0.55
+        yellow = r >= 0.75 and g >= 0.65 and b <= 0.40
+        orange = r >= 0.80 and 0.35 <= g <= 0.70 and b <= 0.35
+        assert not red_orange and not yellow and not orange
+
+    alone = _palette([key for key in keys if key.startswith("s1")])
+    for key in keys:
+        if key.startswith("s1"):
+            assert colors[key] == alone[key]
+
+    sub1 = subscription_label("sub1")
+    sub5 = subscription_label("sub5")
+    by_sub = _palette([sub1, sub5])
+    sub1_hue = float(rgb_to_hsv(by_sub[sub1])[0])
+    sub5_hue = float(rgb_to_hsv(by_sub[sub5])[0])
+    assert abs(sub1_hue - (min(s1) + max(s1)) / 2) < 0.02
+    assert abs(sub5_hue - (min(s5) + max(s5)) / 2) < 0.02
+    assert sub5_hue - sub1_hue >= 0.3
+
+
+def test_subscription_bands_follow_configured_count(monkeypatch):
+    from services import vpn_charts
+
+    def edge_gap(count: int) -> tuple[float, float]:
+        labels = {f"sub{i}": f"name {i}" for i in range(1, count + 1)}
+        monkeypatch.setattr(vpn_charts, "SUBSCRIPTION_LABELS", labels)
+        bands = vpn_charts._subscription_bands([f"s{i}" for i in range(1, count + 1)])
+        half = bands["s1"][1]
+        centers = [bands[f"s{i}"][0] for i in range(1, count + 1)]
+        if count == 1:
+            assert centers[0] == vpn_charts._HUE_LO + half
+            return half, half
+        gaps = [(centers[i + 1] - half) - (centers[i] + half) for i in range(count - 1)]
+        return half, min(gaps)
+
+    for count in (1, 2, 4, 6, 8):
+        half, gap = edge_gap(count)
+        if count > 1:
+            assert gap >= 2 * half - 1e-9
+
+    labels = {f"sub{i}": f"name {i}" for i in range(1, 6)}
+    monkeypatch.setattr(vpn_charts, "SUBSCRIPTION_LABELS", labels)
+    five = vpn_charts._subscription_bands(["s1", "s5"])
+    labels = {"sub1": "one", "sub2": "two", "sub4": "four", "sub5": "five"}
+    monkeypatch.setattr(vpn_charts, "SUBSCRIPTION_LABELS", labels)
+    holed = vpn_charts._subscription_bands(["s1", "s5"])
+    assert five["s1"] == holed["s1"]
+    assert five["s5"] == holed["s5"]
+
+    labels = {f"sub{i}": f"name {i}" for i in range(1, 6)}
+    monkeypatch.setattr(vpn_charts, "SUBSCRIPTION_LABELS", labels)
+    extra = vpn_charts._subscription_bands(["s1", "s2", "s3", "s4", "s5", "s6", "s7"])
+    named = [(extra[f"s{i}"][0] - extra[f"s{i}"][1], extra[f"s{i}"][0] + extra[f"s{i}"][1]) for i in range(1, 6)]
+    for sub in ("s6", "s7"):
+        center, half = extra[sub]
+        lo, hi = center - half, center + half
+        assert all(hi < left or lo > right for left, right in named)
+    assert extra["s6"][0] != extra["s7"][0]
+
+
 def test_timeline_keeps_vpn_errors_as_no_ping():
     from database.models import VpnLatencySample
     from services.vpn_charts import SIGNAL_NO_PING, samples_to_timeline
