@@ -122,8 +122,20 @@ async def show_main(
             pinned = [item for item in metrics if item.pinned][:MAX_PINS]
             open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
     text = menu_text(user, config, today_block)
+    open_scores = None
+    if repo is not None:
+        from services.daily_scores import list_open_score_gaps, open_score_total, tracked_score_keys
+
+        if tracked_score_keys(tracked):
+            open_scores = open_score_total(await list_open_score_gaps(repo, user))
     markup = main_menu(
-        user, is_owner, sleep, tracked=tracked, pinned=pinned, open_metric_ids=open_metric_ids
+        user,
+        is_owner,
+        sleep,
+        tracked=tracked,
+        pinned=pinned,
+        open_metric_ids=open_metric_ids,
+        open_scores=open_scores,
     )
     if hide_reply:
         source = target.message if isinstance(target, CallbackQuery) else target

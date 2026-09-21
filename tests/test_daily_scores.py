@@ -5,7 +5,18 @@ from datetime import date, timedelta
 import pytest
 
 from services.charts import build_charts
-from services.daily_scores import missing_by_day, missing_score_count, parse_daily_score, spec_of
+from services.daily_scores import (
+    format_open_scores,
+    list_open_score_gaps,
+    missing_by_day,
+    missing_keys_by_day,
+    missing_score_count,
+    open_score_total,
+    open_scores_button_label,
+    parse_daily_score,
+    score_gap_days,
+    spec_of,
+)
 from services.entries import clear_daily_score, undo_entry, upsert_daily_score
 from services.history import build_timeline, format_timeline
 from services.statistics import render_stats
@@ -170,11 +181,57 @@ def test_missing_by_day_counts_only_open_days():
         ("2026-08-10", "stress"),
         ("2026-08-11", "mood"),
     ]
+    assert missing_keys_by_day(pairs, keys, days) == {
+        date(2026, 8, 11): ["energy", "stress"],
+        date(2026, 8, 12): ["mood", "energy", "stress"],
+    }
     assert missing_by_day(pairs, keys, days) == {
         date(2026, 8, 11): 2,
         date(2026, 8, 12): 3,
     }
     assert missing_by_day(pairs, [], days) == {}
+
+
+def test_score_gap_window_stops_at_registration():
+    today = date(2026, 9, 22)
+    assert score_gap_days(today)[0] == today - timedelta(days=13)
+    assert score_gap_days(today)[-1] == today
+    assert len(score_gap_days(today)) == 14
+    registered = date(2026, 9, 21)
+    assert score_gap_days(today, registered) == [registered, today]
+    assert score_gap_days(today, today + timedelta(days=1)) == []
+
+
+def test_open_scores_text_lists_forgotten_and_button_counts_them():
+    today = date(2026, 9, 22)
+    gaps = [
+        (today, ["energy", "productivity"]),
+        (today - timedelta(days=1), ["mood"]),
+    ]
+    text = format_open_scores(gaps, today)
+    assert text.startswith("Не оценено")
+    assert "сегодня — ⚡ Энергия, 📈 Продуктивность" in text
+    assert "вчера — 😊 Настроение" in text
+    assert "Нажмите день" in text
+    assert open_score_total(gaps) == 3
+    assert open_scores_button_label(3) == "Неоценено · 3"
+    assert open_scores_button_label(0) == "Всё оценено"
+    assert format_open_scores([], today) == "Всё оценено.\n\nПустых оценок нет."
+
+
+@pytest.mark.asyncio
+async def test_open_score_gaps_skip_days_before_registration(repo):
+    from services.ui_prefs import prefs_of, save_prefs
+
+    user = await repo.create_user(98, "gaps", "Нина", None, "UTC", 0, "23:00")
+    prefs = prefs_of(user)
+    prefs.tracked = {"mood", "energy"}
+    user = await save_prefs(repo, user, prefs)
+    today = user_today(user.timezone)
+    await upsert_daily_score(repo, user, today, "mood", 4)
+    gaps = await list_open_score_gaps(repo, user)
+    assert gaps == [(today, ["energy"])]
+    assert open_score_total(gaps) == 1
 
 
 @pytest.mark.asyncio

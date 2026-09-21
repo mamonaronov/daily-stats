@@ -352,7 +352,7 @@ def test_steps_day_and_value_keyboards():
 
 
 def test_daily_scores_day_and_value_keyboards():
-    from keyboards.main import daily_scores_day_kb, daily_scores_value_kb
+    from keyboards.main import daily_scores_day_kb, daily_scores_value_kb, score_gaps_kb
     from services.daily_scores import spec_of
 
     pairs = dict(_pairs(daily_scores_day_kb(today_missing=3, yesterday_missing=1)))
@@ -377,6 +377,12 @@ def test_daily_scores_day_and_value_keyboards():
     assert ("✖️", "ds:x:md") in pairs
     assert ("✖️", "noop") in pairs
     assert ("✖️", "ds:x:en") not in pairs
+    from datetime import date
+
+    gaps = score_gaps_kb([(date(2026, 9, 22), ["mood", "energy"])], date(2026, 9, 22))
+    gap_pairs = dict(_pairs(gaps))
+    assert gap_pairs["сегодня · 😊⚡"] == "ds:gap:2026-09-22"
+    assert gap_pairs["🏠 Меню"] == "n:m"
 
 
 def test_main_menu_custom_metrics_button():
@@ -395,6 +401,12 @@ def test_main_menu_custom_metrics_button():
     assert all("Оценки дня" not in text for text, _ in pairs)
     scored = {t for t, _ in _pairs(main_menu(SimpleNamespace(), False, tracked={"mood", "energy"}))}
     assert "🙂 Оценки дня" in scored
+    assert "Неоценено" not in scored
+    assert "Всё оценено" not in scored
+    open_pairs = dict(_pairs(main_menu(SimpleNamespace(), False, tracked={"mood"}, open_scores=2)))
+    assert open_pairs["Неоценено · 2"] == "ds:gaps"
+    done_pairs = dict(_pairs(main_menu(SimpleNamespace(), False, tracked={"mood"}, open_scores=0)))
+    assert done_pairs["Всё оценено"] == "ds:gaps"
     empty = {t for t, _ in _pairs(main_menu(SimpleNamespace(), False))}
     assert "📌 Кастом" not in empty
     assert "🚶 Шаги" not in empty

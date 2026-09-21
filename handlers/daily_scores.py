@@ -11,13 +11,16 @@ from aiogram.types import CallbackQuery, Message
 from database.models import User
 from database.queries import Repo
 from handlers.common import require_writable
-from keyboards.main import calendar_kb, daily_scores_day_kb, daily_scores_value_kb
+from keyboards.main import calendar_kb, daily_scores_day_kb, daily_scores_value_kb, score_gaps_kb
 from services import entries
 from services.daily_scores import (
     HUB_LABEL,
+    OPEN_SCORES_CB,
     SCORE_BY_CODE,
     SCORE_BY_KEY,
+    format_open_scores,
     format_score_line,
+    list_open_score_gaps,
     missing_by_day,
     missing_score_count,
     spec_of,
@@ -115,6 +118,7 @@ async def _ask_values(
     *,
     extra_kind: str | None = None,
     toast: str | None = None,
+    back: str = ENTRY_DS,
 ) -> None:
     keys = await _score_keys(user, extra_kind)
     if not keys:
@@ -129,9 +133,9 @@ async def _ask_values(
     current = {rec.kind: rec.score for rec in rows}
     specs = [spec_of(key) for key in keys]
     await state.set_state(DailyScoreSG.value)
-    await state.update_data(ds_day=day.isoformat())
+    await state.update_data(ds_day=day.isoformat(), ds_back=back)
     text = _value_text(day, user_today(user.timezone), specs, current)
-    markup = daily_scores_value_kb(specs, current, back=ENTRY_DS)
+    markup = daily_scores_value_kb(specs, current, back=back)
     if isinstance(event, CallbackQuery):
         await event.answer(toast or "")
         await safe_edit(event.message, text, markup)
@@ -155,6 +159,35 @@ async def show_daily_scores_menu(cb: CallbackQuery, repo: Repo, user: User, stat
             yesterday_missing=missing_score_count({rec.kind for rec in yest_rows}, keys),
         ),
     )
+
+
+@router.callback_query(F.data == OPEN_SCORES_CB)
+async def scores_gaps(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await state.clear()
+    today = user_today(user.timezone)
+    gaps = await list_open_score_gaps(repo, user)
+    await cb.answer()
+    await safe_edit(cb.message, format_open_scores(gaps, today), score_gaps_kb(gaps, today))
+
+
+@router.callback_query(F.data.startswith("ds:gap:"))
+async def scores_gap_day(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    raw = (cb.data or "").split(":", 2)
+    try:
+        day = date.fromisoformat(raw[2])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    if day > user_today(user.timezone):
+        await cb.answer("Этот день ещё не наступил", show_alert=True)
+        return
+    await _ask_values(cb, state, repo, user, day, back=OPEN_SCORES_CB)
 
 
 @router.callback_query(F.data == "ds:today")
@@ -255,7 +288,16 @@ async def scores_pick(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user:
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await _ask_values(cb, state, repo, user, day, extra_kind=spec.key, toast=toast)
+    await _ask_values(
+        cb,
+        state,
+        repo,
+        user,
+        day,
+        extra_kind=spec.key,
+        toast=toast,
+        back=str(data.get("ds_back") or ENTRY_DS),
+    )
 
 
 @router.callback_query(F.data.startswith("ds:x:"))
@@ -278,4 +320,13 @@ async def scores_clear(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user
     if error:
         await cb.answer(error, show_alert=True)
         return
-    await _ask_values(cb, state, repo, user, day, extra_kind=spec.key, toast="Снято")
+    await _ask_values(
+        cb,
+        state,
+        repo,
+        user,
+        day,
+        extra_kind=spec.key,
+        toast="Снято",
+        back=str(data.get("ds_back") or ENTRY_DS),
+    )

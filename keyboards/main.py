@@ -8,7 +8,14 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.models import SleepRecord, User
-from services.daily_scores import HUB_LABEL, tracked_score_keys
+from services.daily_scores import (
+    HUB_LABEL,
+    OPEN_SCORES_CB,
+    open_score_day_label,
+    open_scores_button_label,
+    spec_of,
+    tracked_score_keys,
+)
 from services.legal import legal_contact, owner_chat_url
 from services.metric_types import METRIC_TYPES, UNIT_PRESETS
 from services.ui_prefs import prefs_of
@@ -125,6 +132,7 @@ def main_menu(
     tracked: set[str] | None = None,
     pinned: list | None = None,
     open_metric_ids: set[int] | None = None,
+    open_scores: int | None = None,
 ) -> InlineKeyboardMarkup:
     tracked = tracked or set()
     b = InlineKeyboardBuilder()
@@ -159,7 +167,10 @@ def main_menu(
         extras.append(_btn("📌 Кастом", NAV_METRICS))
     _pair_rows(b, extras)
     if tracked_score_keys(tracked):
-        b.row(_btn(HUB_LABEL, ENTRY_DS))
+        score_row = [_btn(HUB_LABEL, ENTRY_DS)]
+        if open_scores is not None:
+            score_row.append(_btn(open_scores_button_label(open_scores), OPEN_SCORES_CB))
+        b.row(*score_row)
     if "markers" in tracked:
         b.row(_btn("🔖 Метки", NAV_MARKERS))
     if "custom" in tracked:
@@ -432,6 +443,14 @@ def daily_scores_day_kb(*, today_missing: int = 0, yesterday_missing: int = 0) -
         _btn(_open_scores_label("Вчера", yesterday_missing), "ds:yest"),
     )
     b.row(_btn("📅 Другая дата", "ds:date"))
+    return with_nav(b)
+
+
+def score_gaps_kb(gaps: list[tuple[date, list[str]]], today: date) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for day, keys in gaps:
+        emojis = "".join(spec_of(key).emoji for key in keys)
+        b.row(_btn(f"{open_score_day_label(day, today)} · {emojis}", f"ds:gap:{day.isoformat()}"))
     return with_nav(b)
 
 
