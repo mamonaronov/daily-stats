@@ -27,7 +27,7 @@ from services.chart_theme import (
     apply_dark as _apply_dark,
     style_legend as _style_legend,
 )
-from services.vpn_monitor import subscription_label
+from services.vpn_monitor import SUBSCRIPTION_LABELS, subscription_label
 from utils.time import parse_iso, zone
 from utils.uptime import host_uptime_seconds
 
@@ -73,6 +73,10 @@ _PING_MINOR_STEPS = (
 # Safe hue arc: green → cyan → blue → violet. Avoids red / orange / yellow signals.
 _HUE_LO = 0.36
 _HUE_HI = 0.80
+# Cap on how wide one subscription's hue band is. Fewer subs keep this width;
+# more subs shrink it so the gap between bands stays at least as wide as a band.
+_BAND_HALF = 0.015
+_OTHER_SUB = "_other"
 
 SIGNAL_SERVER_OFF = "server_off"
 SIGNAL_SERVICE_DOWN = "service_down"
@@ -799,6 +803,12 @@ def _png(fig, *, dpi: int = _CHART_DPI) -> bytes:
     return _fit_png(buf.getvalue())
 
 
+def _hsv_rgb(hue: float, sat: float, val: float) -> tuple[float, float, float]:
+    hue = min(_HUE_HI, max(_HUE_LO, hue))
+    rgb = hsv_to_rgb((hue, sat, val))
+    return (float(rgb[0]), float(rgb[1]), float(rgb[2]))
+
+
 def _server_colors(count: int) -> list[tuple[float, float, float]]:
     """Spread `count` colors on the safe hue arc.
 
@@ -821,18 +831,182 @@ def _server_colors(count: int) -> list[tuple[float, float, float]]:
             band = index % 3
             sat = 0.58 + 0.14 * band
             val = 0.98 - 0.10 * band
-        rgb = hsv_to_rgb((hue, sat, val))
-        out.append((float(rgb[0]), float(rgb[1]), float(rgb[2])))
+        out.append(_hsv_rgb(hue, sat, val))
     return out
+
+
+def _sub_number(sub: str) -> int | None:
+    if len(sub) >= 2 and sub[0] == "s" and sub[1:].isdigit():
+        return int(sub[1:])
+    return None
+
+
+def _configured_sub_numbers() -> set[int]:
+    numbers: set[int] = set()
+    for subscription in SUBSCRIPTION_LABELS:
+        if subscription.startswith("sub") and subscription[3:].isdigit():
+            numbers.add(int(subscription[3:]))
+    return numbers
+
+
+def _band_half_for_count(count: int) -> float:
+    """Keep the empty gap between bands at least as wide as a band itself."""
+    if count <= 1:
+        return _BAND_HALF
+    span = _HUE_HI - _HUE_LO
+    return min(_BAND_HALF, span / (4 * count - 2))
+
+
+def _layout_centers(max_n: int) -> tuple[dict[str, float], float]:
+    """Even centers for s1..sN. s1 stays on green; the highest number stays on violet."""
+    half = _band_half_for_count(max_n)
+    lo = _HUE_LO + half
+    hi = _HUE_HI - half
+    centers: dict[str, float] = {}
+    for number in range(1, max_n + 1):
+        if max_n == 1:
+            hue = lo
+        else:
+            hue = lo + (hi - lo) * (number - 1) / (max_n - 1)
+        centers[f"s{number}"] = hue
+    return centers, half
+
+
+def _label_to_prefix() -> dict[str, str]:
+    mapped: dict[str, str] = {}
+    for subscription, label in SUBSCRIPTION_LABELS.items():
+        number = subscription[3:] if subscription.startswith("sub") else ""
+        if number.isdigit():
+            prefix = f"s{int(number)}"
+            mapped[label] = prefix
+            mapped[subscription] = prefix
+    return mapped
+
+
+def _key_subscription(key: str) -> str | None:
+    """Subscription family for a legend key, or None when the key has no sub."""
+    mapped = _label_to_prefix().get(key)
+    if mapped:
+        return mapped
+    head = key.split("·", 1)[0].strip()
+    if _is_subscription_prefix(head):
+        return head
+    if head.startswith("sub") and head[3:].isdigit():
+        return f"s{int(head[3:])}"
+    return None
+
+
+def _band_colors(count: int, center: float, half: float) -> list[tuple[float, float, float]]:
+    """Shades inside one subscription hue. Saturation/value keep servers apart."""
+    if count <= 0:
+        return []
+    sat_steps = (0.74, 0.96, 0.84, 0.68)
+    val_steps = (0.98, 0.84, 0.74)
+    out: list[tuple[float, float, float]] = []
+    for index in range(count):
+        if count == 1:
+            hue = center
+            sat, val = 0.84, 0.96
+        else:
+            hue = center - half + 2 * half * index / (count - 1)
+            sat = sat_steps[index % len(sat_steps)]
+            val = val_steps[(index // len(sat_steps)) % len(val_steps)]
+        out.append(_hsv_rgb(hue, sat, val))
+    return out
+
+
+def _overflow_bands(
+    centers: dict[str, float],
+    named_half: float,
+    overflow: list[str],
+) -> dict[str, tuple[float, float]]:
+    """Put subs outside s1..sN into the gaps, each on its own hue."""
+    ordered = [centers[f"s{number}"] for number in range(1, len(centers) + 1)]
+    if len(ordered) < 2:
+        anchor = ordered[0] if ordered else (_HUE_LO + _HUE_HI) / 2
+        gaps = [(_HUE_LO, anchor - named_half), (anchor + named_half, _HUE_HI)]
+    else:
+        gaps = [(left + named_half, right - named_half) for left, right in zip(ordered, ordered[1:])]
+    gaps = [(left, right) for left, right in gaps if right - left > 1e-6]
+    if not gaps:
+        return {sub: ((_HUE_LO + _HUE_HI) / 2, 0.0) for sub in overflow}
+    counts = [0] * len(gaps)
+    for index in range(len(overflow)):
+        counts[index % len(gaps)] += 1
+    placed: dict[str, tuple[float, float]] = {}
+    cursor = 0
+    for (left, right), count in zip(gaps, counts):
+        if count == 0:
+            continue
+        width = right - left
+        for slot in range(count):
+            hue = left + width * (slot + 1) / (count + 1)
+            half = min(0.008, width / (count + 1) * 0.25)
+            placed[overflow[cursor]] = (hue, half)
+            cursor += 1
+    return placed
+
+
+def _subscription_bands(subs: list[str]) -> dict[str, tuple[float, float]]:
+    """Map each subscription to (hue center, half-width).
+
+    Slots follow subscription number up to the highest configured id, so a
+    missing middle id leaves a gap and the others keep their hues. Ids above
+    that (or servers with no subscription) sit in the gaps and do not move
+    the configured bands.
+    """
+    numbers = _configured_sub_numbers()
+    if not numbers:
+        numbers = {number for sub in subs if (number := _sub_number(sub)) is not None}
+    max_n = max(numbers) if numbers else 0
+    if max_n <= 0:
+        mid = (_HUE_LO + _HUE_HI) / 2
+        return {sub: (mid, _BAND_HALF) for sub in subs}
+    centers, half = _layout_centers(max_n)
+    bands = {sub: (centers[sub], half) for sub in subs if sub in centers}
+    overflow = sorted(sub for sub in subs if sub not in centers)
+    bands.update(_overflow_bands(centers, half, overflow))
+    return bands
 
 
 _PING_BUCKET_COLORS = dict(zip(_PING_BUCKET_KEYS, _server_colors(4)))
 
 
 def _palette(keys: list[str]) -> dict[str, tuple]:
+    """Colors for timeline legend keys.
+
+    Servers stay inside their subscription's hue band. Bands are laid out by
+    subscription number across the safe arc: s1 is green, the highest
+    configured id is violet, and the gap between bands is at least as wide as
+    a band. Adding or removing a subscription rebuilds that layout. Keys with
+    no subscription — and the ping buckets — keep the even spread on the full
+    safe arc.
+    """
     server_keys = [key for key in keys if key not in _SIGNAL_KEYS and key not in _PING_BUCKET_SET]
-    assigned = _server_colors(len(server_keys))
-    colors: dict[str, tuple] = {key: assigned[i] for i, key in enumerate(server_keys)}
+    grouped: dict[str, list[str]] = {}
+    order: list[str] = []
+    has_sub = False
+    for key in server_keys:
+        sub = _key_subscription(key)
+        if sub is None:
+            sub = _OTHER_SUB
+        else:
+            has_sub = True
+        if sub not in grouped:
+            grouped[sub] = []
+            order.append(sub)
+        grouped[sub].append(key)
+    colors: dict[str, tuple] = {}
+    if not has_sub:
+        assigned = _server_colors(len(server_keys))
+        colors = {key: assigned[i] for i, key in enumerate(server_keys)}
+    else:
+        bands = _subscription_bands(order)
+        for sub, sub_keys in grouped.items():
+            center, half = bands[sub]
+            ordered = sorted(sub_keys)
+            for key, color in zip(ordered, _band_colors(len(ordered), center, half)):
+                colors[key] = color
     colors.update(_SIGNAL_COLORS)
     colors.update(_PING_BUCKET_COLORS)
     return colors
@@ -1044,7 +1218,7 @@ def render_timeline_chart(
         ax.set_title(f"Доступность · {period_title}\n{color_note}")
         legend_keys = [key for key in _PING_BUCKET_KEYS if key in keys]
     else:
-        color_note = "цвет фона — подписка" if color_by_sub else "цвет фона — сервер"
+        color_note = "цвет фона — подписка" if color_by_sub else "цвет фона — сервер, оттенок — подписка"
         ax.set_title(f"Пинг по времени · {period_title}\n{color_note}")
         legend_keys = [key for key in keys if key not in _SIGNAL_KEYS][:_MAX_LEGEND_NODES]
     handles = [
