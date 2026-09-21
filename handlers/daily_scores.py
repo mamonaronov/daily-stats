@@ -18,6 +18,8 @@ from services.daily_scores import (
     SCORE_BY_CODE,
     SCORE_BY_KEY,
     format_score_line,
+    missing_by_day,
+    missing_score_count,
     spec_of,
     tracked_score_keys,
 )
@@ -30,14 +32,48 @@ from utils.time import format_date_long, parse_calendar_token, user_today
 router = Router(name="daily_scores")
 
 
-def _filled_label(records, keys: list[str]) -> str | None:
-    if not keys:
-        return None
-    have = {rec.kind for rec in records}
-    n = sum(1 for key in keys if key in have)
-    if n == 0:
-        return None
-    return f"{n}/{len(keys)}"
+def _month_last(year: int, month: int) -> date:
+    return date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+
+
+def _score_mark_days(year: int, month: int, today: date) -> list[date]:
+    first = date(year, month, 1)
+    last = min(_month_last(year, month), today)
+    days: list[date] = []
+    if first <= last:
+        day = first
+        while day <= last:
+            days.append(day)
+            day += timedelta(days=1)
+    for offset in range(3):
+        day = today - timedelta(days=offset)
+        if day not in days:
+            days.append(day)
+    return days
+
+
+async def _open_scores(repo: Repo, user: User, year: int, month: int) -> dict[date, int]:
+    keys = await _score_keys(user)
+    today = user_today(user.timezone)
+    days = _score_mark_days(year, month, today)
+    if not keys or not days:
+        return {}
+    start = min(days).isoformat()
+    end = max(days).isoformat()
+    pairs = await repo.list_daily_score_kinds_between(user.telegram_id, start, end)
+    return missing_by_day(pairs, keys, days)
+
+
+async def _scores_calendar(repo: Repo, user: User, year: int, month: int):
+    today = user_today(user.timezone)
+    return calendar_kb(
+        year,
+        month,
+        prefix="dscal",
+        back=ENTRY_DS,
+        open_scores=await _open_scores(repo, user, year, month),
+        today=today,
+    )
 
 
 def _day_heading(day: date, today: date) -> str:
@@ -115,8 +151,8 @@ async def show_daily_scores_menu(cb: CallbackQuery, repo: Repo, user: User, stat
         cb.message,
         f"{HUB_LABEL} за какой день?",
         daily_scores_day_kb(
-            today_filled=_filled_label(today_rows, keys),
-            yesterday_filled=_filled_label(yest_rows, keys),
+            today_missing=missing_score_count({rec.kind for rec in today_rows}, keys),
+            yesterday_missing=missing_score_count({rec.kind for rec in yest_rows}, keys),
         ),
     )
 
@@ -138,24 +174,25 @@ async def scores_yesterday(cb: CallbackQuery, state: FSMContext, repo: Repo, db_
 
 
 @router.callback_query(F.data == "ds:date")
-async def scores_pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+async def scores_pick_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
     today = user_today(user.timezone)
     await state.set_state(DailyScoreSG.pick_date)
     await cb.answer()
-    await safe_edit(cb.message, "Дата оценок:", calendar_kb(today.year, today.month, prefix="dscal", back=ENTRY_DS))
+    await safe_edit(cb.message, "Дата оценок:", await _scores_calendar(repo, user, today.year, today.month))
 
 
 @router.callback_query(F.data.startswith("dscalm:"))
-async def scores_month(cb: CallbackQuery, db_user: User | None) -> None:
-    if await require_writable(cb, db_user) is None:
+async def scores_month(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
         return
     ym = cb.data.split(":", 1)[1]
     year, month = int(ym[:4]), int(ym[5:7])
     await cb.answer()
-    await safe_edit(cb.message, "Дата оценок:", calendar_kb(year, month, prefix="dscal", back=ENTRY_DS))
+    await safe_edit(cb.message, "Дата оценок:", await _scores_calendar(repo, user, year, month))
 
 
 @router.callback_query(F.data.startswith("dscal:"), DailyScoreSG.pick_date)

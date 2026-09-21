@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 
 from utils.formatting import SCORE_EMOJI, SCORE_LABELS, score_text
 
@@ -104,3 +106,30 @@ def format_score_compact(spec: DailyScoreSpec, score: int) -> str:
 
 def tracked_score_keys(tracked: set[str]) -> list[str]:
     return [key for key in DAILY_SCORE_KEYS if key in tracked]
+
+
+def missing_score_count(kinds: set[str], keys: list[str]) -> int:
+    if not keys:
+        return 0
+    return sum(1 for key in keys if key not in kinds)
+
+
+def missing_by_day(
+    pairs: list[tuple[str, str]],
+    keys: list[str],
+    days: list[date],
+) -> dict[date, int]:
+    """Days that still miss at least one tracked score, mapped to the missing count."""
+    needed = set(keys)
+    if not needed:
+        return {}
+    have: dict[str, set[str]] = defaultdict(set)
+    for day, kind in pairs:
+        if kind in needed:
+            have[day].add(kind)
+    missing: dict[date, int] = {}
+    for day in days:
+        left = len(needed - have.get(day.isoformat(), set()))
+        if left:
+            missing[day] = left
+    return missing

@@ -1351,6 +1351,22 @@ class Repo:
     async def list_daily_scores(self, telegram_id: int, start: str, end: str) -> list[DailyScore]:
         return await self._list_range("daily_scores", DailyScore, telegram_id, start, end)
 
+    async def list_daily_score_kinds_between(
+        self,
+        telegram_id: int,
+        start_day: str,
+        end_day: str,
+    ) -> list[tuple[str, str]]:
+        rows = await self.fetchall(
+            """
+            SELECT day, kind FROM daily_scores
+            WHERE telegram_id = ? AND day >= ? AND day <= ?
+            ORDER BY day ASC, id ASC
+            """,
+            (telegram_id, start_day, end_day),
+        )
+        return [(str(row["day"]), str(row["kind"])) for row in rows]
+
     async def add_weight(self, telegram_id: int, kilograms: float, occurred_at: str) -> int:
         return await self._insert(
             """

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
 from services.charts import build_charts
-from services.daily_scores import parse_daily_score, spec_of
+from services.daily_scores import missing_by_day, missing_score_count, parse_daily_score, spec_of
 from services.entries import clear_daily_score, undo_entry, upsert_daily_score
 from services.history import build_timeline, format_timeline
 from services.statistics import render_stats
@@ -157,3 +157,36 @@ async def test_clear_daily_score_today_and_past(repo):
     assert await undo_entry(repo, user, "dsc", mood_id) is None
     assert await repo.get_daily_score(mood_id, user.telegram_id) is None
     assert await clear_daily_score(repo, user, today, "sleep") == "Неизвестная оценка."
+
+
+def test_missing_by_day_counts_only_open_days():
+    keys = ["mood", "energy", "stress"]
+    assert missing_score_count({"mood"}, keys) == 2
+    assert missing_score_count(set(), []) == 0
+    days = [date(2026, 8, 10), date(2026, 8, 11), date(2026, 8, 12)]
+    pairs = [
+        ("2026-08-10", "mood"),
+        ("2026-08-10", "energy"),
+        ("2026-08-10", "stress"),
+        ("2026-08-11", "mood"),
+    ]
+    assert missing_by_day(pairs, keys, days) == {
+        date(2026, 8, 11): 2,
+        date(2026, 8, 12): 3,
+    }
+    assert missing_by_day(pairs, [], days) == {}
+
+
+@pytest.mark.asyncio
+async def test_score_kinds_between_follow_local_day(repo):
+    user = await repo.create_user(97, "kinds", "Оля", None, "UTC", 0, "23:00")
+    await repo.upsert_daily_score(
+        user.telegram_id,
+        "2026-08-10",
+        "mood",
+        4,
+        "2026-08-12T00:00:00+00:00",
+    )
+    pairs = await repo.list_daily_score_kinds_between(user.telegram_id, "2026-08-10", "2026-08-10")
+    assert pairs == [("2026-08-10", "mood")]
+    assert await repo.list_daily_score_kinds_between(user.telegram_id, "2026-08-12", "2026-08-12") == []

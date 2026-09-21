@@ -419,11 +419,18 @@ def steps_value_kb(back: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def daily_scores_day_kb(*, today_filled: str | None = None, yesterday_filled: str | None = None) -> InlineKeyboardMarkup:
+def _open_scores_label(name: str, missing: int) -> str:
+    if missing <= 0:
+        return name
+    return f"{name} · ещё {missing}"
+
+
+def daily_scores_day_kb(*, today_missing: int = 0, yesterday_missing: int = 0) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    today_label = "Сегодня" if not today_filled else f"Сегодня · {today_filled}"
-    yesterday_label = "Вчера" if not yesterday_filled else f"Вчера · {yesterday_filled}"
-    b.row(_btn(today_label, "ds:today"), _btn(yesterday_label, "ds:yest"))
+    b.row(
+        _btn(_open_scores_label("Сегодня", today_missing), "ds:today"),
+        _btn(_open_scores_label("Вчера", yesterday_missing), "ds:yest"),
+    )
     b.row(_btn("📅 Другая дата", "ds:date"))
     return with_nav(b)
 
@@ -469,7 +476,15 @@ def timezone_kb(back: str | None = None) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def calendar_kb(year: int, month: int, prefix: str = "cal", back: str | None = None) -> InlineKeyboardMarkup:
+def calendar_kb(
+    year: int,
+    month: int,
+    prefix: str = "cal",
+    back: str | None = None,
+    *,
+    open_scores: dict[date, int] | None = None,
+    today: date | None = None,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn(f"{MONTHS_RU[month].capitalize()} {year}", "noop"))
     b.row(*[_btn(d, "noop") for d in WEEKDAYS_RU])
@@ -477,9 +492,11 @@ def calendar_kb(year: int, month: int, prefix: str = "cal", back: str | None = N
     start_pad = first.weekday()
     days_in_month = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
     row: list[InlineKeyboardButton] = [_btn(" ", "noop") for _ in range(start_pad)]
+    marks = open_scores or {}
     for day in range(1, days_in_month + 1):
         current = date(year, month, day)
-        row.append(_btn(str(day), f"{prefix}:{current.isoformat()}"))
+        label = f"•{day}" if marks.get(current) else str(day)
+        row.append(_btn(label, f"{prefix}:{current.isoformat()}"))
         if len(row) == 7:
             b.row(*row)
             row = []
@@ -493,10 +510,17 @@ def calendar_kb(year: int, month: int, prefix: str = "cal", back: str | None = N
         _btn("«", f"{prefix}m:{prev_month.year:04d}-{prev_month.month:02d}"),
         _btn("»", f"{prefix}m:{next_month.year:04d}-{next_month.month:02d}"),
     )
+    shortcut_missing = {}
+    if today is not None:
+        shortcut_missing = {
+            "today": marks.get(today, 0),
+            "yesterday": marks.get(today - timedelta(days=1), 0),
+            "daybefore": marks.get(today - timedelta(days=2), 0),
+        }
     b.row(
-        _btn("Сегодня", f"{prefix}:today"),
-        _btn("Вчера", f"{prefix}:yesterday"),
-        _btn("Позавчера", f"{prefix}:daybefore"),
+        _btn(_open_scores_label("Сегодня", shortcut_missing.get("today", 0)), f"{prefix}:today"),
+        _btn(_open_scores_label("Вчера", shortcut_missing.get("yesterday", 0)), f"{prefix}:yesterday"),
+        _btn(_open_scores_label("Позавчера", shortcut_missing.get("daybefore", 0)), f"{prefix}:daybefore"),
     )
     b.row(*nav_row(back))
     return b.as_markup()

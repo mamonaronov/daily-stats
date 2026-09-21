@@ -138,6 +138,25 @@ def test_calendar_has_yesterday_and_daybefore():
     assert ("Позавчера", "cal:daybefore") in pairs
 
 
+def test_calendar_marks_days_with_open_scores():
+    from datetime import date, timedelta
+
+    today = date(2026, 8, 17)
+    marks = {
+        today: 2,
+        today - timedelta(days=1): 1,
+        date(2026, 8, 3): 6,
+    }
+    pairs = dict(_pairs(calendar_kb(2026, 8, prefix="dscal", open_scores=marks, today=today)))
+    assert pairs["•17"] == "dscal:2026-08-17"
+    assert pairs["•16"] == "dscal:2026-08-16"
+    assert pairs["•3"] == "dscal:2026-08-03"
+    assert pairs["1"] == "dscal:2026-08-01"
+    assert pairs["Сегодня · ещё 2"] == "dscal:today"
+    assert pairs["Вчера · ещё 1"] == "dscal:yesterday"
+    assert pairs["Позавчера"] == "dscal:daybefore"
+
+
 def test_cancel_without_target_is_menu():
     pairs = _pairs(cancel_kb())
     assert pairs == [("🏠 Меню", NAV_MAIN)]
@@ -336,10 +355,13 @@ def test_daily_scores_day_and_value_keyboards():
     from keyboards.main import daily_scores_day_kb, daily_scores_value_kb
     from services.daily_scores import spec_of
 
-    pairs = dict(_pairs(daily_scores_day_kb(today_filled="2/5")))
-    assert pairs["Сегодня · 2/5"] == "ds:today"
-    assert pairs["Вчера"] == "ds:yest"
+    pairs = dict(_pairs(daily_scores_day_kb(today_missing=3, yesterday_missing=1)))
+    assert pairs["Сегодня · ещё 3"] == "ds:today"
+    assert pairs["Вчера · ещё 1"] == "ds:yest"
     assert pairs["📅 Другая дата"] == "ds:date"
+    done = dict(_pairs(daily_scores_day_kb()))
+    assert done["Сегодня"] == "ds:today"
+    assert done["Вчера"] == "ds:yest"
     specs = [spec_of("mood"), spec_of("energy")]
     markup = daily_scores_value_kb(specs, {"mood": 4})
     mood_row, energy_row = markup.inline_keyboard[:2]
