@@ -6,14 +6,14 @@ from datetime import date
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 
 from database.models import User
 from database.queries import Repo
 from handlers.common import prompt_since_marker, require_active
 from keyboards.main import calendar_kb, stats_metrics_kb, stats_period_kb
 from services.charts import build_charts
-from services.statistics import render_stats
+from services.statistics import choices_with_data, load_period, render_stats
 from states.diary import StatsSG
 from utils.callbacks import NAV_STATS
 from utils.telegram import png_file, safe_edit
@@ -24,11 +24,35 @@ router = Router(name="statistics")
 DEFAULT_METRICS = {"cigarettes", "sleep"}
 STATS_SINCE_PROMPT = "С какой даты считать статистику?"
 STATS_MARKER_PROMPT = "С какой метки считать статистику?"
+STATS_EMPTY = "За этот период нечего показывать."
 
 
-async def _metrics_kb(repo: Repo, user: User, selected: set[str]):
-    custom = await repo.list_metrics(user.telegram_id, enabled_only=True)
-    return stats_metrics_kb(selected, custom)
+def _selected_for(stored: set[str], available: set[str]) -> set[str]:
+    chosen = stored & available
+    if chosen:
+        return chosen
+    return set(available)
+
+
+async def _metrics_view(
+    repo: Repo,
+    user: User,
+    state: FSMContext,
+) -> tuple[set[str], InlineKeyboardMarkup | None] | None:
+    data = await state.get_data()
+    period = data.get("period")
+    if not period:
+        return None
+    bounds = await _period(repo, user, period, data)
+    if bounds is None:
+        return None
+    loaded = await load_period(repo, user, *bounds)
+    available, custom = choices_with_data(loaded)
+    if not available:
+        return set(), None
+    selected = _selected_for(set(data.get("stats_metrics") or DEFAULT_METRICS), available)
+    await state.update_data(stats_metrics=list(selected))
+    return selected, stats_metrics_kb(selected, custom, only=available)
 
 
 def dates_until_today(start: date, today: date) -> tuple[date, date]:
@@ -87,10 +111,16 @@ async def _period(repo: Repo, user: User, token: str, data: dict) -> tuple[date,
 
 
 async def _ask_metrics(cb: CallbackQuery, state: FSMContext, repo: Repo, user: User) -> None:
-    data = await state.get_data()
-    selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
+    view = await _metrics_view(repo, user, state)
     await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
+    if view is None:
+        await safe_edit(cb.message, "Сначала выберите период:", stats_period_kb())
+        return
+    selected, keyboard = view
+    if not selected or keyboard is None:
+        await safe_edit(cb.message, STATS_EMPTY, stats_period_kb())
+        return
+    await safe_edit(cb.message, "Показатели и вид результата:", keyboard)
 
 
 @router.callback_query(F.data == NAV_STATS)
@@ -240,14 +270,17 @@ async def toggle_metric(cb: CallbackQuery, state: FSMContext, repo: Repo, db_use
     data = await state.get_data()
     selected = set(data.get("stats_metrics") or DEFAULT_METRICS)
     if key in selected:
-        selected.discard(key)
+        if len(selected) > 1:
+            selected.discard(key)
     else:
         selected.add(key)
-    if not selected:
-        selected.add(key)
     await state.update_data(stats_metrics=list(selected))
+    view = await _metrics_view(repo, user, state)
     await cb.answer()
-    await safe_edit(cb.message, "Показатели и вид результата:", await _metrics_kb(repo, user, selected))
+    if view is None or view[1] is None:
+        await safe_edit(cb.message, STATS_EMPTY, stats_period_kb())
+        return
+    await safe_edit(cb.message, "Показатели и вид результата:", view[1])
 
 
 @router.callback_query(F.data.startswith("stv:"))
@@ -271,11 +304,16 @@ async def stats_view(
         await cb.answer("Период не выбран", show_alert=True)
         return
     start, end = bounds
-    selected = list(data.get("stats_metrics") or DEFAULT_METRICS)
+    view = await _metrics_view(repo, user, state)
+    if view is None or view[1] is None:
+        await cb.answer()
+        await safe_edit(cb.message, STATS_EMPTY, stats_period_kb())
+        return
+    selected = list(view[0])
     await cb.answer("Считаю…")
     if mode == "text":
         text = await render_stats(repo, user, start, end, selected)
-        await safe_edit(cb.message, text[:4000], await _metrics_kb(repo, user, set(selected)))
+        await safe_edit(cb.message, text[:4000], view[1])
         return
     charts = await build_charts(repo, user, start, end, selected)
     if not charts:

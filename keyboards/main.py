@@ -578,7 +578,12 @@ def stats_period_kb() -> InlineKeyboardMarkup:
     return with_nav(b)
 
 
-def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKeyboardMarkup:
+def stats_metrics_kb(
+    selected: set[str],
+    custom: list | None = None,
+    *,
+    only: set[str] | None = None,
+) -> InlineKeyboardMarkup:
     options = [
         ("cigarettes", "🚬 Сигареты"),
         ("fooling", "🤌 Валять дурака"),
@@ -598,10 +603,14 @@ def stats_metrics_kb(selected: set[str], custom: list | None = None) -> InlineKe
     ]
     b = InlineKeyboardBuilder()
     for key, label in options:
+        if only is not None and key not in only:
+            continue
         mark = "☑" if key in selected else "☐"
         b.row(_btn(f"{mark} {label}", f"stm:{key}"))
     for metric in custom or []:
         key = f"m{metric.id}"
+        if only is not None and key not in only:
+            continue
         mark = "☑" if key in selected else "☐"
         b.row(_btn(f"{mark} {metric.name[:24]}", f"stm:{key}"))
     b.row(_btn("📝 Текст", "stv:text"), _btn("📈 График", "stv:chart"))

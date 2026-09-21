@@ -435,3 +435,26 @@ async def test_since_and_marker_periods_run_until_today(repo, monkeypatch):
     msk_start, msk_end = await _period(repo, msk, "marker", {"stats_marker_id": marker_id})
     assert msk_start == date(2026, 8, 11)
     assert msk_end == date(2026, 8, 20)
+
+
+@pytest.mark.asyncio
+async def test_choices_with_data_skips_empty_metrics(repo):
+    from services.statistics import choices_with_data, load_period
+
+    user = await repo.create_user(65, "c", "C", None, "UTC", 10, "23:00")
+    stamp = "2026-08-10T12:00:00+00:00"
+    await repo.add_cigarette(user.telegram_id, stamp)
+    await repo.add_sleep(user.telegram_id, bedtime=stamp)
+    await repo.upsert_daily_score(user.telegram_id, "2026-08-10", "mood", 4, stamp)
+    water = await repo.add_metric(user.telegram_id, "Вода", "number", "мл", None)
+    await repo.add_metric_value(user.telegram_id, water, stamp, value_number=300)
+    await repo.add_metric(user.telegram_id, "Пустая", "number", None, None)
+    await repo.add_snus_pack(user.telegram_id, stamp, None, None)
+
+    data = await load_period(repo, user, date(2026, 8, 10), date(2026, 8, 10))
+    keys, custom = choices_with_data(data)
+    assert keys == {"cigarettes", "mood", "snus", f"m{water}"}
+    assert [(item.id, item.name) for item in custom] == [(water, "Вода")]
+
+    empty = await load_period(repo, user, date(2026, 8, 11), date(2026, 8, 11))
+    assert choices_with_data(empty) == (set(), [])

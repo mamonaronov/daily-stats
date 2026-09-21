@@ -876,6 +876,27 @@ def test_stats_metrics_kb_includes_custom():
     assert all_pairs["☐ 😰 Стресс"] == "stm:stress"
 
 
+def test_stats_metrics_kb_hides_metrics_without_data():
+    metric = SimpleNamespace(id=5, name="Вода")
+    quiet = SimpleNamespace(id=9, name="Пустая")
+    pairs = dict(
+        _pairs(
+            stats_metrics_kb(
+                {"sleep"},
+                [metric, quiet],
+                only={"sleep", "steps", "m5"},
+            )
+        )
+    )
+    assert pairs["☑ 😴 Сон"] == "stm:sleep"
+    assert pairs["☐ 🚶 Шаги"] == "stm:steps"
+    assert pairs["☐ Вода"] == "stm:m5"
+    assert "stm:cigarettes" not in pairs.values()
+    assert "stm:weight" not in pairs.values()
+    assert "stm:m9" not in pairs.values()
+    assert pairs["📝 Текст"] == "stv:text"
+
+
 def test_followup_keyboards():
     from keyboards.main import charts_done_kb, how_to_kb
     from utils.callbacks import NAV_STATS

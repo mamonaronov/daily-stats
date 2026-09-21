@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from statistics import mean
 
@@ -46,6 +47,46 @@ METRIC_KEYS = [
     "weight",
     *DAILY_SCORE_KEYS,
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class CustomMetricChoice:
+    id: int
+    name: str
+
+
+def _snus_has_output(items) -> bool:
+    completed = any(item.duration_minutes is not None and item.finished_at for item in items)
+    opened = any(item.bought_at and not item.finished_at for item in items)
+    return completed or opened
+
+
+def choices_with_data(data: dict) -> tuple[set[str], list[CustomMetricChoice]]:
+    """Metric keys and custom metrics that render something for this period."""
+    keys: set[str] = set()
+    for key in METRIC_KEYS:
+        items = data.get(key) or []
+        if key == "snus":
+            if _snus_has_output(items):
+                keys.add(key)
+            continue
+        if key == "sleep":
+            if any(getattr(item, "duration_minutes", None) is not None for item in items):
+                keys.add(key)
+            continue
+        if items:
+            keys.add(key)
+    customs: list[CustomMetricChoice] = []
+    seen: set[int] = set()
+    for value in data.get("custom") or []:
+        metric_id = int(value.metric_id)
+        if metric_id in seen:
+            continue
+        seen.add(metric_id)
+        customs.append(CustomMetricChoice(id=metric_id, name=value.metric_name or "Метрика"))
+        keys.add(f"m{metric_id}")
+    customs.sort(key=lambda item: (item.name.casefold(), item.id))
+    return keys, customs
 
 
 def pearson(xs: list[float], ys: list[float]) -> float | None:
