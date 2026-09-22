@@ -133,6 +133,7 @@ def main_menu(
     pinned: list | None = None,
     open_metric_ids: set[int] | None = None,
     open_scores: int | None = None,
+    pledge_next: dict[int, date] | None = None,
 ) -> InlineKeyboardMarkup:
     tracked = tracked or set()
     b = InlineKeyboardBuilder()
@@ -175,7 +176,7 @@ def main_menu(
         b.row(_btn("🔖 Метки", NAV_MARKERS))
     if "custom" in tracked:
         for metric in (pinned or [])[:3]:
-            b.row(*_metric_quick_row(metric, open_metric_ids))
+            b.row(*_metric_quick_row(metric, open_metric_ids, pledge_next, pledge_cb="cm:pq"))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
     b.row(_btn("📖 Гайд", NAV_GUIDE))
@@ -503,6 +504,7 @@ def calendar_kb(
     *,
     open_scores: dict[date, int] | None = None,
     today: date | None = None,
+    extra: tuple[tuple[str, str], ...] = (),
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn(f"{MONTHS_RU[month].capitalize()} {year}", "noop"))
@@ -541,6 +543,8 @@ def calendar_kb(
         _btn(_open_scores_label("Вчера", shortcut_missing.get("yesterday", 0)), f"{prefix}:yesterday"),
         _btn(_open_scores_label("Позавчера", shortcut_missing.get("daybefore", 0)), f"{prefix}:daybefore"),
     )
+    for label, data in extra:
+        b.row(_btn(label, data))
     b.row(*nav_row(back))
     return b.as_markup()
 
@@ -896,7 +900,13 @@ def skip_comment_kb(back: str | None = None) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def _metric_quick_row(metric, open_ids: set[int] | None = None) -> list[InlineKeyboardButton]:
+def _metric_quick_row(
+    metric,
+    open_ids: set[int] | None = None,
+    pledge_next: dict[int, date] | None = None,
+    *,
+    pledge_cb: str = "cm:pl",
+) -> list[InlineKeyboardButton]:
     name = (metric.name or "Метрика")[:20]
     if getattr(metric, "data_type", None) == "period":
         if open_ids and metric.id in open_ids:
@@ -906,17 +916,30 @@ def _metric_quick_row(metric, open_ids: set[int] | None = None) -> list[InlineKe
             _btn("▶️", f"cm:st:{metric.id}"),
             _btn("⏹", f"cm:en:{metric.id}"),
         ]
+    if getattr(metric, "data_type", None) == "pledge":
+        nxt = None if pledge_next is None else pledge_next.get(metric.id)
+        if nxt is None:
+            return [_btn(name, f"cm:o:{metric.id}")]
+        return [_btn(name, f"cm:o:{metric.id}"), _btn(format_date(nxt), f"{pledge_cb}:{metric.id}")]
     return [_btn(name, f"cm:o:{metric.id}"), _btn("➕", f"cm:add:{metric.id}")]
 
 
 def custom_metrics_kb(
-    metrics, writable: bool, *, open_ids: set[int] | None = None
+    metrics,
+    writable: bool,
+    *,
+    open_ids: set[int] | None = None,
+    pledge_next: dict[int, date] | None = None,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for metric in metrics:
         flag = "" if metric.enabled else " (выкл)"
-        if writable and metric.enabled and getattr(metric, "data_type", None) == "period":
+        kind = getattr(metric, "data_type", None)
+        if writable and metric.enabled and kind == "period":
             b.row(*_metric_quick_row(metric, open_ids))
+            continue
+        if writable and metric.enabled and kind == "pledge":
+            b.row(*_metric_quick_row(metric, open_ids, pledge_next, pledge_cb="cm:pl"))
             continue
         name_btn = _btn(f"{metric.name}{flag}", f"cm:o:{metric.id}")
         if writable and metric.enabled:
@@ -924,6 +947,23 @@ def custom_metrics_kb(
         else:
             b.row(name_btn)
     return with_nav(b)
+
+
+_PLEDGE_DAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+
+
+def pledge_weekdays_kb(mask: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    buttons = []
+    for index, label in enumerate(_PLEDGE_DAYS):
+        mark = "✅ " if mask & (1 << index) else ""
+        buttons.append(_btn(f"{mark}{label}", f"cm:wd:{index}"))
+    b.row(*buttons[:4])
+    b.row(*buttons[4:])
+    b.row(_btn("Каждый день", "cm:wd:all"))
+    b.row(_btn("Готово", "cm:wd:ok"))
+    b.row(_btn("⬅️ Назад", "cm:pb:end"), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
 
 
 def metric_types_kb() -> InlineKeyboardMarkup:
@@ -1019,6 +1059,9 @@ def metric_card_kb(
     data_type: str | None = None,
     has_open: bool = False,
     back: str = NAV_METRICS,
+    pledge_next: date | None = None,
+    pledge_open: int = 0,
+    pledge_undo: date | None = None,
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if writable:
@@ -1030,6 +1073,13 @@ def metric_card_kb(
                     _btn("▶️ Начал", f"cm:st:{metric_id}"),
                     _btn("⏹ Закончил", f"cm:en:{metric_id}"),
                 )
+        elif data_type == "pledge":
+            if pledge_next is not None:
+                b.row(_btn(f"Закрыть {format_date(pledge_next)}", f"cm:pn:{metric_id}"))
+            if pledge_open > 1:
+                b.row(_btn(f"Закрыть отставание · {pledge_open}", f"cm:pa:{metric_id}"))
+            if pledge_undo is not None:
+                b.row(_btn(f"Снять {format_date(pledge_undo)}", f"cm:pu:{metric_id}"))
         else:
             b.row(_btn("➕ Записать значение", f"cm:add:{metric_id}"))
         label = "Выключить" if enabled else "Включить"

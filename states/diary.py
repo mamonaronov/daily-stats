@@ -56,6 +56,9 @@ class CustomMetricSG(StatesGroup):
     unit = State()
     choices = State()
     value = State()
+    pledge_start = State()
+    pledge_end = State()
+    pledge_days = State()
 
 
 class MarkerSG(StatesGroup):

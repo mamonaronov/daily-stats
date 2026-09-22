@@ -47,6 +47,7 @@ def test_types_prompt_explains_each_choice():
     assert "Да / нет" in text
     assert "Время суток" in text
     assert "Интервал" in text
+    assert "Хорошее Решение" in text
 
 
 def test_value_prompt_mentions_unit_and_examples():

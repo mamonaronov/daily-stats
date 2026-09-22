@@ -11,6 +11,7 @@ from statistics import mean
 from database.models import User
 from database.queries import Repo
 from services.daily_scores import DAILY_SCORE_KEYS, spec_of
+from services.pledges import load_progress, pledge_period_text, schedule_overlaps
 from utils.formatting import (
     ACTIVITY_TYPES,
     ALCOHOL_TYPES,
@@ -85,6 +86,14 @@ def choices_with_data(data: dict) -> tuple[set[str], list[CustomMetricChoice]]:
         seen.add(metric_id)
         customs.append(CustomMetricChoice(id=metric_id, name=value.metric_name or "Метрика"))
         keys.add(f"m{metric_id}")
+    period_start, period_end = data.get("start"), data.get("end")
+    if period_start is not None and period_end is not None:
+        for metric in data.get("pledges") or []:
+            if metric.id in seen or not schedule_overlaps(metric, period_start, period_end):
+                continue
+            seen.add(metric.id)
+            customs.append(CustomMetricChoice(id=metric.id, name=metric.name or "Метрика"))
+            keys.add(f"m{metric.id}")
     customs.sort(key=lambda item: (item.name.casefold(), item.id))
     return keys, customs
 
@@ -127,6 +136,11 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "weight": await repo.list_weight(tid, a, b),
         "daily_scores": scores,
         "custom": await repo.list_metric_values(tid, a, b),
+        "pledges": [
+            metric
+            for metric in await repo.list_metrics(tid, enabled_only=True)
+            if metric.data_type == "pledge"
+        ],
         "markers": await repo.list_markers(tid, a, b),
         "periods": await repo.list_periods_overlapping(tid, a, b),
     }
@@ -670,6 +684,11 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
             if value.metric_id in custom_ids:
                 by_id[value.metric_id].append(value)
         for metric_id in custom_ids:
+            metric = await repo.get_metric(metric_id, user.telegram_id)
+            if metric is not None and metric.data_type == "pledge":
+                progress = await load_progress(repo, user, metric)
+                parts.append(pledge_period_text(metric, progress, start, end))
+                continue
             parts.append(_custom_metric_stats(by_id.get(metric_id, [])))
     marker_block = marker_stats(user, data["markers"], data["periods"])
     if marker_block:

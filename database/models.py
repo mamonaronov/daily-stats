@@ -205,6 +205,9 @@ class CustomMetric:
     enabled: int
     created_at: str
     pinned: int = 0
+    starts_on: str | None = None
+    ends_on: str | None = None
+    weekdays: int = 127
 
 
 @dataclass(slots=True)

@@ -102,6 +102,7 @@ async def show_main(
     repo: Repo | None = None,
     *,
     hide_reply: bool = False,
+    notice: str | None = None,
 ) -> None:
     if state:
         await state.clear()
@@ -110,6 +111,7 @@ async def show_main(
     tracked: set[str] = set()
     pinned: list = []
     open_metric_ids: set[int] = set()
+    pledge_next: dict = {}
     if repo is not None:
         from services.today import today_block as today_text
         from services.ui_prefs import MAX_PINS, prefs_of
@@ -121,6 +123,9 @@ async def show_main(
             metrics = await repo.list_metrics(user.telegram_id, enabled_only=True)
             pinned = [item for item in metrics if item.pinned][:MAX_PINS]
             open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
+            from services.pledges import next_open_dates
+
+            pledge_next = await next_open_dates(repo, user, pinned)
     text = menu_text(user, config, today_block)
     open_scores = None
     if repo is not None:
@@ -136,12 +141,16 @@ async def show_main(
         pinned=pinned,
         open_metric_ids=open_metric_ids,
         open_scores=open_scores,
+        pledge_next=pledge_next,
     )
     if hide_reply:
         source = target.message if isinstance(target, CallbackQuery) else target
         await hide_reply_keyboard(source)
     if isinstance(target, CallbackQuery):
-        await target.answer()
+        if notice:
+            await target.answer(notice)
+        else:
+            await target.answer()
         await safe_edit(target.message, text, markup)
         return
     await target.answer(text, reply_markup=markup)

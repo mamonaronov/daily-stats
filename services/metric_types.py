@@ -84,6 +84,13 @@ METRIC_TYPES: dict[str, MetricType] = {
         example="вошёл → вышел",
         numeric=True,
     ),
+    "pledge": MetricType(
+        "pledge",
+        "Хорошее Решение",
+        "📆",
+        hint="Обязательство на даты: закрывать дни по порядку, не забегая вперёд",
+        example="читать каждый день до конца месяца",
+    ),
 }
 
 
@@ -139,6 +146,8 @@ def format_period_value(rec, tz: str | None = None) -> str:
 
 
 def format_metric_value(rec, tz: str | None = None) -> str:
+    if getattr(rec, "data_type", None) == "pledge":
+        return "закрыто"
     if getattr(rec, "data_type", None) == "period":
         return format_period_value(rec, tz)
     if rec.value_number is not None:

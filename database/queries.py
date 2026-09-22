@@ -1429,11 +1429,24 @@ class Repo:
         await self.conn.commit()
 
     # custom metrics
-    async def add_metric(self, telegram_id: int, name: str, data_type: str, unit: str | None, choices: list[str] | None) -> int:
+    async def add_metric(
+        self,
+        telegram_id: int,
+        name: str,
+        data_type: str,
+        unit: str | None,
+        choices: list[str] | None,
+        *,
+        starts_on: str | None = None,
+        ends_on: str | None = None,
+        weekdays: int = 127,
+    ) -> int:
         return await self._insert(
             """
-            INSERT INTO custom_metrics (telegram_id, name, data_type, unit, choices_json, enabled, created_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
+            INSERT INTO custom_metrics (
+                telegram_id, name, data_type, unit, choices_json, enabled, created_at,
+                starts_on, ends_on, weekdays
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
             """,
             (
                 telegram_id,
@@ -1442,6 +1455,9 @@ class Repo:
                 unit,
                 json.dumps(choices, ensure_ascii=False) if choices else None,
                 to_iso(now_utc()),
+                starts_on,
+                ends_on,
+                int(weekdays) & 127,
             ),
         )
 
@@ -1510,6 +1526,19 @@ class Repo:
             params.append(metric_id)
         sql += " ORDER BY v.occurred_at ASC"
         rows = await self.fetchall(sql, params)
+        return [CustomValue(**dict(r)) for r in rows]
+
+    async def list_pledge_values(self, telegram_id: int) -> list[CustomValue]:
+        rows = await self.fetchall(
+            """
+            SELECT v.*, m.name AS metric_name, m.data_type, m.unit
+            FROM custom_metric_values v
+            JOIN custom_metrics m ON m.id = v.metric_id AND m.telegram_id = v.telegram_id
+            WHERE v.telegram_id = ? AND m.data_type = 'pledge'
+            ORDER BY v.occurred_at ASC
+            """,
+            (telegram_id,),
+        )
         return [CustomValue(**dict(r)) for r in rows]
 
     async def update_metric_value(self, item_id: int, telegram_id: int, **fields: Any) -> None:

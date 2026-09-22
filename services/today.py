@@ -8,6 +8,7 @@ from database.models import SleepRecord, SnusPack, User
 from database.queries import Repo
 from services.daily_scores import DAILY_SCORE_SPECS, format_score_compact
 from services.metric_types import format_metric_value, is_period_open
+from services.pledges import pledge_today_lines
 from utils.formatting import (
     ACTIVITY_TYPES,
     ALCOHOL_TYPES,
@@ -167,6 +168,8 @@ def _activity_summary(records) -> str | None:
 
 def _custom_value_summary(items, tz: str) -> str:
     data_type = items[0].data_type
+    if data_type == "pledge":
+        return ""
     if data_type == "period":
         return " · ".join(format_metric_value(rec, tz) for rec in items)
     if data_type in {"boolean", "choice", "text", "time"}:
@@ -189,6 +192,8 @@ def _custom_lines(values, tz: str) -> tuple[str, ...]:
         return ()
     lines: list[str] = []
     for _metric_id, items in _group_in_order(values, lambda rec: rec.metric_id):
+        if items[0].data_type == "pledge":
+            continue
         name = items[0].metric_name or "Метрика"
         summary = _custom_value_summary(items, tz)
         lines.append(f"📌 {name} {summary}".rstrip())
@@ -259,6 +264,7 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
     score_rows = await repo.list_daily_scores_for_day(tid, today.isoformat())
     custom_today = await repo.list_metric_values(tid, start_iso, end_iso)
     custom_open = await repo.list_open_metric_values(tid)
+    pledge_lines = await pledge_today_lines(repo, user)
     markers = await repo.list_markers(tid, start_iso, end_iso)
     return DaySnapshot(
         cigarettes=len(cigarettes),
@@ -271,7 +277,8 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
         caffeine_line=_drink_line(caffeine, CAFFEINE_TYPES),
         alcohol_line=_drink_line(alcohol, ALCOHOL_TYPES),
         activity_line=_activity_summary(activity),
-        custom_lines=_custom_lines(_merge_open_custom(custom_today, custom_open), user.timezone),
+        custom_lines=_custom_lines(_merge_open_custom(custom_today, custom_open), user.timezone)
+        + pledge_lines,
         marker_line=_marker_summary(markers),
     )
 

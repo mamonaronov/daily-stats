@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -18,15 +19,28 @@ from keyboards.main import (
     cancel_kb,
     choices_kb,
     custom_metrics_kb,
+    calendar_kb,
     metric_card_kb,
     metric_duration_kb,
     metric_number_kb,
     metric_time_kb,
     metric_types_kb,
     metric_units_kb,
+    pledge_weekdays_kb,
     when_kb,
 )
 from services.entries import add_custom_value, end_metric_period, start_metric_period
+from services.pledges import (
+    ALL_WEEKDAYS,
+    close_next_pledge,
+    close_open_pledge,
+    closed_notice,
+    load_progress,
+    next_open_dates,
+    pledge_card_text,
+    scheduled_dates,
+    undo_last_pledge,
+)
 from services.metric_types import (
     UNIT_BY_KEY,
     created_metric_text,
@@ -42,7 +56,16 @@ from services.users import can_write
 from states.diary import CustomMetricSG
 from utils.callbacks import NAV_METRICS
 from utils.telegram import safe_edit
-from utils.time import parse_hhmm, parse_iso, parse_minutes_ago, to_iso, user_now
+from utils.time import (
+    format_date,
+    parse_calendar_token,
+    parse_hhmm,
+    parse_iso,
+    parse_minutes_ago,
+    to_iso,
+    user_now,
+    user_today,
+)
 
 router = Router(name="custom_metrics")
 
@@ -54,7 +77,8 @@ METRICS_EMPTY = (
 )
 METRICS_LIST = (
     "📌 <b>Кастомные метрики</b>\n\n"
-    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. Название — открыть метрику. "
+    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. "
+    "Дата у «Хорошее Решение» закрывает следующий открытый день. Название — открыть метрику. "
     "Новые метрики — в Настройках → Метрики."
 )
 NAME_PROMPT = "Как назвать метрику? Например: вода, страницы, пульс."
@@ -68,6 +92,12 @@ CHOICES_PROMPT = (
     "Пример: низкая, средняя, высокая"
 )
 UNAVAILABLE = "Метрика недоступна"
+PLEDGE_START = "С какой даты ведёте «{name}»?\n\nЭто первый день графика. Можно выбрать и прошлую дату."
+PLEDGE_END = "До какой даты вести «{name}»?\n\nПосле неё новые дни в график не попадают. Конец можно не ставить."
+PLEDGE_DAYS = (
+    "В какие дни нужно выполнять «{name}»?\n\n"
+    "Нажмите день, чтобы снять или вернуть его, затем «Готово». По умолчанию выбраны все дни."
+)
 
 
 def _root_text(metrics) -> str:
@@ -84,7 +114,10 @@ async def show_custom_metrics(
         await state.clear()
     metrics = await repo.list_metrics(user.telegram_id)
     open_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
-    text, markup = _root_text(metrics), custom_metrics_kb(metrics, can_write(user), open_ids=open_ids)
+    pledge_next = await next_open_dates(repo, user, metrics)
+    text, markup = _root_text(metrics), custom_metrics_kb(
+        metrics, can_write(user), open_ids=open_ids, pledge_next=pledge_next
+    )
     if isinstance(target, CallbackQuery):
         await safe_edit(target.message, text, markup)
         return
@@ -103,9 +136,19 @@ async def _show_card(
     from services.ui_prefs import MAX_PINS
 
     open_period = None
+    pledge_next = None
+    pledge_open = 0
+    pledge_undo = None
     if metric.data_type == "period":
         open_period = await repo.get_open_metric_value(user.telegram_id, metric.id)
-    body = text or metric_card_text(metric, open_period=open_period, tz=user.timezone)
+    if metric.data_type == "pledge" and metric.starts_on:
+        progress = await load_progress(repo, user, metric)
+        body = text or pledge_card_text(metric, progress)
+        pledge_next = progress.next_open
+        pledge_open = len(progress.open_dates)
+        pledge_undo = progress.last_closed
+    else:
+        body = text or metric_card_text(metric, open_period=open_period, tz=user.timezone)
     pinned_n = sum(1 for item in await repo.list_metrics(user.telegram_id) if item.pinned)
     markup = metric_card_kb(
         metric.id,
@@ -116,6 +159,9 @@ async def _show_card(
         data_type=metric.data_type,
         has_open=open_period is not None,
         back=back,
+        pledge_next=pledge_next,
+        pledge_open=pledge_open,
+        pledge_undo=pledge_undo,
     )
     if isinstance(target, CallbackQuery):
         await safe_edit(target.message, body, markup)
@@ -145,11 +191,23 @@ async def _finish_create(
     choices: list[str] | None,
     *,
     toast: str = "Создано",
+    starts_on: str | None = None,
+    ends_on: str | None = None,
+    weekdays: int = ALL_WEEKDAYS,
 ) -> None:
     from handlers.settings import show_track_metrics
     from services.ui_prefs import prefs_of, save_prefs
 
-    metric_id = await repo.add_metric(user.telegram_id, name, data_type, unit, choices)
+    metric_id = await repo.add_metric(
+        user.telegram_id,
+        name,
+        data_type,
+        unit,
+        choices,
+        starts_on=starts_on,
+        ends_on=ends_on,
+        weekdays=weekdays,
+    )
     metric = await repo.get_metric(metric_id, user.telegram_id)
     prefs = prefs_of(user)
     if "custom" not in prefs.tracked:
@@ -163,9 +221,14 @@ async def _finish_create(
         return
     if isinstance(target, CallbackQuery):
         await target.answer(toast)
-    await _show_card(
-        target, user, metric, repo, text=created_metric_text(metric), back=CREATE_BACK
-    )
+    intro = created_metric_text(metric)
+    if metric.data_type == "pledge":
+        intro = (
+            f"Хорошее Решение «{metric.name}» создано. "
+            "Отметка закрывает самую раннюю открытую дату и не заходит дальше сегодня.\n\n"
+            + pledge_card_text(metric, await load_progress(repo, user, metric))
+        )
+    await _show_card(target, user, metric, repo, text=intro, back=CREATE_BACK)
 
 
 async def _ask_when(event: CallbackQuery | Message, state: FSMContext, payload: dict) -> None:
@@ -426,12 +489,184 @@ async def metric_type(
         await cb.answer()
         await safe_edit(cb.message, CHOICES_PROMPT, back_kb("cm:types"))
         return
+    if spec.key == "pledge":
+        await _show_pledge_start(cb, state, user, (await state.get_data()).get("metric_name") or "Хорошее Решение")
+        return
     data = await state.get_data()
     await _finish_create(cb, state, repo, user, data["metric_name"], key, None, None)
 
 
+def _pledge_calendar(today: date, year: int, month: int, prefix: str, back: str, extra=()):
+    return calendar_kb(year, month, prefix, back=back, today=today, extra=extra)
+
+
+async def _show_pledge_start(cb: CallbackQuery, state: FSMContext, user: User, name: str) -> None:
+    today = user_today(user.timezone)
+    await state.set_state(CustomMetricSG.pledge_start)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        PLEDGE_START.format(name=name),
+        _pledge_calendar(today, today.year, today.month, "cps", "cm:types"),
+    )
+
+
+async def _show_pledge_end(cb: CallbackQuery, state: FSMContext, user: User, name: str, *, year: int, month: int) -> None:
+    today = user_today(user.timezone)
+    await state.set_state(CustomMetricSG.pledge_end)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        PLEDGE_END.format(name=name),
+        _pledge_calendar(today, year, month, "cpe", "cm:pb:start", extra=(("Пока без конца", "cpe:none"),)),
+    )
+
+
+def _calendar_month(token: str) -> tuple[int, int]:
+    year_s, month_s = token.split("-", 1)
+    return int(year_s), int(month_s)
+
+
+@router.callback_query(F.data.startswith("cpsm:"), CustomMetricSG.pledge_start)
+async def pledge_start_month(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    name = (await state.get_data()).get("metric_name") or "Хорошее Решение"
+    year, month = _calendar_month(cb.data.split(":", 1)[1])
+    today = user_today(user.timezone)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        PLEDGE_START.format(name=name),
+        _pledge_calendar(today, year, month, "cps", "cm:types"),
+    )
+
+
+@router.callback_query(F.data.startswith("cps:"), CustomMetricSG.pledge_start)
+async def pledge_start_day(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    today = user_today(user.timezone)
+    try:
+        picked = parse_calendar_token(cb.data.split(":", 1)[1], today)
+    except ValueError:
+        await cb.answer("Некорректная дата", show_alert=True)
+        return
+    await state.update_data(pledge_start=picked.isoformat())
+    name = (await state.get_data()).get("metric_name") or "Хорошее Решение"
+    await _show_pledge_end(cb, state, user, name, year=picked.year, month=picked.month)
+
+
+@router.callback_query(F.data == "cm:pb:start", CustomMetricSG.pledge_end)
+async def pledge_back_start(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    await _show_pledge_start(cb, state, user, (await state.get_data()).get("metric_name") or "Хорошее Решение")
+
+
+@router.callback_query(F.data.startswith("cpem:"), CustomMetricSG.pledge_end)
+async def pledge_end_month(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    year, month = _calendar_month(cb.data.split(":", 1)[1])
+    name = (await state.get_data()).get("metric_name") or "Хорошее Решение"
+    await _show_pledge_end(cb, state, user, name, year=year, month=month)
+
+
+@router.callback_query(F.data.startswith("cpe:"), CustomMetricSG.pledge_end)
+async def pledge_end_day(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    token = cb.data.split(":", 1)[1]
+    end: date | None
+    if token == "none":
+        end = None
+    else:
+        today = user_today(user.timezone)
+        try:
+            end = parse_calendar_token(token, today)
+        except ValueError:
+            await cb.answer("Некорректная дата", show_alert=True)
+            return
+        start = date.fromisoformat(data["pledge_start"])
+        if end < start:
+            await cb.answer("Конец не может быть раньше начала", show_alert=True)
+            return
+    await state.update_data(pledge_end=None if end is None else end.isoformat(), pledge_weekdays=ALL_WEEKDAYS)
+    await state.set_state(CustomMetricSG.pledge_days)
+    name = data.get("metric_name") or "Хорошее Решение"
+    await cb.answer()
+    await safe_edit(cb.message, PLEDGE_DAYS.format(name=name), pledge_weekdays_kb(ALL_WEEKDAYS))
+
+
+@router.callback_query(F.data == "cm:pb:end", CustomMetricSG.pledge_days)
+async def pledge_back_end(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    raw_end = data.get("pledge_end")
+    anchor = date.fromisoformat(raw_end) if raw_end else date.fromisoformat(data["pledge_start"])
+    await _show_pledge_end(
+        cb, state, user, data.get("metric_name") or "Хорошее Решение", year=anchor.year, month=anchor.month
+    )
+
+
+@router.callback_query(F.data.startswith("cm:wd:"), CustomMetricSG.pledge_days)
+async def pledge_weekdays(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    data = await state.get_data()
+    name = data.get("metric_name") or "Хорошее Решение"
+    mask = int(data.get("pledge_weekdays") or ALL_WEEKDAYS) & ALL_WEEKDAYS
+    token = cb.data.split(":")[2]
+    if token == "all":
+        mask = ALL_WEEKDAYS
+    elif token == "ok":
+        if mask == 0:
+            await cb.answer("Выберите хотя бы один день", show_alert=True)
+            return
+        start = date.fromisoformat(data["pledge_start"])
+        end = date.fromisoformat(data["pledge_end"]) if data.get("pledge_end") else None
+        if end is not None and not scheduled_dates(start, end, mask, until=end):
+            await cb.answer("В эти дни на выбранном сроке нет дат. Поменяйте дни или срок.", show_alert=True)
+            return
+        await _finish_create(
+            cb,
+            state,
+            repo,
+            user,
+            name,
+            "pledge",
+            None,
+            None,
+            starts_on=start.isoformat(),
+            ends_on=None if end is None else end.isoformat(),
+            weekdays=mask,
+        )
+        return
+    else:
+        mask ^= 1 << int(token)
+    await state.update_data(pledge_weekdays=mask)
+    await cb.answer()
+    await safe_edit(cb.message, PLEDGE_DAYS.format(name=name), pledge_weekdays_kb(mask))
+
+
 @router.callback_query(F.data == "cm:types", CustomMetricSG.unit)
 @router.callback_query(F.data == "cm:types", CustomMetricSG.choices)
+@router.callback_query(F.data == "cm:types", CustomMetricSG.pledge_start)
 async def metric_back_types(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     if await require_writable(cb, db_user) is None:
         return
@@ -546,6 +781,119 @@ async def metric_pin(cb: CallbackQuery, repo: Repo, db_user: User | None) -> Non
     await _show_card(cb, user, metric, repo)
 
 
+async def _load_pledge(cb: CallbackQuery, repo: Repo, user: User):
+    metric = await repo.get_metric(int(cb.data.split(":")[2]), user.telegram_id)
+    if metric is None or not metric.enabled or metric.data_type != "pledge":
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return None
+    return metric
+
+
+async def _run_pledge_action(cb: CallbackQuery, repo: Repo, user: User, metric: CustomMetric, action: str):
+    if action == "undo":
+        day, error = await undo_last_pledge(repo, user, metric)
+        if error or day is None:
+            return error or "Пока нечего снимать."
+        return f"Снято {format_date(day)}"
+    if action == "all":
+        days, error = await close_open_pledge(repo, user, metric)
+    else:
+        days, error = await close_next_pledge(repo, user, metric)
+    if error:
+        return error
+    return closed_notice(days)
+
+
+@router.callback_query(F.data.startswith("cm:pn:"))
+async def pledge_close_next(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await _load_pledge(cb, repo, user)
+    if metric is None:
+        return
+    notice = await _run_pledge_action(cb, repo, user, metric, "next")
+    if notice and notice.startswith("Закрыто"):
+        await cb.answer(notice)
+        await _show_card(cb, user, metric, repo)
+        return
+    await cb.answer(notice or UNAVAILABLE, show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cm:pa:"))
+async def pledge_close_all(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await _load_pledge(cb, repo, user)
+    if metric is None:
+        return
+    notice = await _run_pledge_action(cb, repo, user, metric, "all")
+    if notice and notice.startswith("Закрыто"):
+        await cb.answer(notice)
+        await _show_card(cb, user, metric, repo)
+        return
+    await cb.answer(notice or UNAVAILABLE, show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cm:pu:"))
+async def pledge_undo(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await _load_pledge(cb, repo, user)
+    if metric is None:
+        return
+    notice = await _run_pledge_action(cb, repo, user, metric, "undo")
+    if notice and notice.startswith("Снято"):
+        await cb.answer(notice)
+        await _show_card(cb, user, metric, repo)
+        return
+    await cb.answer(notice or UNAVAILABLE, show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cm:pl:"))
+async def pledge_close_from_list(
+    cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await _load_pledge(cb, repo, user)
+    if metric is None:
+        return
+    notice = await _run_pledge_action(cb, repo, user, metric, "next")
+    if notice and notice.startswith("Закрыто"):
+        await cb.answer(notice)
+        await show_custom_metrics(cb, repo, user, state)
+        return
+    await cb.answer(notice or UNAVAILABLE, show_alert=True)
+
+
+@router.callback_query(F.data.startswith("cm:pq:"))
+async def pledge_close_from_menu(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+    config,
+    is_owner: bool,
+) -> None:
+    from handlers.common import show_main
+
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await _load_pledge(cb, repo, user)
+    if metric is None:
+        return
+    notice = await _run_pledge_action(cb, repo, user, metric, "next")
+    if notice and notice.startswith("Закрыто"):
+        await show_main(cb, user, config, is_owner, state, repo, notice=notice)
+        return
+    await cb.answer(notice or UNAVAILABLE, show_alert=True)
+
+
 @router.callback_query(F.data.startswith("cm:add:"))
 async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
@@ -564,6 +912,14 @@ async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
         unit=metric.unit,
     )
     spec = get_type(metric.data_type)
+    if spec.key == "pledge":
+        notice = await _run_pledge_action(cb, repo, user, metric, "next")
+        if notice and notice.startswith("Закрыто"):
+            await cb.answer(notice)
+            await _show_card(cb, user, metric, repo)
+            return
+        await cb.answer(notice or UNAVAILABLE, show_alert=True)
+        return
     if spec.key == "period":
         open_rec = await repo.get_open_metric_value(user.telegram_id, metric_id)
         await _begin_period(cb, state, user, metric, "end" if open_rec else "start")
