@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from database.models import User
 from database.queries import Repo
 from services.ui_prefs import prefs_of
 from utils.formatting import SCORE_EMOJI, SCORE_LABELS, score_text
-from utils.time import format_date, user_today
+from utils.time import format_date, parse_hhmm, user_now, user_today
 
 MIN_SCORE = 1
 MAX_SCORE = 5
@@ -151,6 +151,19 @@ def missing_by_day(
     return {day: len(left) for day, left in missing_keys_by_day(pairs, keys, days).items()}
 
 
+def score_day_is_due(day: date, today: date, reminder_hhmm: str | None, local_now: datetime) -> bool:
+    """Today joins the unrated list only after the score reminder clock."""
+    if day > today:
+        return False
+    if day < today or not reminder_hhmm:
+        return True
+    try:
+        hour, minute = parse_hhmm(reminder_hhmm)
+    except ValueError:
+        return True
+    return local_now.hour * 60 + local_now.minute >= hour * 60 + minute
+
+
 def missing_keys_since_first(
     pairs: list[tuple[str, str]],
     keys: list[str],
@@ -247,11 +260,15 @@ def format_open_scores(gaps: list[tuple[date, list[str]]], today: date) -> str:
 
 
 async def list_open_score_gaps(repo: Repo, user: User) -> list[tuple[date, list[str]]]:
-    """Newest first: days missing a tracked score since that score was first recorded."""
+    """Newest first: missing scores since each kind was first recorded.
+
+    Today is included only after the local score-reminder time.
+    """
     keys = tracked_score_keys(prefs_of(user).tracked)
     if not keys:
         return []
-    today = user_today(user.timezone)
+    local_now = user_now(user.timezone)
+    today = local_now.date()
     earliest = await repo.earliest_daily_score_days(user.telegram_id)
     started = [date.fromisoformat(earliest[key]) for key in keys if key in earliest]
     if not started:
@@ -265,7 +282,10 @@ async def list_open_score_gaps(repo: Repo, user: User) -> list[tuple[date, list[
     skipped = set(
         await repo.list_daily_score_skips_between(user.telegram_id, start_iso, end_iso)
     )
-    missing = missing_keys_since_first(pairs, keys, today, skipped)
+    through = today
+    if not score_day_is_due(today, today, user.daily_score_reminder_time, local_now):
+        through = today - timedelta(days=1)
+    missing = missing_keys_since_first(pairs, keys, through, skipped)
     return [(day, missing[day]) for day in sorted(missing, reverse=True)]
 
 

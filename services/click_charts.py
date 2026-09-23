@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from datetime import date
+from functools import partial
 
 import matplotlib
 
@@ -11,7 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from database.clicks_database import ClicksDatabase
-from services.chart_theme import BAR, BAR_ALT, LINE, apply_dark, save_png
+from services.chart_theme import BAR, BAR_ALT, LINE, apply_dark, render_off_loop, save_png
 from services.click_stats import (
     bucket_clicks_by_day,
     bucket_clicks_by_hour,
@@ -83,6 +84,10 @@ async def build_click_charts(
     kinds = await clicks.kind_counts(start_iso, end_iso, limit=12)
     if not stamps and not kinds:
         return []
+    return await render_off_loop(partial(_render_click_charts, stamps, kinds, title, tz_name))
+
+
+def _render_click_charts(stamps, kinds, title: str, tz_name: str) -> list[tuple[str, bytes]]:
     charts: list[tuple[str, bytes]] = []
     if kinds:
         charts.append((f"Типы кнопок за {title}", _kind_chart(kinds, f"Какие кнопки нажимали за {title}")))

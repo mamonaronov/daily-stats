@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from collections import Counter, defaultdict
 from datetime import date
+from functools import partial
 from statistics import mean
 
 import matplotlib
@@ -17,7 +18,7 @@ from matplotlib.lines import Line2D
 from database.models import EventMarker, EventPeriod, User
 from database.queries import Repo
 from services.activities import ACTIVITIES, ACTIVITY_KEYS
-from services.chart_theme import AXIS, BAR, BG, FG, GRID, LINE, apply_dark, save_png
+from services.chart_theme import AXIS, BAR, BG, FG, GRID, LINE, apply_dark, render_off_loop, save_png
 from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from services.markers import period_title
 from services.sleep_strips import (
@@ -332,6 +333,10 @@ def _draw_strip_legend(ax, strip: SleepStrip, lw: float) -> None:
 
 async def build_charts(repo: Repo, user: User, start: date, end: date, selected: list[str]) -> list[tuple[str, bytes]]:
     data = await load_period(repo, user, start, end)
+    return await render_off_loop(partial(_render_charts, data, user, start, end, selected))
+
+
+def _render_charts(data: dict, user: User, start: date, end: date, selected: list[str]) -> list[tuple[str, bytes]]:
     days = daterange(start, end)
     labels = [format_date(d) for d in days]
     overlay = {
