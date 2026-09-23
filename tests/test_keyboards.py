@@ -382,17 +382,20 @@ def test_daily_scores_day_and_value_keyboards():
     assert mood_row[-1].text == energy_row[-1].text == "✖️"
     pairs = _pairs(markup)
     assert ("😊", "noop") in pairs
-    assert ("[🙂]", "ds:q:md:4") in pairs
-    assert ("🤩", "ds:q:md:5") in pairs
+    assert ("[😊]", "ds:q:md:4") in pairs
+    assert ("🥳", "ds:q:md:5") in pairs
     assert ("⚡", "noop") in pairs
-    assert ("😢", "ds:q:md:1") in pairs
-    assert ("😢", "ds:q:en:1") in pairs
+    assert ("😭", "ds:q:md:1") in pairs
+    assert ("🪫", "ds:q:en:1") in pairs
     assert ("✖️", "ds:x:md") in pairs
     assert ("✖️", "noop") in pairs
     assert ("✖️", "ds:x:en") not in pairs
+    day = daily_scores_value_kb([spec_of("day_rating")], {"day_rating": 3})
+    day_row = [btn.text for btn in day.inline_keyboard[0][1:6]]
+    assert day_row == ["1️⃣", "2️⃣", "[3️⃣]", "4️⃣", "5️⃣"]
     stress = daily_scores_value_kb([spec_of("stress")], {})
     stress_faces = [btn.text for btn in stress.inline_keyboard[0][1:6]]
-    assert stress_faces == ["😌", "😐", "😟", "😣", "😫"]
+    assert stress_faces == ["😌", "🫤", "😟", "😰", "🤯"]
     assert "🤩" not in stress_faces
     from datetime import date
 

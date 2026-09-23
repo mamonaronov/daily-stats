@@ -31,7 +31,7 @@ def test_score_screen_does_not_share_the_happy_legend_with_stress():
 
     day = date(2026, 9, 23)
     text = _value_text(day, day, [spec_of("mood"), spec_of("stress")], {})
-    assert "Нажмите лицо. Ещё раз или ✖️ — снять." in text
+    assert "Нажмите лицо или цифру. Ещё раз или ✖️ — снять." in text
     assert "Лица:" not in text
     assert "ужасно" not in text
     assert "слева спокойно, справа сильнее" in text
@@ -147,7 +147,7 @@ async def test_stress_is_sixth_daily_score(repo):
     assert spec.label == "Стресс"
     assert spec.code == "st"
     assert spec.face(1) == "😌"
-    assert spec.face(5) == "😫"
+    assert spec.face(5) == "🤯"
     assert spec.word(5) == "очень сильно"
     user = await repo.create_user(95, "stress-sc", "Кира", None, "UTC", 0, "23:00")
     today = user_today("UTC")
