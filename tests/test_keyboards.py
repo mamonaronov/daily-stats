@@ -840,13 +840,22 @@ def test_pledge_metric_uses_next_date_button():
     card = dict(
         _pairs(metric_card_kb(8, True, True, data_type="pledge", pledge_next=nxt, pledge_open=2, pledge_undo=date(2026, 9, 20)))
     )
-    assert card["Закрыть 21 сентября"] == "cm:pn:8"
-    assert card["Закрыть отставание · 2"] == "cm:pa:8"
-    assert card["Снять 20 сентября"] == "cm:pu:8"
+    assert card["Отметить 21 сентября"] == "cm:pn:8"
+    assert card["Отметить все до сегодня (2)"] == "cm:pa:8"
+    assert card["Убрать отметку 20 сентября"] == "cm:pu:8"
     days = dict(_pairs(pledge_weekdays_kb(127)))
     assert days["✅ Пн"] == "cm:wd:0"
     assert days["Готово"] == "cm:wd:ok"
     assert days["Каждый день"] == "cm:wd:all"
+    from keyboards.main import pledges_hub_kb
+
+    hub = dict(_pairs(pledges_hub_kb([metric], True, pledge_next={8: nxt})))
+    assert hub["Открыть «Чтение»"] == "cm:o:8"
+    assert hub["Отметить 21 сентября"] == "pl:q:8"
+    assert hub["➕ Создать решение"] == "pl:new"
+    caught_hub = _pairs(pledges_hub_kb([metric], True, pledge_next={}))
+    assert ("Отметить 21 сентября", "pl:q:8") not in caught_hub
+    assert ("Открыть «Чтение»", "cm:o:8") in caught_hub
 
 
 def test_main_menu_shows_good_decisions_button():
