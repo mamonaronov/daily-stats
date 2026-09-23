@@ -110,6 +110,7 @@ async def show_main(
     today_block = None
     tracked: set[str] = set()
     pinned: list = []
+    pledge_pinned: list = []
     open_metric_ids: set[int] = set()
     pledge_next: dict = {}
     if repo is not None:
@@ -119,13 +120,16 @@ async def show_main(
         prefs = prefs_of(user)
         tracked = prefs.tracked
         today_block = await today_text(repo, user)
-        if "custom" in tracked:
+        if "custom" in tracked or "pledges" in tracked:
             metrics = await repo.list_metrics(user.telegram_id, enabled_only=True)
-            pinned = [item for item in metrics if item.pinned][:MAX_PINS]
-            open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
-            from services.pledges import next_open_dates
+            if "custom" in tracked:
+                pinned = [item for item in metrics if item.pinned and item.data_type != "pledge"][:MAX_PINS]
+                open_metric_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
+            if "pledges" in tracked:
+                pledge_pinned = [item for item in metrics if item.pinned and item.data_type == "pledge"][:MAX_PINS]
+                from services.pledges import next_open_dates
 
-            pledge_next = await next_open_dates(repo, user, pinned)
+                pledge_next = await next_open_dates(repo, user, pledge_pinned)
     text = menu_text(user, config, today_block)
     open_scores = None
     if repo is not None:
@@ -142,6 +146,7 @@ async def show_main(
         open_metric_ids=open_metric_ids,
         open_scores=open_scores,
         pledge_next=pledge_next,
+        pledge_pinned=pledge_pinned,
     )
     if hide_reply:
         source = target.message if isinstance(target, CallbackQuery) else target

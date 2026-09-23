@@ -27,6 +27,7 @@ TRACKABLE_TYPES = (
     "day_rating",
     "stress",
     "custom",
+    "pledges",
     "markers",
 )
 
@@ -49,6 +50,7 @@ TRACKABLE_LABELS = {
     "day_rating": "🌟 Оценка дня",
     "stress": "😰 Стресс",
     "custom": "📌 Кастом",
+    "pledges": "📆 Хорошие решения",
     "markers": "🔖 Метки",
 }
 

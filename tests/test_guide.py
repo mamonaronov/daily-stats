@@ -20,6 +20,7 @@ def test_guide_pages_cover_menu_topics():
         "wgt",
         "ds",
         "cm",
+        "pl",
         "mk",
         "st",
         "hist",

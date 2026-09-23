@@ -438,7 +438,7 @@ def test_metric_types_explain_choice():
     assert types["📋 Выбор"] == "cm:t:choice"
     assert types["🕐 Время суток"] == "cm:t:time"
     assert types["▶️ Интервал"] == "cm:t:period"
-    assert types["📆 Хорошее Решение"] == "cm:t:pledge"
+    assert "📆 Хорошее Решение" not in types
     assert types["✖️ Отмена"] == "set:trk"
 
 
@@ -836,7 +836,7 @@ def test_pledge_metric_uses_next_date_button():
     assert days["Каждый день"] == "cm:wd:all"
 
 
-def test_main_menu_shows_pinned_pledge_date():
+def test_main_menu_shows_good_decisions_button():
     from datetime import date
 
     metric = SimpleNamespace(id=9, name="Чтение", data_type="pledge")
@@ -844,13 +844,16 @@ def test_main_menu_shows_pinned_pledge_date():
         main_menu(
             SimpleNamespace(),
             False,
-            tracked={"custom"},
-            pinned=[metric],
+            tracked={"pledges"},
+            pledge_pinned=[metric],
             pledge_next={9: date(2026, 9, 22)},
         )
     )
+    assert ("📆 Хорошие решения", "n:pl") in pairs
     assert ("Чтение", "cm:o:9") in pairs
     assert ("22 сентября", "cm:pq:9") in pairs
+    hidden = _pairs(main_menu(SimpleNamespace(), False, tracked={"custom"}))
+    assert ("📆 Хорошие решения", "n:pl") not in hidden
 
 
 def test_main_menu_shows_pinned_period_metric():

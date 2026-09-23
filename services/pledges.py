@@ -9,7 +9,6 @@ from datetime import date, timedelta
 from database.models import CustomMetric, User
 from database.queries import Repo
 from services.entries import require_write
-from services.metric_types import METRIC_TYPES
 from services.spam_watch import note_write
 from utils.time import (
     combine_local,
@@ -180,12 +179,11 @@ def caught_up_text(progress: PledgeProgress) -> str:
 
 
 def pledge_card_text(metric: CustomMetric, progress: PledgeProgress) -> str:
-    spec = METRIC_TYPES["pledge"]
     status = "включена" if metric.enabled else "выключена"
     lines = [
-        f"📌 <b>{metric.name}</b>",
+        f"📆 <b>{metric.name}</b>",
         "",
-        f"Тип: {spec.emoji} {spec.label}",
+        "Хорошее Решение",
         schedule_phrase(progress),
         f"Статус: {status}",
         "",
@@ -208,12 +206,12 @@ def pledge_card_text(metric: CustomMetric, progress: PledgeProgress) -> str:
 
 def pledge_today_line(name: str, progress: PledgeProgress) -> str:
     if progress.open_dates:
-        return f"📌 {name} — открыто {format_day_list(progress.open_dates)}"
+        return f"📆 {name} — открыто {format_day_list(progress.open_dates)}"
     if progress.start > progress.today:
-        return f"📌 {name} — с {format_date(progress.start)}"
+        return f"📆 {name} — с {format_date(progress.start)}"
     if progress.next_future is not None:
-        return f"📌 {name} — до сегодня закрыто"
-    return f"📌 {name} — график закрыт"
+        return f"📆 {name} — до сегодня закрыто"
+    return f"📆 {name} — график закрыт"
 
 
 def pledge_period_text(metric: CustomMetric, progress: PledgeProgress, start: date, end: date) -> str:
@@ -225,7 +223,7 @@ def pledge_period_text(metric: CustomMetric, progress: PledgeProgress, start: da
         in_period = scheduled_dates(window_start, metric_end, progress.weekdays, until=window_end)
     closed = set(progress.closed_slots)
     closed_in = [day for day in in_period if day in closed]
-    lines = [f"📌 <b>{metric.name}</b>", schedule_phrase(progress)]
+    lines = [f"📆 <b>{metric.name}</b>", schedule_phrase(progress)]
     if in_period:
         lines.append(f"В периоде закрыто {len(closed_in)} из {len(in_period)}")
     else:

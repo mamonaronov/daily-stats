@@ -37,6 +37,7 @@ from utils.callbacks import (
     NAV_HISTORY,
     NAV_MAIN,
     NAV_METRICS,
+    NAV_PLEDGES,
     NAV_MARKERS,
     NAV_SETTINGS,
     NAV_STATS,
@@ -134,6 +135,7 @@ def main_menu(
     open_metric_ids: set[int] | None = None,
     open_scores: int | None = None,
     pledge_next: dict[int, date] | None = None,
+    pledge_pinned: list | None = None,
 ) -> InlineKeyboardMarkup:
     tracked = tracked or set()
     b = InlineKeyboardBuilder()
@@ -166,6 +168,8 @@ def main_menu(
         extras.append(_btn("⚖️ Вес", ENTRY_WGT))
     if "custom" in tracked:
         extras.append(_btn("📌 Кастом", NAV_METRICS))
+    if "pledges" in tracked:
+        extras.append(_btn("📆 Хорошие решения", NAV_PLEDGES))
     _pair_rows(b, extras)
     if tracked_score_keys(tracked):
         score_row = [_btn(HUB_LABEL, ENTRY_DS)]
@@ -176,6 +180,9 @@ def main_menu(
         b.row(_btn("🔖 Метки", NAV_MARKERS))
     if "custom" in tracked:
         for metric in (pinned or [])[:3]:
+            b.row(*_metric_quick_row(metric, open_metric_ids, pledge_next, pledge_cb="cm:pq"))
+    if "pledges" in tracked:
+        for metric in (pledge_pinned or [])[:3]:
             b.row(*_metric_quick_row(metric, open_metric_ids, pledge_next, pledge_cb="cm:pq"))
     b.row(_btn("📊 Статистика", NAV_STATS), _btn("📅 История", NAV_HISTORY))
     b.row(_btn("⚙️ Настройки", NAV_SETTINGS), _btn("💰 Баланс", NAV_BALANCE))
@@ -770,7 +777,8 @@ def guide_index_kb() -> InlineKeyboardMarkup:
     b.row(_btn("☕ Кофеин", "g:caf"), _btn("🍺 Алкоголь", "g:alc"))
     b.row(_btn("🏃 Активность", "g:act"), _btn("🚶 Шаги", "g:stp"))
     b.row(_btn("⚖️ Вес", "g:wgt"), _btn("🙂 Оценки дня", "g:ds"))
-    b.row(_btn("📌 Кастом", "g:cm"), _btn("🔖 Метки", "g:mk"))
+    b.row(_btn("📌 Кастом", "g:cm"), _btn("📆 Хорошие решения", "g:pl"))
+    b.row(_btn("🔖 Метки", "g:mk"))
     b.row(_btn("📊 Статистика", "g:st"), _btn("📅 История", "g:hist"))
     b.row(_btn("⚙️ Настройки", "g:set"), _btn("💰 Баланс", "g:bal"))
     return with_nav(b)
@@ -966,6 +974,19 @@ def pledge_weekdays_kb(mask: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def pledges_hub_kb(metrics, writable: bool, *, pledge_next: dict[int, date] | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for metric in metrics:
+        flag = "" if metric.enabled else " (выкл)"
+        if writable and metric.enabled:
+            b.row(*_metric_quick_row(metric, None, pledge_next, pledge_cb="pl:q"))
+            continue
+        b.row(_btn(f"{metric.name}{flag}", f"cm:o:{metric.id}"))
+    if writable:
+        b.row(_btn("➕ Создать", "pl:new"))
+    return with_nav(b)
+
+
 def metric_types_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for key, spec in METRIC_TYPES.items():
@@ -1088,7 +1109,12 @@ def metric_card_kb(
             b.row(_btn("📍 Убрать с главной", f"cm:pin:{metric_id}"))
         elif can_pin:
             b.row(_btn("📌 На главную", f"cm:pin:{metric_id}"))
-    back_label = "⬅️ К метрикам" if back == NAV_METRICS else "⬅️ Назад"
+    if back == NAV_METRICS:
+        back_label = "⬅️ К метрикам"
+    elif back == NAV_PLEDGES:
+        back_label = "⬅️ К решениям"
+    else:
+        back_label = "⬅️ Назад"
     b.row(_btn(back_label, back), _btn("🏠 Меню", NAV_MAIN))
     return b.as_markup()
 
