@@ -178,6 +178,30 @@ def metric_card_text(metric, *, open_period=None, tz: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _ru_records(count: int) -> str:
+    n = abs(count) % 100
+    n10 = n % 10
+    if n10 == 1 and n != 11:
+        word = "запись"
+    elif n10 in {2, 3, 4} and n not in {12, 13, 14}:
+        word = "записи"
+    else:
+        word = "записей"
+    return f"{count} {word}"
+
+
+def metric_delete_prompt(name: str, count: int, *, pledge: bool = False) -> str:
+    if pledge:
+        kind, together = "решение", "с ним"
+    else:
+        kind, together = "метрику", "с ней"
+    if count <= 0:
+        records = "Записей нет."
+    else:
+        records = f"Вместе {together} исчезнут {_ru_records(count)}."
+    return f"Удалить {kind} «{name}»?\n{records}\nЭто нельзя отменить."
+
+
 def created_metric_text(metric) -> str:
     if getattr(metric, "data_type", None) == "period":
         return (

@@ -1162,6 +1162,7 @@ def metric_card_kb(
             b.row(_btn("📍 Убрать с главной", f"cm:pin:{metric_id}"))
         elif can_pin:
             b.row(_btn("📌 На главную", f"cm:pin:{metric_id}"))
+        b.row(_btn("🗑 Удалить", f"cm:del:{metric_id}"))
     if back == NAV_METRICS:
         back_label = "⬅️ К метрикам"
     elif back == NAV_PLEDGES:
@@ -1169,6 +1170,13 @@ def metric_card_kb(
     else:
         back_label = "⬅️ Назад"
     b.row(_btn(back_label, back), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def metric_delete_kb(metric_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Да, удалить", f"cm:delok:{metric_id}"))
+    b.row(_btn("Отмена", f"cm:o:{metric_id}"))
     return b.as_markup()
 
 

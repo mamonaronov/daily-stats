@@ -1557,6 +1557,38 @@ class Repo:
         allowed = {"name", "data_type", "unit", "choices_json", "enabled", "pinned"}
         await self._update_fields("custom_metrics", allowed, metric_id, telegram_id, fields)
 
+    async def count_metric_values(self, metric_id: int, telegram_id: int) -> int:
+        row = await self.fetchone(
+            """
+            SELECT COUNT(*) AS c FROM custom_metric_values
+            WHERE metric_id = ? AND telegram_id = ?
+            """,
+            (metric_id, telegram_id),
+        )
+        return int(row["c"]) if row else 0
+
+    async def delete_metric(self, metric_id: int, telegram_id: int) -> bool:
+        """Delete one metric and every value that belongs to this user."""
+        if await self.get_metric(metric_id, telegram_id) is None:
+            return False
+        try:
+            await self.conn.execute(
+                """
+                DELETE FROM custom_metric_values
+                WHERE metric_id = ? AND telegram_id = ?
+                """,
+                (metric_id, telegram_id),
+            )
+            cur = await self.conn.execute(
+                "DELETE FROM custom_metrics WHERE id = ? AND telegram_id = ?",
+                (metric_id, telegram_id),
+            )
+            await self.conn.commit()
+        except Exception:
+            await self.conn.rollback()
+            raise
+        return cur.rowcount > 0
+
     async def add_metric_value(
         self,
         telegram_id: int,

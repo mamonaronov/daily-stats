@@ -810,7 +810,7 @@ def test_main_menu_shows_pinned_metric():
 
 
 def test_period_metric_uses_start_end_buttons():
-    from keyboards.main import metric_card_kb
+    from keyboards.main import metric_card_kb, metric_delete_kb
 
     metric = SimpleNamespace(id=4, name="Ванная", enabled=1, data_type="period")
     pairs = _pairs(custom_metrics_kb([metric], True, open_ids={4}))
@@ -821,6 +821,12 @@ def test_period_metric_uses_start_end_buttons():
     idle = dict(_pairs(metric_card_kb(4, True, True, data_type="period")))
     assert idle["▶️ Начал"] == "cm:st:4"
     assert idle["⏹ Закончил"] == "cm:en:4"
+    assert idle["🗑 Удалить"] == "cm:del:4"
+    locked = dict(_pairs(metric_card_kb(4, True, False, data_type="period")))
+    assert "🗑 Удалить" not in locked
+    confirm = dict(_pairs(metric_delete_kb(4)))
+    assert confirm["Да, удалить"] == "cm:delok:4"
+    assert confirm["Отмена"] == "cm:o:4"
     running = dict(_pairs(metric_card_kb(4, True, True, data_type="period", has_open=True)))
     assert "▶️ Начал" not in running
     assert running["⏹ Закончил"] == "cm:en:4"

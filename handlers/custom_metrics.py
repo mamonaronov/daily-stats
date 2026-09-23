@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from datetime import date
 
@@ -21,6 +22,7 @@ from keyboards.main import (
     custom_metrics_kb,
     calendar_kb,
     metric_card_kb,
+    metric_delete_kb,
     metric_duration_kb,
     metric_number_kb,
     metric_time_kb,
@@ -47,6 +49,7 @@ from services.metric_types import (
     format_clock,
     get_type,
     metric_card_text,
+    metric_delete_prompt,
     parse_metric_number,
     types_prompt,
     value_error,
@@ -749,6 +752,56 @@ async def metric_open(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user:
         return
     await cb.answer()
     await _show_card(cb, user, metric, repo)
+
+
+@router.callback_query(F.data.startswith("cm:del:"))
+async def metric_delete_ask(cb: CallbackQuery, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    try:
+        metric_id = int((cb.data or "").split(":")[2])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    if metric is None:
+        await cb.answer("Не найдено", show_alert=True)
+        return
+    count = await repo.count_metric_values(metric.id, user.telegram_id)
+    await cb.answer()
+    await safe_edit(
+        cb.message,
+        metric_delete_prompt(html.escape(metric.name), count, pledge=metric.data_type == "pledge"),
+        metric_delete_kb(metric.id),
+    )
+
+
+@router.callback_query(F.data.startswith("cm:delok:"))
+async def metric_delete_yes(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    try:
+        metric_id = int((cb.data or "").split(":")[2])
+    except (IndexError, ValueError):
+        await cb.answer()
+        return
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    if metric is None:
+        await cb.answer("Не найдено", show_alert=True)
+        return
+    pledge = metric.data_type == "pledge"
+    if not await repo.delete_metric(metric.id, user.telegram_id):
+        await cb.answer("Не найдено", show_alert=True)
+        return
+    await cb.answer("Удалено")
+    if pledge:
+        from handlers.pledges import show_pledges
+
+        await show_pledges(cb, repo, user, state)
+        return
+    await show_custom_metrics(cb, repo, user, state)
 
 
 @router.callback_query(F.data.startswith("cm:tog:"))
