@@ -179,28 +179,31 @@ def caught_up_text(progress: PledgeProgress) -> str:
 
 
 def pledge_card_text(metric: CustomMetric, progress: PledgeProgress) -> str:
-    status = "включена" if metric.enabled else "выключена"
+    status = "включено" if metric.enabled else "выключено"
     lines = [
         f"📆 <b>{metric.name}</b>",
         "",
-        "Хорошее Решение",
         schedule_phrase(progress),
         f"Статус: {status}",
         "",
     ]
     if progress.due_count:
-        lines.append(f"К сегодня: {progress.done_due} из {progress.due_count}")
+        lines.append(f"К сегодня сделано {progress.done_due} из {progress.due_count}.")
     if progress.total_count is not None:
-        lines.append(f"К концу: {progress.done_total} из {progress.total_count}")
+        lines.append(f"До конца срока — {progress.done_total} из {progress.total_count}.")
     if progress.open_dates:
-        lines.append(f"Открыто: {format_day_list(progress.open_dates)}")
+        lines.append(f"Ещё не отмечено: {format_day_list(progress.open_dates)}.")
         lines.append("")
-        lines.append(f"Следующая отметка закроет {format_date(progress.open_dates[0])}.")
+        lines.append(f"«Отметить {format_date(progress.open_dates[0])}» засчитывает этот день.")
+        if len(progress.open_dates) > 1:
+            lines.append("«Отметить все до сегодня» закрывает такие дни разом.")
+        if progress.last_closed is not None:
+            lines.append(f"«Убрать отметку» снимает {format_date(progress.last_closed)}.")
     else:
         lines.append("")
         lines.append(caught_up_text(progress))
         if progress.next_future is not None and progress.start <= progress.today:
-            lines.append(f"Следующая дата — {format_date(progress.next_future)}.")
+            lines.append(f"Следующий день — {format_date(progress.next_future)}, его ещё рано отмечать.")
     return "\n".join(lines)
 
 

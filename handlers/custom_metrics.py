@@ -229,18 +229,17 @@ async def _finish_create(
             await target.answer(toast)
         await show_track_metrics(target, user)
         return
+    if metric.data_type == "pledge" and (
+        isinstance(target, CallbackQuery) or getattr(target, "message", None) is not None
+    ):
+        from handlers.pledges import show_pledges
+
+        await target.answer(f"«{metric.name}» создано")
+        await show_pledges(target, repo, user, state)
+        return
     if isinstance(target, CallbackQuery):
         await target.answer(toast)
-    intro = created_metric_text(metric)
-    back = CREATE_BACK
-    if metric.data_type == "pledge":
-        back = NAV_PLEDGES
-        intro = (
-            f"Хорошее Решение «{metric.name}» создано. "
-            "Отметка закрывает самую раннюю открытую дату и не заходит дальше сегодня.\n\n"
-            + pledge_card_text(metric, await load_progress(repo, user, metric))
-        )
-    await _show_card(target, user, metric, repo, text=intro, back=back)
+    await _show_card(target, user, metric, repo, text=created_metric_text(metric), back=CREATE_BACK)
 
 
 async def _ask_when(event: CallbackQuery | Message, state: FSMContext, payload: dict) -> None:

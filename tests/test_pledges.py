@@ -55,7 +55,7 @@ def test_open_dates_are_the_unclosed_prefix_through_today():
     assert progress.next_future == date(2026, 9, 23)
     card = pledge_card_text(metric, progress)
     assert "20 сентября" in card
-    assert "Следующая отметка закроет 20 сентября" in card
+    assert "«Отметить 20 сентября»" in card
 
 
 def test_future_start_has_nothing_to_close():
@@ -64,6 +64,58 @@ def test_future_start_has_nothing_to_close():
     progress = progress_for(metric, [], today, "UTC")
     assert progress.open_dates == ()
     assert "Начнётся" in pledge_card_text(metric, progress)
+
+
+@pytest.mark.asyncio
+async def test_creating_pledge_returns_to_the_list(repo):
+    from handlers.custom_metrics import _finish_create
+
+    class State:
+        async def clear(self) -> None:
+            return None
+
+    class Msg:
+        def __init__(self) -> None:
+            self.edits: list[tuple] = []
+
+        async def edit_text(self, text, reply_markup=None, **kwargs):
+            self.edits.append((text, reply_markup))
+            return self
+
+    class Cb:
+        def __init__(self, message) -> None:
+            self.message = message
+            self.answered: list[tuple] = []
+
+        async def answer(self, *args, **kwargs):
+            self.answered.append((args, kwargs))
+
+    user = await repo.create_user(85, "u", "U", None, "UTC", 0, "23:00")
+    today = user_today("UTC")
+    msg = Msg()
+    cb = Cb(msg)
+    await _finish_create(
+        cb,
+        State(),
+        repo,
+        user,
+        "Чтение",
+        "pledge",
+        None,
+        None,
+        starts_on=today.isoformat(),
+        ends_on=None,
+        weekdays=127,
+    )
+    assert cb.answered
+    assert msg.edits
+    text, markup = msg.edits[0]
+    assert "Хорошие решения" in text
+    assert "Чтение" in text
+    labels = [btn.text for row in markup.inline_keyboard for btn in row]
+    assert "Открыть «Чтение»" in labels
+    assert "➕ Создать решение" in labels
+    assert "⬅️ К решениям" not in labels
 
 
 @pytest.mark.asyncio

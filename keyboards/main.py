@@ -1030,13 +1030,17 @@ def pledge_weekdays_kb(mask: int) -> InlineKeyboardMarkup:
 def pledges_hub_kb(metrics, writable: bool, *, pledge_next: dict[int, date] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for metric in metrics:
-        flag = "" if metric.enabled else " (выкл)"
-        if writable and metric.enabled:
-            b.row(*_metric_quick_row(metric, None, pledge_next, pledge_cb="pl:q"))
-            continue
-        b.row(_btn(f"{metric.name}{flag}", f"cm:o:{metric.id}"))
+        name = metric.name or "Решение"
+        label = f"Открыть «{name}»"
+        if not metric.enabled:
+            label = f"{label} (выкл)"
+        b.row(_btn(label, f"cm:o:{metric.id}"))
+        if writable and metric.enabled and pledge_next:
+            nxt = pledge_next.get(metric.id)
+            if nxt is not None:
+                b.row(_btn(f"Отметить {format_date(nxt)}", f"pl:q:{metric.id}"))
     if writable:
-        b.row(_btn("➕ Создать", "pl:new"))
+        b.row(_btn("➕ Создать решение", "pl:new"))
     return with_nav(b)
 
 
@@ -1149,11 +1153,11 @@ def metric_card_kb(
                 )
         elif data_type == "pledge":
             if pledge_next is not None:
-                b.row(_btn(f"Закрыть {format_date(pledge_next)}", f"cm:pn:{metric_id}"))
+                b.row(_btn(f"Отметить {format_date(pledge_next)}", f"cm:pn:{metric_id}"))
             if pledge_open > 1:
-                b.row(_btn(f"Закрыть отставание · {pledge_open}", f"cm:pa:{metric_id}"))
+                b.row(_btn(f"Отметить все до сегодня ({pledge_open})", f"cm:pa:{metric_id}"))
             if pledge_undo is not None:
-                b.row(_btn(f"Снять {format_date(pledge_undo)}", f"cm:pu:{metric_id}"))
+                b.row(_btn(f"Убрать отметку {format_date(pledge_undo)}", f"cm:pu:{metric_id}"))
         else:
             b.row(_btn("➕ Записать значение", f"cm:add:{metric_id}"))
         label = "Выключить" if enabled else "Включить"
@@ -1205,7 +1209,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("👥 Пользователи", "ad:users"), _btn("🔎 Поиск", "ad:search"))
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
-    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🖴 Аптайм", "ad:vpn"))
+    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🗄️ Аптайм", "ad:vpn"))
     b.row(_btn("🖱 Нажатия", "ad:clk"), _btn("⚙️ Настройки", "ad:cfg"))
     b.row(_btn("🗄 База данных", "ad:dbe"), _btn("📦 Бэкапы", "ad:bk"))
     b.row(_btn("📢 Рассылка", "ad:bc"))
