@@ -743,7 +743,7 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
     b.row(_btn(f"{mark} Прятать пустые края сна", "set:sedge"))
     b.row(_btn(f"⏰ Напомнить встать: {reminder}", "set:wake"))
     b.row(_btn(f"🙂 Напомнить оценить: {score_reminder}", "set:dsr"))
-    b.row(_btn("📋 Метрики", "set:trk"))
+    b.row(_btn("📋 Выбор метрик", "set:trk"))
     b.row(_btn("📤 Выгрузить CSV", "set:exp"))
     b.row(_btn("📞 Связаться с владельцем", "set:contact"))
     b.row(_btn("📄 Политика и соглашение", "lg:docs"))

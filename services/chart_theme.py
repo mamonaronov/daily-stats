@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
+from typing import TypeVar
+
 BG = "#111318"
 FG = "#e8eaed"
 GRID = "#3a3f4b"
@@ -10,6 +14,17 @@ LEGEND_BG = "#1c1f26"
 LINE = "#7dd3fc"
 BAR = "#3b82f6"
 BAR_ALT = "#2dd4bf"
+
+T = TypeVar("T")
+
+# pyplot keeps one global figure state, so only one draw may run at a time.
+_render_lock = asyncio.Lock()
+
+
+async def render_off_loop(draw: Callable[[], T]) -> T:
+    """Draw a chart on a worker thread so button handlers keep running."""
+    async with _render_lock:
+        return await asyncio.to_thread(draw)
 
 
 def apply_dark(fig, *axes, grid: str | bool | None = "y") -> None:

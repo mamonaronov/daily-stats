@@ -7,6 +7,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, tzinfo
+from functools import partial
 from statistics import mean, median
 
 import matplotlib
@@ -25,6 +26,7 @@ from services.chart_theme import (
     AXIS as _AXIS,
     GRID as _GRID,
     apply_dark as _apply_dark,
+    render_off_loop,
     style_legend as _style_legend,
 )
 from services.vpn_monitor import SUBSCRIPTION_LABELS, subscription_label
@@ -1349,13 +1351,16 @@ async def build_vpn_charts(
     tz_name: str = "Europe/Moscow",
 ) -> list[tuple[str, bytes]]:
     samples = await repo.list_vpn_samples(start, end)
-    return render_vpn_charts(
-        samples,
-        period_title,
-        color_by_sub=color_by_sub,
-        window_start=parse_iso(start),
-        window_end=parse_iso(end),
-        tz_name=tz_name,
+    return await render_off_loop(
+        partial(
+            render_vpn_charts,
+            samples,
+            period_title,
+            color_by_sub=color_by_sub,
+            window_start=parse_iso(start),
+            window_end=parse_iso(end),
+            tz_name=tz_name,
+        )
     )
 
 
@@ -1369,11 +1374,14 @@ async def build_vpn_availability_charts(
     tz_name: str = "Europe/Moscow",
 ) -> list[tuple[str, bytes]]:
     samples = await repo.list_vpn_samples(start, end)
-    return render_availability_charts(
-        samples,
-        period_title,
-        window_start=parse_iso(start),
-        window_end=parse_iso(end),
-        rounded=rounded,
-        tz_name=tz_name,
+    return await render_off_loop(
+        partial(
+            render_availability_charts,
+            samples,
+            period_title,
+            window_start=parse_iso(start),
+            window_end=parse_iso(end),
+            rounded=rounded,
+            tz_name=tz_name,
+        )
     )
