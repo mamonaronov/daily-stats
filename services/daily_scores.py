@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from database.models import User
 from database.queries import Repo
 from services.ui_prefs import prefs_of
 from utils.formatting import SCORE_EMOJI, SCORE_LABELS, score_text
-from utils.time import format_date, parse_iso, to_user, user_today
+from utils.time import format_date, parse_hhmm, parse_iso, to_user, user_now
 
 MIN_SCORE = 1
 MAX_SCORE = 5
@@ -151,6 +151,19 @@ def missing_by_day(
     return {day: len(left) for day, left in missing_keys_by_day(pairs, keys, days).items()}
 
 
+def score_day_is_due(day: date, today: date, reminder_hhmm: str | None, local_now: datetime) -> bool:
+    """Today joins the unrated list only after the score reminder clock."""
+    if day > today:
+        return False
+    if day < today or not reminder_hhmm:
+        return True
+    try:
+        hour, minute = parse_hhmm(reminder_hhmm)
+    except ValueError:
+        return True
+    return local_now.hour * 60 + local_now.minute >= hour * 60 + minute
+
+
 def score_gap_days(today: date, registered_on: date | None = None) -> list[date]:
     """Local days to check for empty scores, not earlier than registration."""
     start = today - timedelta(days=OPEN_SCORE_DAYS - 1)
@@ -203,14 +216,18 @@ def _registered_local_day(user: User) -> date:
 async def list_open_score_gaps(repo: Repo, user: User) -> list[tuple[date, list[str]]]:
     """Newest first: days in the lookback window that still miss a tracked score."""
     keys = tracked_score_keys(prefs_of(user).tracked)
-    today = user_today(user.timezone)
+    local_now = user_now(user.timezone)
+    today = local_now.date()
     days = score_gap_days(today, _registered_local_day(user))
     if not keys or not days:
+        return []
+    due = [day for day in days if score_day_is_due(day, today, user.daily_score_reminder_time, local_now)]
+    if not due:
         return []
     pairs = await repo.list_daily_score_kinds_between(
         user.telegram_id,
         days[0].isoformat(),
         days[-1].isoformat(),
     )
-    missing = missing_keys_by_day(pairs, keys, days)
+    missing = missing_keys_by_day(pairs, keys, due)
     return [(day, missing[day]) for day in reversed(days) if day in missing]

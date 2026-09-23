@@ -23,6 +23,7 @@ from services.daily_scores import (
     list_open_score_gaps,
     missing_by_day,
     missing_score_count,
+    score_day_is_due,
     spec_of,
     tracked_score_keys,
 )
@@ -30,7 +31,7 @@ from services.ui_prefs import prefs_of
 from states.diary import DailyScoreSG
 from utils.callbacks import ENTRY_DS
 from utils.telegram import safe_edit
-from utils.time import format_date_long, parse_calendar_token, user_today
+from utils.time import format_date_long, parse_calendar_token, user_now, user_today
 
 router = Router(name="daily_scores")
 
@@ -57,8 +58,13 @@ def _score_mark_days(year: int, month: int, today: date) -> list[date]:
 
 async def _open_scores(repo: Repo, user: User, year: int, month: int) -> dict[date, int]:
     keys = await _score_keys(user)
-    today = user_today(user.timezone)
-    days = _score_mark_days(year, month, today)
+    local_now = user_now(user.timezone)
+    today = local_now.date()
+    days = [
+        day
+        for day in _score_mark_days(year, month, today)
+        if score_day_is_due(day, today, user.daily_score_reminder_time, local_now)
+    ]
     if not keys or not days:
         return {}
     start = min(days).isoformat()
@@ -146,16 +152,20 @@ async def _ask_values(
 async def show_daily_scores_menu(cb: CallbackQuery, repo: Repo, user: User, state: FSMContext) -> None:
     await state.clear()
     keys = await _score_keys(user)
-    today = user_today(user.timezone)
+    local_now = user_now(user.timezone)
+    today = local_now.date()
     yesterday = today - timedelta(days=1)
     today_rows = await repo.list_daily_scores_for_day(user.telegram_id, today.isoformat())
     yest_rows = await repo.list_daily_scores_for_day(user.telegram_id, yesterday.isoformat())
+    today_missing = missing_score_count({rec.kind for rec in today_rows}, keys)
+    if not score_day_is_due(today, today, user.daily_score_reminder_time, local_now):
+        today_missing = 0
     await cb.answer()
     await safe_edit(
         cb.message,
         f"{HUB_LABEL} за какой день?",
         daily_scores_day_kb(
-            today_missing=missing_score_count({rec.kind for rec in today_rows}, keys),
+            today_missing=today_missing,
             yesterday_missing=missing_score_count({rec.kind for rec in yest_rows}, keys),
         ),
     )

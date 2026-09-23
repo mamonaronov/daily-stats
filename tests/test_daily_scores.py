@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -14,6 +14,7 @@ from services.daily_scores import (
     open_score_total,
     open_scores_button_label,
     parse_daily_score,
+    score_day_is_due,
     score_gap_days,
     spec_of,
 )
@@ -21,7 +22,7 @@ from services.entries import clear_daily_score, undo_entry, upsert_daily_score
 from services.history import build_timeline, format_timeline
 from services.statistics import render_stats
 from services.today import day_snapshot
-from utils.time import user_today
+from utils.time import UTC, user_today
 
 
 def test_parse_daily_score_range():
@@ -192,6 +193,18 @@ def test_missing_by_day_counts_only_open_days():
     assert missing_by_day(pairs, [], days) == {}
 
 
+def test_today_waits_for_score_reminder_clock():
+    today = date(2026, 9, 23)
+    yesterday = today - timedelta(days=1)
+    early = datetime(2026, 9, 23, 0, 1, tzinfo=UTC)
+    due = datetime(2026, 9, 23, 21, 0, tzinfo=UTC)
+    assert not score_day_is_due(today, today, "21:00", early)
+    assert score_day_is_due(today, today, "21:00", due)
+    assert score_day_is_due(yesterday, today, "21:00", early)
+    assert score_day_is_due(today, today, None, early)
+    assert score_day_is_due(today, today, "nope", early)
+
+
 def test_score_gap_window_stops_at_registration():
     today = date(2026, 9, 22)
     assert score_gap_days(today)[0] == today - timedelta(days=13)
@@ -232,6 +245,35 @@ async def test_open_score_gaps_skip_days_before_registration(repo):
     gaps = await list_open_score_gaps(repo, user)
     assert gaps == [(today, ["energy"])]
     assert open_score_total(gaps) == 1
+
+
+@pytest.mark.asyncio
+async def test_open_score_gaps_hide_today_until_reminder(repo, monkeypatch):
+    from services.ui_prefs import prefs_of, save_prefs
+
+    registered = datetime(2026, 9, 22, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr("utils.time.now_utc", lambda: registered)
+    monkeypatch.setattr("database.queries.now_utc", lambda: registered)
+    user = await repo.create_user(96, "early", "Лена", None, "UTC", 0, "23:00")
+    prefs = prefs_of(user)
+    prefs.tracked = {"mood", "day_rating"}
+    user = await save_prefs(repo, user, prefs)
+    await repo.set_daily_score_reminder(user.telegram_id, "21:00")
+
+    early = datetime(2026, 9, 23, 0, 1, tzinfo=UTC)
+    monkeypatch.setattr("utils.time.now_utc", lambda: early)
+    user = await repo.get_user(user.telegram_id)
+    assert user is not None
+    gaps = await list_open_score_gaps(repo, user)
+    assert gaps == [(date(2026, 9, 22), ["mood", "day_rating"])]
+
+    later = datetime(2026, 9, 23, 21, 0, tzinfo=UTC)
+    monkeypatch.setattr("utils.time.now_utc", lambda: later)
+    user = await repo.get_user(user.telegram_id)
+    assert user is not None
+    gaps = await list_open_score_gaps(repo, user)
+    assert gaps[0] == (date(2026, 9, 23), ["mood", "day_rating"])
+    assert date(2026, 9, 22) in {day for day, _ in gaps}
 
 
 @pytest.mark.asyncio
