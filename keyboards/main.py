@@ -482,11 +482,32 @@ def daily_scores_day_kb(*, today_missing: int = 0, yesterday_missing: int = 0) -
     return with_nav(b)
 
 
-def score_gaps_kb(gaps: list[tuple[date, list[str]]], today: date) -> InlineKeyboardMarkup:
+def score_gaps_kb(
+    gaps: list[tuple[date, list[str]]],
+    today: date,
+    *,
+    page: int = 0,
+    pages: int = 1,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for day, keys in gaps:
         emojis = "".join(spec_of(key).emoji for key in keys)
-        b.row(_btn(f"{open_score_day_label(day, today)} · {emojis}", f"ds:gap:{day.isoformat()}"))
+        day_iso = day.isoformat()
+        b.row(_btn(f"{open_score_day_label(day, today)} · {emojis}", f"ds:gap:{day_iso}:{page}"))
+        b.row(
+            *[
+                _btn(f"{spec_of(key).emoji} ✖️", f"ds:sk:{day_iso}:{spec_of(key).code}:{page}")
+                for key in keys
+            ]
+        )
+    if pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if page > 0:
+            nav.append(_btn("«", f"ds:gpg:{page - 1}"))
+        nav.append(_btn(f"{page + 1}/{pages}", "noop"))
+        if page + 1 < pages:
+            nav.append(_btn("»", f"ds:gpg:{page + 1}"))
+        b.row(*nav)
     return with_nav(b)
 
 

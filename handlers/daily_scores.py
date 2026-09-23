@@ -18,11 +18,13 @@ from services.daily_scores import (
     OPEN_SCORES_CB,
     SCORE_BY_CODE,
     SCORE_BY_KEY,
+    dismiss_open_score,
     format_open_scores,
     format_score_line,
     list_open_score_gaps,
     missing_by_day,
     missing_score_count,
+    page_open_scores,
     spec_of,
     tracked_score_keys,
 )
@@ -161,16 +163,57 @@ async def show_daily_scores_menu(cb: CallbackQuery, repo: Repo, user: User, stat
     )
 
 
+def _gap_back(page: int) -> str:
+    if page <= 0:
+        return OPEN_SCORES_CB
+    return f"ds:gpg:{page}"
+
+
+def _callback_int(parts: list[str], index: int) -> int:
+    if len(parts) <= index:
+        return 0
+    try:
+        return max(0, int(parts[index]))
+    except ValueError:
+        return 0
+
+
+async def _show_score_gaps(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    page: int,
+    *,
+    toast: str | None = None,
+) -> None:
+    await state.clear()
+    today = user_today(user.timezone)
+    gaps = await list_open_score_gaps(repo, user)
+    shown, page, pages = page_open_scores(gaps, page)
+    await cb.answer(toast or "")
+    await safe_edit(
+        cb.message,
+        format_open_scores(shown, today),
+        score_gaps_kb(shown, today, page=page, pages=pages),
+    )
+
+
 @router.callback_query(F.data == OPEN_SCORES_CB)
 async def scores_gaps(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    await state.clear()
-    today = user_today(user.timezone)
-    gaps = await list_open_score_gaps(repo, user)
-    await cb.answer()
-    await safe_edit(cb.message, format_open_scores(gaps, today), score_gaps_kb(gaps, today))
+    await _show_score_gaps(cb, state, repo, user, 0)
+
+
+@router.callback_query(F.data.startswith("ds:gpg:"))
+async def scores_gaps_page(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    parts = (cb.data or "").split(":")
+    await _show_score_gaps(cb, state, repo, user, _callback_int(parts, 2))
 
 
 @router.callback_query(F.data.startswith("ds:gap:"))
@@ -178,16 +221,44 @@ async def scores_gap_day(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
     user = await require_writable(cb, db_user)
     if user is None:
         return
-    raw = (cb.data or "").split(":", 2)
+    parts = (cb.data or "").split(":")
+    if len(parts) < 3:
+        await cb.answer()
+        return
     try:
-        day = date.fromisoformat(raw[2])
-    except (IndexError, ValueError):
+        day = date.fromisoformat(parts[2])
+    except ValueError:
         await cb.answer()
         return
     if day > user_today(user.timezone):
         await cb.answer("Этот день ещё не наступил", show_alert=True)
         return
-    await _ask_values(cb, state, repo, user, day, back=OPEN_SCORES_CB)
+    await _ask_values(cb, state, repo, user, day, back=_gap_back(_callback_int(parts, 3)))
+
+
+@router.callback_query(F.data.startswith("ds:sk:"))
+async def scores_skip(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    parts = (cb.data or "").split(":")
+    if len(parts) < 4:
+        await cb.answer()
+        return
+    try:
+        day = date.fromisoformat(parts[2])
+    except ValueError:
+        await cb.answer()
+        return
+    spec = SCORE_BY_CODE.get(parts[3])
+    if spec is None:
+        await cb.answer("Некорректная оценка", show_alert=True)
+        return
+    error = await dismiss_open_score(repo, user, day, spec.key)
+    if error:
+        await cb.answer(error, show_alert=True)
+        return
+    await _show_score_gaps(cb, state, repo, user, _callback_int(parts, 4), toast="Убрано")
 
 
 @router.callback_query(F.data == "ds:today")

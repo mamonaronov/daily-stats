@@ -393,9 +393,11 @@ def test_daily_scores_day_and_value_keyboards():
     from datetime import date
 
     gaps = score_gaps_kb([(date(2026, 9, 22), ["mood", "energy"])], date(2026, 9, 22))
-    gap_pairs = dict(_pairs(gaps))
-    assert gap_pairs["сегодня · 😊⚡"] == "ds:gap:2026-09-22"
-    assert gap_pairs["🏠 Меню"] == "n:m"
+    gap_pairs = _pairs(gaps)
+    assert ("сегодня · 😊⚡", "ds:gap:2026-09-22:0") in gap_pairs
+    assert ("😊 ✖️", "ds:sk:2026-09-22:md:0") in gap_pairs
+    assert ("⚡ ✖️", "ds:sk:2026-09-22:en:0") in gap_pairs
+    assert ("🏠 Меню", "n:m") in gap_pairs
 
 
 def test_main_menu_custom_metrics_button():

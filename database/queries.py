@@ -1409,6 +1409,44 @@ class Repo:
         )
         return [(str(row["day"]), str(row["kind"])) for row in rows]
 
+    async def earliest_daily_score_days(self, telegram_id: int) -> dict[str, str]:
+        rows = await self.fetchall(
+            """
+            SELECT kind, MIN(day) AS day
+            FROM daily_scores
+            WHERE telegram_id = ?
+            GROUP BY kind
+            """,
+            (telegram_id,),
+        )
+        return {str(row["kind"]): str(row["day"]) for row in rows}
+
+    async def add_daily_score_skip(self, telegram_id: int, day: str, kind: str) -> None:
+        await self.conn.execute(
+            """
+            INSERT OR IGNORE INTO daily_score_skips (telegram_id, day, kind, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (telegram_id, day, kind, to_iso(now_utc())),
+        )
+        await self.conn.commit()
+
+    async def list_daily_score_skips_between(
+        self,
+        telegram_id: int,
+        start_day: str,
+        end_day: str,
+    ) -> list[tuple[str, str]]:
+        rows = await self.fetchall(
+            """
+            SELECT day, kind FROM daily_score_skips
+            WHERE telegram_id = ? AND day >= ? AND day <= ?
+            ORDER BY day ASC, id ASC
+            """,
+            (telegram_id, start_day, end_day),
+        )
+        return [(str(row["day"]), str(row["kind"])) for row in rows]
+
     async def add_weight(self, telegram_id: int, kilograms: float, occurred_at: str) -> int:
         return await self._insert(
             """

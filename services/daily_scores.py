@@ -10,7 +10,7 @@ from database.models import User
 from database.queries import Repo
 from services.ui_prefs import prefs_of
 from utils.formatting import SCORE_EMOJI, SCORE_LABELS, score_text
-from utils.time import format_date, parse_iso, to_user, user_today
+from utils.time import format_date, user_today
 
 MIN_SCORE = 1
 MAX_SCORE = 5
@@ -80,7 +80,7 @@ SCORE_BY_CODE: dict[str, DailyScoreSpec] = {spec.code: spec for spec in DAILY_SC
 
 HUB_EMOJI = "🙂"
 HUB_LABEL = f"{HUB_EMOJI} Оценки дня"
-OPEN_SCORE_DAYS = 14
+OPEN_SCORE_PAGE = 8
 OPEN_SCORES_CB = "ds:gaps"
 
 
@@ -151,19 +151,66 @@ def missing_by_day(
     return {day: len(left) for day, left in missing_keys_by_day(pairs, keys, days).items()}
 
 
-def score_gap_days(today: date, registered_on: date | None = None) -> list[date]:
-    """Local days to check for empty scores, not earlier than registration."""
-    start = today - timedelta(days=OPEN_SCORE_DAYS - 1)
-    if registered_on is not None and registered_on > start:
-        start = registered_on
+def missing_keys_since_first(
+    pairs: list[tuple[str, str]],
+    keys: list[str],
+    today: date,
+    skipped: set[tuple[str, str]] | None = None,
+) -> dict[date, list[str]]:
+    """Missing keys from each key's first recorded day through today.
+
+    A key with no recorded day is not expected yet. ``pairs`` must include every
+    recorded day of those keys up to ``today``. ``skipped`` is ``(iso day, key)``.
+    """
+    needed = list(dict.fromkeys(keys))
+    if not needed:
+        return {}
+    needed_set = set(needed)
+    have: dict[str, set[str]] = defaultdict(set)
+    first: dict[str, date] = {}
+    for day_s, kind in pairs:
+        if kind not in needed_set:
+            continue
+        have[day_s].add(kind)
+        day = date.fromisoformat(day_s)
+        prev = first.get(kind)
+        if prev is None or day < prev:
+            first[kind] = day
+    if not first:
+        return {}
+    hidden = skipped or set()
+    start = min(first.values())
     if start > today:
-        return []
-    days: list[date] = []
+        return {}
+    missing: dict[date, list[str]] = {}
     current = start
     while current <= today:
-        days.append(current)
+        iso = current.isoformat()
+        present = have.get(iso, set())
+        left = [
+            key
+            for key in needed
+            if key in first
+            and current >= first[key]
+            and key not in present
+            and (iso, key) not in hidden
+        ]
+        if left:
+            missing[current] = left
         current += timedelta(days=1)
-    return days
+    return missing
+
+
+def page_open_scores(
+    gaps: list[tuple[date, list[str]]],
+    page: int,
+    size: int = OPEN_SCORE_PAGE,
+) -> tuple[list[tuple[date, list[str]]], int, int]:
+    total = len(gaps)
+    pages = max(1, (total + size - 1) // size) if total else 1
+    current = min(max(int(page), 0), pages - 1)
+    start = current * size
+    return gaps[start : start + size], current, pages
 
 
 def open_score_day_label(day: date, today: date) -> str:
@@ -192,25 +239,41 @@ def format_open_scores(gaps: list[tuple[date, list[str]]], today: date) -> str:
         names = ", ".join(f"{spec_of(key).emoji} {spec_of(key).label}" for key in keys)
         lines.append(f"{open_score_day_label(day, today)} — {names}")
     lines.append("")
-    lines.append("Нажмите день, чтобы поставить оценки.")
+    lines.append(
+        "Нажмите день, чтобы поставить оценки. "
+        "✖️ убирает запись, если не помните или не хотите оценивать."
+    )
     return "\n".join(lines)
 
 
-def _registered_local_day(user: User) -> date:
-    return to_user(parse_iso(user.registered_at), user.timezone).date()
-
-
 async def list_open_score_gaps(repo: Repo, user: User) -> list[tuple[date, list[str]]]:
-    """Newest first: days in the lookback window that still miss a tracked score."""
+    """Newest first: days missing a tracked score since that score was first recorded."""
     keys = tracked_score_keys(prefs_of(user).tracked)
-    today = user_today(user.timezone)
-    days = score_gap_days(today, _registered_local_day(user))
-    if not keys or not days:
+    if not keys:
         return []
-    pairs = await repo.list_daily_score_kinds_between(
-        user.telegram_id,
-        days[0].isoformat(),
-        days[-1].isoformat(),
+    today = user_today(user.timezone)
+    earliest = await repo.earliest_daily_score_days(user.telegram_id)
+    started = [date.fromisoformat(earliest[key]) for key in keys if key in earliest]
+    if not started:
+        return []
+    start = min(started)
+    if start > today:
+        return []
+    start_iso = start.isoformat()
+    end_iso = today.isoformat()
+    pairs = await repo.list_daily_score_kinds_between(user.telegram_id, start_iso, end_iso)
+    skipped = set(
+        await repo.list_daily_score_skips_between(user.telegram_id, start_iso, end_iso)
     )
-    missing = missing_keys_by_day(pairs, keys, days)
-    return [(day, missing[day]) for day in reversed(days) if day in missing]
+    missing = missing_keys_since_first(pairs, keys, today, skipped)
+    return [(day, missing[day]) for day in sorted(missing, reverse=True)]
+
+
+async def dismiss_open_score(repo: Repo, user: User, day: date, kind: str) -> str | None:
+    """Hide one unrated score so it no longer appears in the gaps list."""
+    if kind not in SCORE_BY_KEY:
+        return "Неизвестная оценка."
+    if day > user_today(user.timezone):
+        return "Этот день ещё не наступил"
+    await repo.add_daily_score_skip(user.telegram_id, day.isoformat(), kind)
+    return None
