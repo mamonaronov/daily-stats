@@ -213,7 +213,7 @@ def test_settings_kb_includes_legal_docs():
         daily_score_reminder_time=None,
     )
     pairs = _pairs(settings_kb(user))
-    assert ("📋 Метрики", "set:trk") in pairs
+    assert ("📋 Выбор метрик", "set:trk") in pairs
     assert ("☐ Прятать пустые края сна", "set:sedge") in pairs
     assert ("⏰ Напомнить встать: выкл", "set:wake") in pairs
     assert ("🙂 Напомнить оценить: выкл", "set:dsr") in pairs

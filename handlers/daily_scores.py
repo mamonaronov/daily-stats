@@ -128,7 +128,7 @@ async def _ask_values(
 ) -> None:
     keys = await _score_keys(user, extra_kind)
     if not keys:
-        text = "Нет выбранных оценок. Включите их в Настройках → Метрики."
+        text = "Нет выбранных оценок. Включите их в Настройках → Выбор метрик."
         if isinstance(event, CallbackQuery):
             await event.answer()
             await safe_edit(event.message, text, daily_scores_day_kb())
