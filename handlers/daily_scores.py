@@ -106,7 +106,7 @@ def _value_text(day: date, today: date, specs, current: dict[str, int]) -> str:
         lines.append(format_score_line(spec, current.get(spec.key)))
         lines.append(spec.hint)
         lines.append("")
-    lines.append("Нажмите оценку от 1 до 5. Ещё раз или ✖️ — снять. Лица: 😢 ужасно … 🤩 отлично.")
+    lines.append("Нажмите лицо. Ещё раз или ✖️ — снять.")
     return "\n".join(lines)
 
 

@@ -26,6 +26,17 @@ from services.today import day_snapshot
 from utils.time import UTC, user_today
 
 
+def test_score_screen_does_not_share_the_happy_legend_with_stress():
+    from handlers.daily_scores import _value_text
+
+    day = date(2026, 9, 23)
+    text = _value_text(day, day, [spec_of("mood"), spec_of("stress")], {})
+    assert "Нажмите лицо. Ещё раз или ✖️ — снять." in text
+    assert "Лица:" not in text
+    assert "ужасно" not in text
+    assert "слева спокойно, справа сильнее" in text
+
+
 def test_parse_daily_score_range():
     assert parse_daily_score("1") == 1
     assert parse_daily_score("5") == 5
@@ -135,6 +146,9 @@ async def test_stress_is_sixth_daily_score(repo):
     spec = spec_of("stress")
     assert spec.label == "Стресс"
     assert spec.code == "st"
+    assert spec.face(1) == "😌"
+    assert spec.face(5) == "😫"
+    assert spec.word(5) == "очень сильно"
     user = await repo.create_user(95, "stress-sc", "Кира", None, "UTC", 0, "23:00")
     today = user_today("UTC")
     item_id, error, updated = await upsert_daily_score(repo, user, today, "stress", 2)
@@ -147,7 +161,8 @@ async def test_stress_is_sixth_daily_score(repo):
     assert snap.scores == {"stress": 2}
     shown = snap.as_text({"stress"})
     assert "😰" in shown
-    assert "плохо" in shown
+    assert "слабо" in shown
+    assert "плохо" not in shown
 
 
 @pytest.mark.asyncio

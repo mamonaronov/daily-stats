@@ -390,6 +390,10 @@ def test_daily_scores_day_and_value_keyboards():
     assert ("✖️", "ds:x:md") in pairs
     assert ("✖️", "noop") in pairs
     assert ("✖️", "ds:x:en") not in pairs
+    stress = daily_scores_value_kb([spec_of("stress")], {})
+    stress_faces = [btn.text for btn in stress.inline_keyboard[0][1:6]]
+    assert stress_faces == ["😌", "😐", "😟", "😣", "😫"]
+    assert "🤩" not in stress_faces
     from datetime import date
 
     gaps = score_gaps_kb([(date(2026, 9, 22), ["mood", "energy"])], date(2026, 9, 22))

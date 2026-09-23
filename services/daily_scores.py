@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from database.models import User
 from database.queries import Repo
 from services.ui_prefs import prefs_of
-from utils.formatting import SCORE_EMOJI, SCORE_LABELS, score_text
+from utils.formatting import SCORE_EMOJI, SCORE_LABELS
 from utils.time import format_date, parse_hhmm, user_now, user_today
 
 MIN_SCORE = 1
@@ -23,10 +23,25 @@ class DailyScoreSpec:
     emoji: str
     label: str
     hint: str
+    faces: tuple[str, ...] = ()
+    words: tuple[str, ...] = ()
 
     @property
     def button_label(self) -> str:
         return f"{self.emoji} {self.label}"
+
+    def face(self, score: int) -> str:
+        if self.faces and 1 <= score <= len(self.faces):
+            return self.faces[score - 1]
+        return SCORE_EMOJI.get(score, "")
+
+    def word(self, score: int) -> str:
+        if self.words and 1 <= score <= len(self.words):
+            return self.words[score - 1]
+        return SCORE_LABELS.get(score, str(score))
+
+    def value_text(self, score: int) -> str:
+        return f"{self.face(score)} {self.word(score)}".strip()
 
 
 DAILY_SCORE_SPECS: tuple[DailyScoreSpec, ...] = (
@@ -70,7 +85,9 @@ DAILY_SCORE_SPECS: tuple[DailyScoreSpec, ...] = (
         "st",
         "😰",
         "Стресс",
-        "насколько спокойным был день, без давления и тревоги",
+        "насколько сильным был стресс: слева спокойно, справа сильнее",
+        ("😌", "😐", "😟", "😣", "😫"),
+        ("спокойно", "слабо", "средне", "сильно", "очень сильно"),
     ),
 )
 
@@ -103,11 +120,11 @@ def parse_daily_score(raw: str) -> int:
 def format_score_line(spec: DailyScoreSpec, score: int | None) -> str:
     if score is None:
         return f"{spec.emoji} {spec.label} — нет"
-    return f"{spec.emoji} {spec.label} — {score_text(score)}"
+    return f"{spec.emoji} {spec.label} — {spec.value_text(score)}"
 
 
 def format_score_compact(spec: DailyScoreSpec, score: int) -> str:
-    return f"{spec.emoji} {SCORE_EMOJI.get(score, '')} {SCORE_LABELS.get(score, str(score))}".strip()
+    return f"{spec.emoji} {spec.value_text(score)}".strip()
 
 
 def tracked_score_keys(tracked: set[str]) -> list[str]:
