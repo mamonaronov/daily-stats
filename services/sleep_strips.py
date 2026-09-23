@@ -66,6 +66,7 @@ class SleepStripRow:
     end: datetime
     label: str
     segments: tuple[SleepStripSeg, ...]
+    qualities: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,16 +156,23 @@ def _assemble_strip(
 ) -> SleepStrip | None:
     tzinfo = zone(tz_name)
     now_local = to_user(now, tz_name)
-    nights = [segs for record in records if (segs := night_segments(record, tz_name, now_local))]
+    nights = [
+        (record, segs)
+        for record in records
+        if (segs := night_segments(record, tz_name, now_local))
+    ]
     if not nights:
         return None
-    spans = [(segs[0][0], segs[-1][1]) for segs in nights]
+    spans = [(segs[0][0], segs[-1][1]) for _record, segs in nights]
     day_hour = choose_day_hour(spans)
     windows = _day_windows(start, end, day_hour, tzinfo, now_local)
     if not windows:
         return None
-    flat = [seg for segs in nights for seg in segs]
-    rows = tuple(_row_for_window(window, flat) for window in windows)
+    flat = [seg for _record, segs in nights for seg in segs]
+    rows = tuple(
+        _row_for_window(window, flat, _qualities_in_window(window, nights, tz_name))
+        for window in windows
+    )
     if not any(row.segments for row in rows):
         return None
     onset_mins = [_minutes_of(start) for start, _end, phase in flat if phase == PHASE_ASLEEP]
@@ -355,9 +363,27 @@ def _trim_empty_edges(rows: list[SleepStripRow]) -> list[SleepStripRow]:
     return rows
 
 
+def _qualities_in_window(
+    window: tuple[datetime, datetime],
+    nights: list[tuple[SleepRecord, list[tuple[datetime, datetime, str]]]],
+    tz_name: str,
+) -> tuple[int, ...]:
+    start, end = window
+    scored: list[tuple[datetime, int]] = []
+    for record, segs in nights:
+        if record.quality is None:
+            continue
+        moment = _local(record.wake_time, tz_name) or segs[-1][1]
+        if start < moment <= end:
+            scored.append((moment, record.quality))
+    scored.sort(key=lambda item: item[0])
+    return tuple(score for _moment, score in scored)
+
+
 def _row_for_window(
     window: tuple[datetime, datetime],
     segments: list[tuple[datetime, datetime, str]],
+    qualities: tuple[int, ...] = (),
 ) -> SleepStripRow:
     start, end = window
     clipped: list[SleepStripSeg] = []
@@ -373,7 +399,13 @@ def _row_for_window(
                 phase=phase,
             )
         )
-    return SleepStripRow(start=start, end=end, label=_window_label(start, end), segments=tuple(clipped))
+    return SleepStripRow(
+        start=start,
+        end=end,
+        label=_window_label(start, end),
+        segments=tuple(clipped),
+        qualities=qualities,
+    )
 
 
 def _window_label(start: datetime, end: datetime) -> str:

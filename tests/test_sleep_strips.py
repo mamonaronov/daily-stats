@@ -33,6 +33,7 @@ def _night(
     onset: datetime | None = None,
     wake: datetime | None = None,
     up: datetime | None = None,
+    quality: int | None = 4,
 ) -> SleepRecord:
     start = phone_in or phone_away or onset or wake or up
     assert start is not None
@@ -45,7 +46,7 @@ def _night(
         bedtime=(phone_in or phone_away or onset).isoformat() if (phone_in or phone_away or onset) else None,
         wake_time=wake.isoformat() if wake else None,
         duration_minutes=minutes,
-        quality=4,
+        quality=quality,
         created_at=start.isoformat(),
         updated_at=start.isoformat(),
         phone_in_bed_at=phone_in.isoformat() if phone_in else None,
@@ -177,6 +178,57 @@ def test_trailing_empty_strip_is_dropped_when_enabled():
     assert hidden.rows[0].segments
     assert len(kept.rows) > len(hidden.rows)
     assert not kept.rows[-1].segments
+
+
+def test_each_day_keeps_the_quality_of_the_wake_in_that_window():
+    first = _night(onset=_at(date(2026, 8, 13), 23), wake=_at(date(2026, 8, 14), 7), quality=2)
+    last = _night(onset=_at(date(2026, 8, 15), 23), wake=_at(date(2026, 8, 16), 7), quality=5)
+    strip = build_sleep_strip(
+        [first, last],
+        "UTC",
+        date(2026, 8, 14),
+        date(2026, 8, 16),
+        _at(date(2026, 8, 16), 20),
+    )
+    assert strip is not None
+    assert [row.qualities for row in strip.rows if row.segments] == [(2,), (5,)]
+    assert any(not row.segments and row.qualities == () for row in strip.rows)
+
+
+def test_same_day_naps_list_qualities_in_wake_order():
+    day = date(2026, 8, 16)
+    night = _night(onset=_at(day - timedelta(days=1), 23), wake=_at(day, 7), quality=5)
+    nap = _night(onset=_at(day, 10), wake=_at(day, 11, 30), quality=2)
+    strip = build_sleep_strip([night, nap], "UTC", day, day, _at(day, 20))
+    assert strip is not None
+    filled = [row for row in strip.rows if row.segments]
+    assert len(filled) == 1
+    assert filled[0].qualities == (5, 2)
+
+
+def test_missing_quality_stays_blank():
+    day = date(2026, 8, 16)
+    rec = _night(onset=_at(day - timedelta(days=1), 23), wake=_at(day, 7), quality=None)
+    strip = build_sleep_strip([rec], "UTC", day, day, _at(day, 20))
+    assert strip is not None
+    assert [row.qualities for row in strip.rows] == [() for _ in strip.rows]
+
+
+def test_split_night_shows_quality_on_the_wake_row():
+    day = date(2026, 8, 16)
+    rec = _night(onset=_at(day, 8), wake=_at(day + timedelta(days=1), 10), quality=3)
+    strip = build_sleep_strip(
+        [rec],
+        "UTC",
+        day,
+        day + timedelta(days=1),
+        _at(day + timedelta(days=1), 15),
+    )
+    assert strip is not None
+    filled = [row for row in strip.rows if row.segments]
+    assert len(filled) == 2
+    assert filled[0].qualities == ()
+    assert filled[1].qualities == (3,)
 
 
 def test_gap_day_without_sleep_is_kept():

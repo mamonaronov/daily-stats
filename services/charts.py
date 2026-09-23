@@ -28,6 +28,7 @@ from services.sleep_strips import (
 )
 from services.statistics import daily_event_counts, daily_volume_ml, load_period
 from services.ui_prefs import prefs_of
+from utils.formatting import SCORE_LABELS
 from utils.quantity import milliliters_of
 from utils.time import daterange, format_date, parse_iso, to_user, user_now
 
@@ -179,6 +180,13 @@ def _bar(
 _AWAKE_COLOR = "#4a5160"
 _AWAKE_LABEL = "Бодрствование"
 _SLEEP_COLOR = "#3B6FE8"
+_QUALITY_COLOR = {
+    1: "#F07178",
+    2: "#E6A15C",
+    3: "#C8CDD4",
+    4: "#8FD6A0",
+    5: "#3DDC97",
+}
 
 
 def _sleep_strip_png(strip: SleepStrip) -> bytes:
@@ -188,7 +196,8 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
     fig_h = min(22.0, max(3.4, bar_h * n + 2.0))
     fig, ax = plt.subplots(figsize=(11.4, fig_h), facecolor=BG)
     apply_dark(fig, ax, grid=False)
-    fig.subplots_adjust(left=0.15, right=0.985, top=0.96, bottom=0.2)
+    scored = any(row.qualities for row in rows)
+    fig.subplots_adjust(left=0.15, right=0.82 if scored else 0.985, top=0.96, bottom=0.2)
     ys = list(range(n))
     ax.invert_yaxis()
     ax.set_xlim(-0.4, 24.4)
@@ -210,6 +219,7 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
                 zorder=3,
                 clip_on=True,
             )
+        _draw_strip_quality(ax, y, row, n)
     _draw_strip_hour_overlay(ax, n)
     step = 1 if n <= 40 else 2 if n <= 80 else max(1, n // 25)
     ax.set_yticks(ys[::step])
@@ -233,6 +243,29 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
     _draw_strip_legend(ax, strip, lw)
     ax.set_xlabel("")
     return _png(fig, tight=False, dpi=160)
+
+
+def _quality_label(scores: tuple[int, ...]) -> str:
+    return " · ".join(f"{score} {SCORE_LABELS.get(score, str(score))}" for score in scores)
+
+
+def _draw_strip_quality(ax, y: int, row, n: int) -> None:
+    if not row.qualities:
+        return
+    color = FG
+    if len(set(row.qualities)) == 1:
+        color = _QUALITY_COLOR.get(row.qualities[0], FG)
+    ax.text(
+        24.55,
+        y,
+        _quality_label(row.qualities),
+        ha="left",
+        va="center",
+        fontsize=9 if n <= 40 else 8,
+        color=color,
+        clip_on=False,
+        zorder=5,
+    )
 
 
 def _strip_line_width(fig_h: float, n: int) -> float:
