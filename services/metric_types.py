@@ -84,13 +84,6 @@ METRIC_TYPES: dict[str, MetricType] = {
         example="вошёл → вышел",
         numeric=True,
     ),
-    "pledge": MetricType(
-        "pledge",
-        "Хорошее Решение",
-        "📆",
-        hint="Обязательство на даты: закрывать дни по порядку, не забегая вперёд",
-        example="читать каждый день до конца месяца",
-    ),
 }
 
 

@@ -41,6 +41,7 @@ class DaySnapshot:
     alcohol_line: str | None = None
     activity_line: str | None = None
     custom_lines: tuple[str, ...] = ()
+    pledge_lines: tuple[str, ...] = ()
     marker_line: str | None = None
 
     def as_text(self, tracked: set[str] | None = None) -> str:
@@ -72,6 +73,8 @@ class DaySnapshot:
                 lines.append(format_score_compact(spec, recorded[spec.key]))
         if show("custom"):
             lines.extend(self.custom_lines)
+        if show("pledges"):
+            lines.extend(self.pledge_lines)
         if show("markers") and self.marker_line:
             lines.append(f"🔖 {self.marker_line}")
         if not lines:
@@ -277,8 +280,8 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
         caffeine_line=_drink_line(caffeine, CAFFEINE_TYPES),
         alcohol_line=_drink_line(alcohol, ALCOHOL_TYPES),
         activity_line=_activity_summary(activity),
-        custom_lines=_custom_lines(_merge_open_custom(custom_today, custom_open), user.timezone)
-        + pledge_lines,
+        custom_lines=_custom_lines(_merge_open_custom(custom_today, custom_open), user.timezone),
+        pledge_lines=pledge_lines,
         marker_line=_marker_summary(markers),
     )
 

@@ -179,9 +179,10 @@ async def test_today_history_and_stats_show_open_dates(repo):
     assert metric is not None
     await close_next_pledge(repo, user, metric, today=today)
     snap = await day_snapshot(repo, user)
-    text = "\n".join(snap.custom_lines)
+    text = "\n".join(snap.pledge_lines)
     assert "Чтение" in text
     assert "открыто" in text
+    assert "Чтение" not in "\n".join(snap.custom_lines)
 
     items = await build_timeline(repo, user, today - timedelta(days=1), today)
     assert any(item.detail == "закрыто" and item.extra.get("all_day") for item in items)

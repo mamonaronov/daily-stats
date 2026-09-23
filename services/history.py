@@ -126,8 +126,10 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
     for rec in await repo.list_metric_values(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
         value = format_metric_value(rec, user.timezone)
-        extra = {"all_day": True} if rec.data_type == "pledge" else {}
-        items.append(TimelineItem("custom", rec.id, dt, f"📌 {rec.metric_name}", value, extra))
+        if rec.data_type == "pledge":
+            items.append(TimelineItem("custom", rec.id, dt, f"📆 {rec.metric_name}", value, {"all_day": True}))
+            continue
+        items.append(TimelineItem("custom", rec.id, dt, f"📌 {rec.metric_name}", value, {}))
 
     for rec in await repo.list_markers(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)

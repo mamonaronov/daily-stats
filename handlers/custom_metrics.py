@@ -54,7 +54,7 @@ from services.metric_types import (
 )
 from services.users import can_write
 from states.diary import CustomMetricSG
-from utils.callbacks import NAV_METRICS
+from utils.callbacks import NAV_METRICS, NAV_PLEDGES
 from utils.telegram import safe_edit
 from utils.time import (
     format_date,
@@ -77,8 +77,7 @@ METRICS_EMPTY = (
 )
 METRICS_LIST = (
     "📌 <b>Кастомные метрики</b>\n\n"
-    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. "
-    "Дата у «Хорошее Решение» закрывает следующий открытый день. Название — открыть метрику. "
+    "➕ — записать значение. ▶️ / ⏹ — начало и конец интервала. Название — открыть метрику. "
     "Новые метрики — в Настройках → Метрики."
 )
 NAME_PROMPT = "Как назвать метрику? Например: вода, страницы, пульс."
@@ -112,7 +111,7 @@ async def show_custom_metrics(
 ) -> None:
     if state:
         await state.clear()
-    metrics = await repo.list_metrics(user.telegram_id)
+    metrics = [item for item in await repo.list_metrics(user.telegram_id) if item.data_type != "pledge"]
     open_ids = {item.metric_id for item in await repo.list_open_metric_values(user.telegram_id)}
     pledge_next = await next_open_dates(repo, user, metrics)
     text, markup = _root_text(metrics), custom_metrics_kb(
@@ -149,7 +148,14 @@ async def _show_card(
         pledge_undo = progress.last_closed
     else:
         body = text or metric_card_text(metric, open_period=open_period, tz=user.timezone)
-    pinned_n = sum(1 for item in await repo.list_metrics(user.telegram_id) if item.pinned)
+    same_pledge = metric.data_type == "pledge"
+    pinned_n = sum(
+        1
+        for item in await repo.list_metrics(user.telegram_id)
+        if item.pinned and (item.data_type == "pledge") == same_pledge
+    )
+    if same_pledge and back == NAV_METRICS:
+        back = NAV_PLEDGES
     markup = metric_card_kb(
         metric.id,
         bool(metric.enabled),
@@ -210,8 +216,9 @@ async def _finish_create(
     )
     metric = await repo.get_metric(metric_id, user.telegram_id)
     prefs = prefs_of(user)
-    if "custom" not in prefs.tracked:
-        prefs.tracked.add("custom")
+    track_key = "pledges" if data_type == "pledge" else "custom"
+    if track_key not in prefs.tracked:
+        prefs.tracked.add(track_key)
         user = await save_prefs(repo, user, prefs)
     await state.clear()
     if metric is None:
@@ -222,13 +229,15 @@ async def _finish_create(
     if isinstance(target, CallbackQuery):
         await target.answer(toast)
     intro = created_metric_text(metric)
+    back = CREATE_BACK
     if metric.data_type == "pledge":
+        back = NAV_PLEDGES
         intro = (
             f"Хорошее Решение «{metric.name}» создано. "
             "Отметка закрывает самую раннюю открытую дату и не заходит дальше сегодня.\n\n"
             + pledge_card_text(metric, await load_progress(repo, user, metric))
         )
-    await _show_card(target, user, metric, repo, text=intro, back=CREATE_BACK)
+    await _show_card(target, user, metric, repo, text=intro, back=back)
 
 
 async def _ask_when(event: CallbackQuery | Message, state: FSMContext, payload: dict) -> None:
@@ -451,13 +460,20 @@ async def metric_new(cb: CallbackQuery, state: FSMContext, db_user: User | None)
 
 @router.message(CustomMetricSG.name)
 async def metric_name(message: Message, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(message, db_user) is None:
+    user = await require_writable(message, db_user)
+    if user is None:
         return
+    data = await state.get_data()
+    pledge = data.get("flow") == "pledge"
+    back = NAV_PLEDGES if pledge else CREATE_BACK
     name = (message.text or "").strip()
     if not name or len(name) > 40:
-        await message.answer("Имя 1–40 символов.", reply_markup=back_kb(CREATE_BACK))
+        await message.answer("Имя 1–40 символов.", reply_markup=back_kb(back))
         return
     await state.update_data(metric_name=name)
+    if pledge:
+        await _show_pledge_start(message, state, user, name)
+        return
     await state.set_state(CustomMetricSG.data_type)
     await message.answer(types_prompt(name), reply_markup=metric_types_kb())
 
@@ -489,9 +505,6 @@ async def metric_type(
         await cb.answer()
         await safe_edit(cb.message, CHOICES_PROMPT, back_kb("cm:types"))
         return
-    if spec.key == "pledge":
-        await _show_pledge_start(cb, state, user, (await state.get_data()).get("metric_name") or "Хорошее Решение")
-        return
     data = await state.get_data()
     await _finish_create(cb, state, repo, user, data["metric_name"], key, None, None)
 
@@ -500,15 +513,18 @@ def _pledge_calendar(today: date, year: int, month: int, prefix: str, back: str,
     return calendar_kb(year, month, prefix, back=back, today=today, extra=extra)
 
 
-async def _show_pledge_start(cb: CallbackQuery, state: FSMContext, user: User, name: str) -> None:
+async def _show_pledge_start(
+    target: CallbackQuery | Message, state: FSMContext, user: User, name: str
+) -> None:
     today = user_today(user.timezone)
     await state.set_state(CustomMetricSG.pledge_start)
-    await cb.answer()
-    await safe_edit(
-        cb.message,
-        PLEDGE_START.format(name=name),
-        _pledge_calendar(today, today.year, today.month, "cps", "cm:types"),
-    )
+    text = PLEDGE_START.format(name=name)
+    markup = _pledge_calendar(today, today.year, today.month, "cps", NAV_PLEDGES)
+    if isinstance(target, CallbackQuery):
+        await target.answer()
+        await safe_edit(target.message, text, markup)
+        return
+    await target.answer(text, reply_markup=markup)
 
 
 async def _show_pledge_end(cb: CallbackQuery, state: FSMContext, user: User, name: str, *, year: int, month: int) -> None:
@@ -539,7 +555,7 @@ async def pledge_start_month(cb: CallbackQuery, state: FSMContext, db_user: User
     await safe_edit(
         cb.message,
         PLEDGE_START.format(name=name),
-        _pledge_calendar(today, year, month, "cps", "cm:types"),
+        _pledge_calendar(today, year, month, "cps", NAV_PLEDGES),
     )
 
 
@@ -666,7 +682,6 @@ async def pledge_weekdays(
 
 @router.callback_query(F.data == "cm:types", CustomMetricSG.unit)
 @router.callback_query(F.data == "cm:types", CustomMetricSG.choices)
-@router.callback_query(F.data == "cm:types", CustomMetricSG.pledge_start)
 async def metric_back_types(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
     if await require_writable(cb, db_user) is None:
         return
@@ -769,9 +784,15 @@ async def metric_pin(cb: CallbackQuery, repo: Repo, db_user: User | None) -> Non
     if metric.pinned:
         await repo.update_metric(metric_id, user.telegram_id, pinned=0)
     else:
-        pinned_n = sum(1 for item in await repo.list_metrics(user.telegram_id) if item.pinned)
+        same_pledge = metric.data_type == "pledge"
+        pinned_n = sum(
+            1
+            for item in await repo.list_metrics(user.telegram_id)
+            if item.pinned and (item.data_type == "pledge") == same_pledge
+        )
         if pinned_n >= MAX_PINS:
-            await cb.answer("На главной уже 3 метрики", show_alert=True)
+            label = "решения" if same_pledge else "метрики"
+            await cb.answer(f"На главной уже 3 {label}", show_alert=True)
             return
         await repo.update_metric(metric_id, user.telegram_id, pinned=1)
     metric = await repo.get_metric(metric_id, user.telegram_id)
