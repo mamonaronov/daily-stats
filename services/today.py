@@ -6,11 +6,11 @@ from dataclasses import dataclass
 
 from database.models import SleepRecord, SnusPack, User
 from database.queries import Repo
+from services.activities import ACTIVITIES, ACTIVITY_KEYS, activity_today_lines
 from services.daily_scores import DAILY_SCORE_SPECS, format_score_compact
 from services.metric_types import format_metric_value, is_period_open
 from services.pledges import pledge_today_lines
 from utils.formatting import (
-    ACTIVITY_TYPES,
     ALCOHOL_TYPES,
     CAFFEINE_TYPES,
     duration_human,
@@ -39,14 +39,18 @@ class DaySnapshot:
     fooling: int = 0
     caffeine_line: str | None = None
     alcohol_line: str | None = None
-    activity_line: str | None = None
+    activity_lines: dict[str, str] | None = None
     custom_lines: tuple[str, ...] = ()
     pledge_lines: tuple[str, ...] = ()
     marker_line: str | None = None
 
     def as_text(self, tracked: set[str] | None = None) -> str:
         def show(key: str) -> bool:
-            return tracked is None or key in tracked
+            if tracked is None:
+                return True
+            if key in tracked:
+                return True
+            return key in ACTIVITY_KEYS and "activity" in tracked
 
         lines: list[str] = []
         if show("cigarettes") and self.cigarettes:
@@ -61,8 +65,10 @@ class DaySnapshot:
             lines.append(f"☕ {self.caffeine_line}")
         if show("alcohol") and self.alcohol_line:
             lines.append(f"🍺 {self.alcohol_line}")
-        if show("activity") and self.activity_line:
-            lines.append(f"🏃 {self.activity_line}")
+        recorded_activity = self.activity_lines or {}
+        for spec in ACTIVITIES:
+            if show(spec.key) and spec.key in recorded_activity:
+                lines.append(recorded_activity[spec.key])
         if show("steps") and self.steps is not None:
             lines.append(f"🚶 {format_int_spaces(self.steps)}")
         if show("weight") and self.weight_kg is not None:
@@ -150,22 +156,6 @@ def _drink_line(records, labels: dict[str, str]) -> str | None:
         label = labels.get(kind, str(kind))
         quantity = _combined_quantity(items)
         parts.append(f"{label} {quantity}".strip() if quantity else label)
-    return " · ".join(parts)
-
-
-def _activity_summary(records) -> str | None:
-    if not records:
-        return None
-    parts: list[str] = []
-    for kind, items in _group_in_order(records, lambda rec: rec.activity_type):
-        label = ACTIVITY_TYPES.get(kind, str(kind))
-        minutes = [item.duration_minutes for item in items if item.duration_minutes]
-        if minutes:
-            parts.append(f"{label} {duration_human(sum(minutes))}")
-        elif len(items) > 1:
-            parts.append(f"{label} {len(items)}")
-        else:
-            parts.append(label)
     return " · ".join(parts)
 
 
@@ -261,6 +251,7 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
     caffeine = await repo.list_caffeine(tid, start_iso, end_iso)
     alcohol = await repo.list_alcohol(tid, start_iso, end_iso)
     activity = await repo.list_activity(tid, start_iso, end_iso)
+    open_activity = await repo.list_open_activities(tid)
     steps_rec = await repo.get_steps_by_day(tid, today.isoformat())
     weights = await repo.list_weight(tid, start_iso, end_iso)
     latest_kg = weights[-1].kilograms if weights else None
@@ -279,7 +270,7 @@ async def day_snapshot(repo: Repo, user: User) -> DaySnapshot:
         fooling=len(fooling),
         caffeine_line=_drink_line(caffeine, CAFFEINE_TYPES),
         alcohol_line=_drink_line(alcohol, ALCOHOL_TYPES),
-        activity_line=_activity_summary(activity),
+        activity_lines=activity_today_lines(activity, open_activity, user.timezone),
         custom_lines=_custom_lines(_merge_open_custom(custom_today, custom_open), user.timezone),
         pledge_lines=pledge_lines,
         marker_line=_marker_summary(markers),

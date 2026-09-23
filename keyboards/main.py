@@ -17,6 +17,7 @@ from services.daily_scores import (
     tracked_score_keys,
 )
 from services.legal import legal_contact, owner_chat_url
+from services.activities import ACTIVITIES
 from services.metric_types import METRIC_TYPES, UNIT_PRESETS
 from services.ui_prefs import prefs_of
 from utils.callbacks import (
@@ -136,6 +137,7 @@ def main_menu(
     open_scores: int | None = None,
     pledge_next: dict[int, date] | None = None,
     pledge_pinned: list | None = None,
+    open_activities: set[str] | None = None,
 ) -> InlineKeyboardMarkup:
     tracked = tracked or set()
     b = InlineKeyboardBuilder()
@@ -160,8 +162,12 @@ def main_menu(
         drinks.append(_btn("🍺 Алкоголь", ENTRY_ALC))
     _pair_rows(b, drinks)
     extras: list[InlineKeyboardButton] = []
-    if "activity" in tracked:
-        extras.append(_btn("🏃 Активность", ENTRY_ACT))
+    running = open_activities or set()
+    for spec in ACTIVITIES:
+        if spec.key not in tracked:
+            continue
+        label = f"{spec.button} · идёт" if spec.key in running else spec.button
+        extras.append(_btn(label, f"act:o:{spec.key}"))
     if "steps" in tracked:
         extras.append(_btn("🚶 Шаги", ENTRY_STP))
     if "weight" in tracked:
@@ -207,6 +213,8 @@ _WHEN_TITLES = {
     "caft": "Когда это было?",
     "alct": "Когда это было?",
     "actt": "Когда была активность?",
+    "acs": "Когда начали?",
+    "ace": "Когда закончили?",
     "wgt": "Когда взвесились?",
     "slw": "Когда проснулись?",
     "slu": "Когда встали?",
@@ -240,15 +248,21 @@ def when_title(prefix: str) -> str:
     return _WHEN_TITLES.get(prefix, "Когда это было?")
 
 
-def when_kb(prefix: str, *, metric_id: int | None = None) -> InlineKeyboardMarkup:
-    back = _WHEN_BACK.get(prefix)
-    if prefix in {"cmt", "cms", "cme"} and metric_id is not None:
-        back = f"cm:o:{metric_id}"
+def when_kb(
+    prefix: str,
+    *,
+    metric_id: int | None = None,
+    back: str | None = None,
+) -> InlineKeyboardMarkup:
+    if back is None:
+        back = _WHEN_BACK.get(prefix)
+        if prefix in {"cmt", "cms", "cme"} and metric_id is not None:
+            back = f"cm:o:{metric_id}"
     return now_or_time(prefix, back)
 
 
 SLEEP_WHEN_PREFIXES = frozenset({"slw", "slu", "slb", "sln", "sla", "slo"})
-DATE_WHEN_PREFIXES = SLEEP_WHEN_PREFIXES | {"mkt"}
+DATE_WHEN_PREFIXES = SLEEP_WHEN_PREFIXES | {"mkt", "acs", "ace"}
 
 
 def _relative_when_rows(builder: InlineKeyboardBuilder, prefix: str) -> None:
@@ -397,18 +411,32 @@ def drink_recent_kb(
     return with_nav(b, back)
 
 
-def activity_duration_kb(back: str) -> InlineKeyboardMarkup:
+def activity_duration_kb(back: str, *, later: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("15 мин", "act:d:15"), _btn("30 мин", "act:d:30"), _btn("45 мин", "act:d:45"))
     b.row(_btn("1 ч", "act:d:60"), _btn("1,5 ч", "act:d:90"), _btn("2 ч", "act:d:120"))
+    mark = "☑ " if later else ""
+    b.row(_btn(f"{mark}Было раньше", "act:later"))
     return with_nav(b, back)
 
 
-def activity_types() -> InlineKeyboardMarkup:
+def activity_interval_kb(key: str, *, open_session: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("🚶 Ходьба", "act:t:walk"), _btn("🏃 Бег", "act:t:run"))
-    b.row(_btn("💪 Тренировка", "act:t:workout"), _btn("🚴 Велосипед", "act:t:bike"))
-    b.row(_btn("Другое", "act:t:other"))
+    if open_session:
+        b.row(_btn("⏹ Закончил", f"act:en:{key}"))
+    else:
+        b.row(_btn("▶️ Начал", f"act:st:{key}"), _btn("⏹ Закончил", f"act:en:{key}"))
+    return with_nav(b)
+
+
+def activity_types(keys: set[str] | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    buttons = [
+        _btn(spec.button, f"act:o:{spec.key}")
+        for spec in ACTIVITIES
+        if keys is None or spec.key in keys
+    ]
+    _pair_rows(b, buttons)
     return with_nav(b)
 
 
@@ -652,7 +680,11 @@ def stats_metrics_kb(
         ("sleep", "😴 Сон"),
         ("caffeine", "☕ Кофеин"),
         ("alcohol", "🍺 Алкоголь"),
-        ("activity", "🏃 Активность"),
+        ("walk", "🚶 Ходьба"),
+        ("run", "🏃 Бег"),
+        ("workout", "💪 Тренировка"),
+        ("bike", "🚴 Велосипед"),
+        ("other", "🤸 Другая активность"),
         ("steps", "🚶 Шаги"),
         ("weight", "⚖️ Вес"),
         ("wellbeing", "💚 Самочувствие"),
@@ -872,7 +904,7 @@ def entry_actions(
             b.row(_btn("✏️ Изменить", f"ds:e:{item_id}"), _btn(delete_label, delete_cb))
         else:
             b.row(_btn("✏️ Изменить", f"ed:{kind}:{item_id}"), _btn(delete_label, delete_cb))
-        if kind == "act":
+        if kind in {"act", "ace"}:
             b.row(_btn("💬 Коммент", f"act:cmt:{item_id}"))
     if from_history:
         hist_btn = _btn("⬅️ Назад", f"h:back{tail}")

@@ -587,6 +587,7 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         "caf": repo.get_caffeine,
         "alc": repo.get_alcohol,
         "act": repo.get_activity,
+        "ace": repo.get_activity,
         "stp": repo.get_steps,
         "wgt": repo.get_weight,
         "dsc": repo.get_daily_score,
@@ -658,13 +659,10 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         body = f"🍺 {label.capitalize()}\nВремя: {stamp}"
         if extra:
             body += f"\nОбъём: {extra}"
-    elif kind == "act":
-        from utils.formatting import ACTIVITY_TYPES, duration_human
+    elif kind in {"act", "ace"}:
+        from services.activities import activity_card_body
 
-        label = ACTIVITY_TYPES.get(rec.activity_type, rec.activity_type)
-        body = f"🏃 {label.capitalize()}\nВремя: {stamp}\nДлительность: {duration_human(rec.duration_minutes)}"
-        if rec.comment:
-            body += f"\nКомментарий: {rec.comment}"
+        body = activity_card_body(rec, user.timezone)
     elif kind == "stp":
         from datetime import date as date_type
 
@@ -749,6 +747,7 @@ async def remove_ok(cb: CallbackQuery, repo: Repo, db_user: User | None, config:
         "caf": repo.delete_caffeine,
         "alc": repo.delete_alcohol,
         "act": repo.delete_activity,
+        "ace": repo.delete_activity,
         "stp": repo.delete_steps,
         "wgt": repo.delete_weight,
         "dsc": repo.delete_daily_score,

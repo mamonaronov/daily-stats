@@ -410,14 +410,123 @@ async def add_activity(
     duration_minutes: int | None,
     comment: str | None,
     when: datetime,
+    *,
+    ended_at: datetime | None = None,
 ) -> tuple[int | None, str | None]:
     blocked = await require_write(user)
     if blocked:
         return None, blocked
+    from services.activities import spec_of
+
+    if spec_of(activity_type) is None:
+        return None, "Неизвестная активность."
     item_id = await repo.add_activity(
-        user.telegram_id, activity_type, duration_minutes, comment, to_iso(when)
+        user.telegram_id,
+        activity_type,
+        duration_minutes,
+        comment,
+        to_iso(when),
+        to_iso(ended_at) if ended_at is not None else None,
     )
     return _saved(user, "активность", when, item_id)
+
+
+async def start_activity(
+    repo: Repo, user: User, activity_type: str, when: datetime
+) -> tuple[int | None, str | None]:
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked
+    from services.activities import spec_of
+
+    spec = spec_of(activity_type)
+    if spec is None or not spec.interval:
+        return None, "Эту активность отмечают длительностью."
+    if await repo.get_open_activity(user.telegram_id, activity_type):
+        return None, "Уже идёт — сначала закончите."
+    item_id = await repo.add_activity(
+        user.telegram_id, activity_type, None, None, to_iso(when)
+    )
+    return _saved(user, spec.label, when, item_id)
+
+
+async def end_activity(
+    repo: Repo,
+    user: User,
+    activity_type: str,
+    when: datetime,
+    *,
+    start_at: datetime | None = None,
+) -> tuple[int | None, str | None, str]:
+    """Return item id, error, and undo kind (`ace` reopens, `act` deletes)."""
+    blocked = await require_write(user)
+    if blocked:
+        return None, blocked, "act"
+    from services.activities import MAX_ACTIVITY_MINUTES, spec_of
+
+    spec = spec_of(activity_type)
+    if spec is None or not spec.interval:
+        return None, "Эту активность отмечают длительностью.", "act"
+    end_iso = to_iso(when)
+    if start_at is not None:
+        minutes = _elapsed_minutes(to_iso(start_at), end_iso)
+        if minutes is None:
+            return None, "Конец должен быть позже начала.", "act"
+        if minutes > MAX_ACTIVITY_MINUTES:
+            return None, "Интервал длиннее суток.", "act"
+        item_id = await repo.add_activity(
+            user.telegram_id,
+            activity_type,
+            minutes,
+            None,
+            to_iso(start_at),
+            end_iso,
+        )
+        note_write(user, spec.label, when)
+        return item_id, None, "act"
+    open_rec = await repo.get_open_activity(user.telegram_id, activity_type)
+    if open_rec is None:
+        return None, "Сначала отметьте начало.", "act"
+    minutes = _elapsed_minutes(open_rec.occurred_at, end_iso)
+    if minutes is None:
+        return None, "Конец должен быть позже начала.", "act"
+    if minutes > MAX_ACTIVITY_MINUTES:
+        return None, "Интервал длиннее суток.", "act"
+    await repo.update_activity(
+        open_rec.id,
+        user.telegram_id,
+        duration_minutes=minutes,
+        ended_at=end_iso,
+    )
+    note_write(user, spec.label, when)
+    return open_rec.id, None, "ace"
+
+
+async def move_activity_time(repo: Repo, user: User, item_id: int, when: datetime) -> str | None:
+    blocked = await require_write(user)
+    if blocked:
+        return blocked
+    from services.activities import MAX_ACTIVITY_MINUTES, is_open_activity
+
+    rec = await repo.get_activity(item_id, user.telegram_id)
+    if rec is None:
+        return "Запись не найдена."
+    iso = to_iso(when)
+    if rec.ended_at:
+        minutes = _elapsed_minutes(iso, rec.ended_at)
+        if minutes is None:
+            return "Начало должно быть раньше конца."
+        if minutes > MAX_ACTIVITY_MINUTES:
+            return "Интервал длиннее суток."
+        await repo.update_activity(
+            item_id, user.telegram_id, occurred_at=iso, duration_minutes=minutes
+        )
+        return None
+    if is_open_activity(rec):
+        await repo.update_activity(item_id, user.telegram_id, occurred_at=iso)
+        return None
+    await repo.update_activity(item_id, user.telegram_id, occurred_at=iso)
+    return None
 
 
 async def upsert_steps(
@@ -585,6 +694,14 @@ async def undo_entry(repo: Repo, user: User, kind: str, item_id: int) -> str | N
             return "Запись не найдена."
         await repo.update_metric_value(
             item_id, tid, value_number=None, value_text=None, value_bool=1
+        )
+        return None
+    if kind == "ace":
+        rec = await repo.get_activity(item_id, tid)
+        if rec is None:
+            return "Запись не найдена."
+        await repo.update_activity(
+            item_id, tid, duration_minutes=None, ended_at=None
         )
         return None
     if kind in {"sa", "sw", "su", "so", "wu", "slp", "sp"}:

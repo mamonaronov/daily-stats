@@ -160,6 +160,7 @@ class ActivityRecord:
     extra_json: str | None
     occurred_at: str
     created_at: str
+    ended_at: str | None = None
 
 
 @dataclass(slots=True)

@@ -6,6 +6,8 @@ from datetime import date, datetime
 
 from database.models import SleepRecord, TimelineItem, User
 from database.queries import Repo
+from services.activities import history_activity_extra
+from services.activities import spec_of as activity_spec
 from services.daily_scores import spec_of
 from services.metric_types import format_metric_value
 from utils.formatting import (
@@ -87,9 +89,19 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
 
     for rec in await repo.list_activity(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)
-        label = ACTIVITY_TYPES.get(rec.activity_type, rec.activity_type)
-        extra = duration_human(rec.duration_minutes)
-        items.append(TimelineItem("activity", rec.id, dt, f"🏃 {label.capitalize()}", extra, {}))
+        spec = activity_spec(rec.activity_type)
+        label = spec.label if spec else ACTIVITY_TYPES.get(rec.activity_type, rec.activity_type)
+        emoji = spec.emoji if spec else "🏃"
+        items.append(
+            TimelineItem(
+                "activity",
+                rec.id,
+                dt,
+                f"{emoji} {label.capitalize()}",
+                history_activity_extra(rec, user.timezone),
+                {},
+            )
+        )
 
     for rec in await repo.list_steps(tid, start_iso, end_iso):
         dt = parse_iso(rec.occurred_at)

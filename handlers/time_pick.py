@@ -41,13 +41,15 @@ from utils.time import (
 
 router = Router(name="time_pick")
 
-WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "wgt", "slw", "slu", "slb", "sln", "sla", "slo", "cmt", "cms", "cme", "mkt")
+WHEN_PREFIXES = ("cig", "fool", "caft", "alct", "actt", "acs", "ace", "wgt", "slw", "slu", "slb", "sln", "sla", "slo", "cmt", "cms", "cme", "mkt")
 WHEN_TO_PURPOSE = {
     "cig": "cig",
     "fool": "fool",
     "caft": "caf",
     "alct": "alc",
     "actt": "act",
+    "acs": "act_start",
+    "ace": "act_end",
     "wgt": "wgt",
     "slw": "slp_wake",
     "slu": "slp_up",
@@ -60,8 +62,8 @@ WHEN_TO_PURPOSE = {
     "cme": "cm_end",
     "mkt": "mk",
 }
-_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|wgt|slw|slu|slb|sln|sla|slo|cmt|cms|cme|mkt)"
-_DATE_WHEN_RE = r"^(?:slw|slu|slb|sln|sla|slo|mkt)"
+_WHEN_RE = r"^(?:cig|fool|caft|alct|actt|acs|ace|wgt|slw|slu|slb|sln|sla|slo|cmt|cms|cme|mkt)"
+_DATE_WHEN_RE = r"^(?:slw|slu|slb|sln|sla|slo|mkt|acs|ace)"
 MANUAL_TIME_PROMPT = "Введите время, например 10:00, 1000 или 10 00"
 WHEN_TEXT_PROMPT = "Введите время (10:00, вчера 22:40, 1000) или сколько минут назад (например 7 или 1 час)"
 AGO_MINUTES_PROMPT = "Сколько минут назад это было? Например 7 или 1 час"
@@ -126,6 +128,16 @@ async def _finish(
         item_id, error = await entries.add_activity(
             repo, user, data["activity_type"], data.get("duration"), data.get("comment"), when
         )
+    elif purpose == "act_start":
+        from handlers.activity import finish_activity_start
+
+        await finish_activity_start(event, state, repo, user, when)
+        return
+    elif purpose == "act_end":
+        from handlers.activity import finish_activity_end
+
+        await finish_activity_end(event, state, repo, user, when)
+        return
     elif purpose == "wgt":
         item_id, error = await entries.add_weight(repo, user, float(data["kilograms"]), when)
     elif purpose == "cm":
@@ -292,12 +304,13 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
             return "Время окончания раньше покупки."
         await repo.update_snus_pack(item_id, user.telegram_id, finished_at=iso, duration_minutes=duration)
         return None
+    if kind in {"act", "ace"}:
+        return await entries.move_activity_time(repo, user, item_id, when)
     mapping = {
         "cig": repo.update_cigarette_time,
         "fool": repo.update_fooling_time,
         "caf": lambda i, t, v: repo.update_caffeine(i, t, occurred_at=v),
         "alc": lambda i, t, v: repo.update_alcohol(i, t, occurred_at=v),
-        "act": lambda i, t, v: repo.update_activity(i, t, occurred_at=v),
         "wgt": lambda i, t, v: repo.update_weight(i, t, occurred_at=v),
         "mk": lambda i, t, v: repo.update_marker(i, t, occurred_at=v),
     }
@@ -400,6 +413,15 @@ def _onset_screen_text(data: dict) -> str:
 
 async def _show_when_screen(cb: CallbackQuery, state: FSMContext, data: dict) -> None:
     prefix = data.get("when_prefix") or "cig"
+    from handlers.activity import activity_when_screen
+
+    activity_screen = activity_when_screen(prefix, data)
+    if activity_screen is not None:
+        text, markup = activity_screen
+        await state.set_state(None)
+        await cb.answer()
+        await safe_edit(cb.message, text, markup)
+        return
     await cb.answer()
     if prefix == "slo":
         undo_kind, undo_id = _onset_undo(data)
@@ -591,6 +613,14 @@ async def _restore_before_time_pick(
     await state.set_state(None)
     if exit_to.startswith("when:"):
         prefix = exit_to.split(":", 1)[1]
+        from handlers.activity import activity_when_screen
+
+        activity_screen = activity_when_screen(prefix, data)
+        if activity_screen is not None:
+            text, markup = activity_screen
+            await cb.answer()
+            await safe_edit(cb.message, text, markup)
+            return
         if prefix == "slo":
             undo_kind, undo_id = _onset_undo(data)
             await cb.answer()

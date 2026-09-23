@@ -1199,21 +1199,37 @@ class Repo:
         duration_minutes: int | None,
         comment: str | None,
         occurred_at: str,
+        ended_at: str | None = None,
     ) -> int:
         return await self._insert(
             """
             INSERT INTO activity_records (
-                telegram_id, activity_type, duration_minutes, comment, occurred_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                telegram_id, activity_type, duration_minutes, comment, occurred_at, created_at, ended_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (telegram_id, activity_type, duration_minutes, comment, occurred_at, to_iso(now_utc())),
+            (
+                telegram_id,
+                activity_type,
+                duration_minutes,
+                comment,
+                occurred_at,
+                to_iso(now_utc()),
+                ended_at,
+            ),
         )
 
     async def get_activity(self, item_id: int, telegram_id: int) -> ActivityRecord | None:
         return await self._get("activity_records", ActivityRecord, item_id, telegram_id)
 
     async def update_activity(self, item_id: int, telegram_id: int, **fields: Any) -> None:
-        allowed = {"activity_type", "duration_minutes", "comment", "occurred_at", "extra_json"}
+        allowed = {
+            "activity_type",
+            "duration_minutes",
+            "comment",
+            "occurred_at",
+            "extra_json",
+            "ended_at",
+        }
         await self._update_fields("activity_records", allowed, item_id, telegram_id, fields)
 
     async def delete_activity(self, item_id: int, telegram_id: int) -> bool:
@@ -1221,6 +1237,32 @@ class Repo:
 
     async def list_activity(self, telegram_id: int, start: str, end: str) -> list[ActivityRecord]:
         return await self._list_range("activity_records", ActivityRecord, telegram_id, start, end)
+
+    async def get_open_activity(self, telegram_id: int, activity_type: str) -> ActivityRecord | None:
+        row = await self.fetchone(
+            """
+            SELECT * FROM activity_records
+            WHERE telegram_id = ? AND activity_type = ?
+              AND ended_at IS NULL AND duration_minutes IS NULL
+            ORDER BY occurred_at ASC
+            LIMIT 1
+            """,
+            (telegram_id, activity_type),
+        )
+        return _opt(ActivityRecord, row)
+
+    async def list_open_activities(self, telegram_id: int) -> list[ActivityRecord]:
+        rows = await self.fetchall(
+            """
+            SELECT * FROM activity_records
+            WHERE telegram_id = ?
+              AND activity_type IN ('walk', 'run')
+              AND ended_at IS NULL AND duration_minutes IS NULL
+            ORDER BY occurred_at ASC
+            """,
+            (telegram_id,),
+        )
+        return [ActivityRecord(**dict(row)) for row in rows]
 
     # steps / weight
     async def upsert_steps(

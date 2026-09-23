@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from database.models import User
 from database.queries import Repo
+from services.activities import ACTIVITIES, ACTIVITY_KEYS
 
 TRACKABLE_TYPES = (
     "cigarettes",
@@ -17,7 +18,7 @@ TRACKABLE_TYPES = (
     "sleep_nophone",
     "caffeine",
     "alcohol",
-    "activity",
+    *ACTIVITY_KEYS,
     "steps",
     "weight",
     "wellbeing",
@@ -40,7 +41,7 @@ TRACKABLE_LABELS = {
     "sleep_nophone": "🛏️ Лёг без телефона",
     "caffeine": "☕ Кофеин",
     "alcohol": "🍺 Алкоголь",
-    "activity": "🏃 Активность",
+    **{spec.key: spec.settings_label for spec in ACTIVITIES},
     "steps": "🚶 Шаги",
     "weight": "⚖️ Вес",
     "wellbeing": "💚 Самочувствие",
@@ -67,6 +68,7 @@ _LEGACY_HIDEABLE = frozenset(
         "caffeine",
         "alcohol",
         "activity",
+        *ACTIVITY_KEYS,
         "custom",
         "markers",
         "steps",
@@ -122,10 +124,15 @@ def parse_ui_prefs(raw: str | None) -> UiPrefs:
     except (TypeError, ValueError, json.JSONDecodeError):
         return UiPrefs(tracked=_legacy_tracked(set()))
     if "tracked" in data:
-        tracked = {item for item in data.get("tracked") or [] if item in TRACKABLE_TYPES}
+        raw_tracked = list(data.get("tracked") or [])
+        tracked = {item for item in raw_tracked if item in TRACKABLE_TYPES}
+        if "activity" in raw_tracked:
+            tracked.update(ACTIVITY_KEYS)
     else:
         hidden = {item for item in data.get("hidden") or [] if item in _LEGACY_HIDEABLE}
         tracked = _legacy_tracked(hidden)
+        if "activity" in hidden:
+            tracked.difference_update(ACTIVITY_KEYS)
     sleep_bed_split = bool(data.get("sleep_bed_split"))
     if "sleep" in tracked and not sleep_bed_split:
         tracked.update(SLEEP_BED_TYPES)

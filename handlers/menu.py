@@ -16,7 +16,6 @@ from keyboards.main import balance_kb, now_or_time, sleep_actions_kb
 from services.legal import legal_contact
 from services.ui_prefs import prefs_of
 from utils.callbacks import (
-    ENTRY_ACT,
     ENTRY_ALC,
     ENTRY_CAF,
     ENTRY_CIG,
@@ -164,18 +163,6 @@ async def alc_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     await state.clear()
     await cb.answer()
     await safe_edit(cb.message, "🍺 Что выпили?", alcohol_types())
-
-
-@router.callback_query(F.data == ENTRY_ACT)
-async def act_entry(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    from handlers.common import require_writable
-    from keyboards.main import activity_types
-
-    if await require_writable(cb, db_user) is None:
-        return
-    await state.clear()
-    await cb.answer()
-    await safe_edit(cb.message, "🏃 Какая активность?", activity_types())
 
 
 @router.callback_query(F.data == ENTRY_STP)

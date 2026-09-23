@@ -130,7 +130,8 @@ async def test_today_snapshot_shows_only_logged_metrics(repo):
     assert "☕ кофе 0,5 л" in text
     assert "чай" not in text
     assert "🍺 пиво 0,5 л" in text
-    assert "🏃 ходьба 30 мин · бег 20 мин" in text
+    assert "🚶 ходьба 30 мин" in text
+    assert "🏃 бег 20 мин" in text
     assert "📌 Вода 550 мл" in text
     assert "🔖 Экзамен · Встреча" in text
     assert "🟢" not in text
@@ -395,6 +396,12 @@ def test_parse_ui_prefs_migrates_hidden_and_keeps_legacy_all_on():
     assert empty.tracked == set()
     picked = parse_ui_prefs('{"tracked": ["sleep", "nope"]}')
     assert picked.tracked == {"sleep", "sleep_phone", "sleep_nophone"}
+    from services.activities import ACTIVITY_KEYS
+
+    expanded = parse_ui_prefs('{"tracked": ["activity"]}')
+    assert expanded.tracked == set(ACTIVITY_KEYS)
+    hidden_activity = parse_ui_prefs('{"hidden": ["activity"]}')
+    assert not (hidden_activity.tracked & set(ACTIVITY_KEYS))
     assert picked.sleep_bed_split is True
     split = parse_ui_prefs('{"tracked": ["sleep"], "sleep_bed_split": true}')
     assert split.tracked == {"sleep"}

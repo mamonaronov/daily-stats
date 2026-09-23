@@ -10,10 +10,10 @@ from statistics import mean
 
 from database.models import User
 from database.queries import Repo
+from services.activities import ACTIVITIES, ACTIVITY_KEYS
 from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from services.pledges import load_progress, pledge_period_text, schedule_overlaps
 from utils.formatting import (
-    ACTIVITY_TYPES,
     ALCOHOL_TYPES,
     CAFFEINE_TYPES,
     WAKE_KIND_LABELS,
@@ -43,7 +43,7 @@ METRIC_KEYS = [
     "sleep",
     "caffeine",
     "alcohol",
-    "activity",
+    *ACTIVITY_KEYS,
     "steps",
     "weight",
     *DAILY_SCORE_KEYS,
@@ -144,6 +144,8 @@ async def load_period(repo: Repo, user: User, start: date, end: date) -> dict:
         "markers": await repo.list_markers(tid, a, b),
         "periods": await repo.list_periods_overlapping(tid, a, b),
     }
+    for spec in ACTIVITIES:
+        data[spec.key] = [item for item in data["activity"] if item.activity_type == spec.key]
     for key in DAILY_SCORE_KEYS:
         data[key] = [row for row in scores if row.kind == key]
     return data
@@ -417,15 +419,22 @@ def event_count_stats(title: str, user: User, items, type_attr: str | None, labe
     return "\n".join(lines)
 
 
-def activity_stats(user: User, items, start: date, end: date) -> str:
-    base = event_count_stats("🏃 <b>Активность</b>", user, items, "activity_type", ACTIVITY_TYPES, start, end)
+def activity_type_stats(user: User, spec, items, start: date, end: date) -> str:
+    name = "Другая активность" if spec.key == "other" else spec.label.capitalize()
+    title = f"{spec.emoji} <b>{name}</b>"
+    if not items:
+        return f"{title}\nНет записей за период."
+    base = event_count_stats(title, user, items, None, None, start, end)
     durs = [i.duration_minutes for i in items if i.duration_minutes]
-    if not durs:
+    open_n = sum(1 for item in items if item.duration_minutes is None and not item.ended_at)
+    extra: list[str] = []
+    if open_n:
+        extra.append(f"Ещё открыто: {open_n}")
+    if durs:
+        extra.append(f"Суммарно: {duration_human(sum(durs))}")
+        extra.append(f"Средняя длительность: {duration_human(int(mean(durs)))}")
+    if not extra:
         return base
-    extra = [
-        f"Суммарно: {duration_human(sum(durs))}",
-        f"Средняя длительность: {duration_human(int(mean(durs)))}",
-    ]
     return base + "\n" + "\n".join(extra)
 
 
@@ -509,7 +518,14 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "caffeine": lambda items: daily_volume_ml(user, items, start, end),
         "alcohol": lambda items: daily_volume_ml(user, items, start, end),
         "sleep": lambda items: _sleep_series(user, items, start, end),
-        "activity": lambda items: daily_series(user, items, start, end, lambda xs: float(sum(i.duration_minutes or 0 for i in xs))),
+        **{
+            key: (
+                lambda items: daily_series(
+                    user, items, start, end, lambda xs: float(sum(i.duration_minutes or 0 for i in xs))
+                )
+            )
+            for key in ACTIVITY_KEYS
+        },
         "steps": lambda items: daily_series(user, items, start, end, lambda xs: float(xs[0].steps if xs else 0)),
         **{key: (lambda items: _daily_score_series(items, start, end)) for key in DAILY_SCORE_KEYS},
     }
@@ -530,7 +546,7 @@ def compare_metrics(user: User, data: dict, left: str, right: str) -> str | None
         "sleep": "сон",
         "caffeine": "кофеин",
         "alcohol": "алкоголь",
-        "activity": "активность",
+        **{spec.key: spec.label for spec in ACTIVITIES},
         "steps": "шаги",
         **{key: spec_of(key).label.lower() for key in DAILY_SCORE_KEYS},
     }
@@ -666,8 +682,12 @@ async def render_stats(repo: Repo, user: User, start: date, end: date, selected:
         parts.append(
             drink_stats("🍺 <b>Алкоголь</b>", user, data["alcohol"], "drink_type", ALCOHOL_TYPES, start, end)
         )
-    if "activity" in selected:
-        parts.append(activity_stats(user, data["activity"], start, end))
+    chosen = set(selected)
+    if "activity" in chosen:
+        chosen.update(ACTIVITY_KEYS)
+    for spec in ACTIVITIES:
+        if spec.key in chosen:
+            parts.append(activity_type_stats(user, spec, data[spec.key], start, end))
     if "steps" in selected:
         parts.append(steps_stats(user, data["steps"], start, end))
     if "weight" in selected:

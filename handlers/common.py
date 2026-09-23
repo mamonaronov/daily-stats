@@ -137,6 +137,14 @@ async def show_main(
 
         if tracked_score_keys(tracked):
             open_scores = open_score_total(await list_open_score_gaps(repo, user))
+    open_activities: set[str] = set()
+    if repo is not None:
+        from services.activities import INTERVAL_KEYS
+
+        if tracked & set(INTERVAL_KEYS):
+            open_activities = {
+                item.activity_type for item in await repo.list_open_activities(user.telegram_id)
+            }
     markup = main_menu(
         user,
         is_owner,
@@ -147,6 +155,7 @@ async def show_main(
         open_scores=open_scores,
         pledge_next=pledge_next,
         pledge_pinned=pledge_pinned,
+        open_activities=open_activities,
     )
     if hide_reply:
         source = target.message if isinstance(target, CallbackQuery) else target
@@ -246,6 +255,8 @@ async def start_time_pick(
                 "caf": "when:caft",
                 "alc": "when:alct",
                 "act": "when:actt",
+                "act_start": "when:acs",
+                "act_end": "when:ace",
                 "wgt": "when:wgt",
                 "cm": "when:cmt",
                 "cm_start": "when:cms",

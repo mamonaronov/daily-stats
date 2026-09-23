@@ -16,6 +16,7 @@ from matplotlib.lines import Line2D
 
 from database.models import EventMarker, EventPeriod, User
 from database.queries import Repo
+from services.activities import ACTIVITIES, ACTIVITY_KEYS
 from services.chart_theme import AXIS, BAR, BG, FG, GRID, LINE, apply_dark, save_png
 from services.daily_scores import DAILY_SCORE_KEYS, spec_of
 from services.markers import period_title
@@ -403,16 +404,25 @@ async def build_charts(repo: Repo, user: User, start: date, end: date, selected:
             )
         )
 
-    if "activity" in selected:
+    chosen_activity = set(selected)
+    if "activity" in chosen_activity:
+        chosen_activity.update(ACTIVITY_KEYS)
+    for spec in ACTIVITIES:
+        if spec.key not in chosen_activity:
+            continue
+        items = data.get(spec.key)
+        if items is None:
+            items = [item for item in data.get("activity") or [] if item.activity_type == spec.key]
         mins = {d: 0 for d in days}
-        for item in data["activity"]:
+        for item in items:
             day = to_user(parse_iso(item.occurred_at), user.timezone).date()
             if day in mins:
                 mins[day] += item.duration_minutes or 0
+        title = "Другая активность" if spec.key == "other" else spec.label.capitalize()
         charts.append(
             (
-                "Активность",
-                _bar("Физическая активность, мин", labels, [mins[d] for d in days], "мин", **overlay),
+                title,
+                _bar(f"{title}, мин", labels, [mins[d] for d in days], "мин", **overlay),
             )
         )
     if "steps" in selected:

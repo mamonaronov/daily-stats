@@ -339,6 +339,19 @@ def test_activity_duration_presets():
     pairs = _pairs(activity_duration_kb(ENTRY_ACT))
     assert ("30 мин", "act:d:30") in pairs
     assert ("1,5 ч", "act:d:90") in pairs
+    assert ("Было раньше", "act:later") in pairs
+    later = dict(_pairs(activity_duration_kb(ENTRY_ACT, later=True)))
+    assert later["☑ Было раньше"] == "act:later"
+
+
+def test_main_menu_splits_activity_metrics():
+    pairs = dict(
+        _pairs(main_menu(SimpleNamespace(), False, tracked={"walk", "workout"}, open_activities={"walk"}))
+    )
+    assert pairs["🚶 Ходьба · идёт"] == "act:o:walk"
+    assert pairs["💪 Тренировка"] == "act:o:workout"
+    assert "🏃 Активность" not in pairs
+    assert "act:o:run" not in pairs.values()
 
 
 def test_steps_day_and_value_keyboards():
