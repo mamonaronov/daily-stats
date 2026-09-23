@@ -27,7 +27,14 @@ from middlewares import (
     SpamWatchMiddleware,
     UserMiddleware,
 )
-from services.alerts import format_alert, format_backup_problems, notify_alert, notify_owner, notify_owner_lifecycle
+from services.alerts import (
+    format_alert,
+    format_backup_problems,
+    is_transient_telegram_error,
+    notify_alert,
+    notify_owner,
+    notify_owner_lifecycle,
+)
 from services.spam_watch import SpamWatch, set_spam_watch
 from services.jobs import setup_scheduler
 from services.billing import run_billing_tick
@@ -138,6 +145,9 @@ async def _start_polling_with_retry(
 
 async def _on_error(event, bot: Bot, config, db: Database | None = None) -> None:
     exc = event.exception
+    if is_transient_telegram_error(exc):
+        logger.warning("Dispatcher skipped a Telegram network error: %s", exc)
+        return
     logger.exception("Dispatcher error")
     await notify_alert(bot, config, format_alert("dispatcher", "Ошибка диспетчера", exc=exc), db=db)
 

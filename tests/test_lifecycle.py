@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from aiogram.exceptions import TelegramNetworkError
+from aiogram.methods import GetMe
+
+from bot import _on_error
 from database.database import Database
 from database.models import User
 from database.queries import Repo
@@ -14,6 +18,7 @@ from services.alerts import (
     notify_alert,
     notify_owner_lifecycle,
 )
+from middlewares import ErrorIsolationMiddleware
 from services.telegram_backup import set_telegram_backup_chat
 from tests.conftest import make_config
 from utils.callbacks import NAV_ADMIN
@@ -251,6 +256,51 @@ async def test_notify_alert_goes_to_backup_group_not_owner(tmp_path):
         assert "Необработанная ошибка хендлера" in bot.sent[0]["text"]
     finally:
         await db.close()
+
+
+async def test_handler_network_error_is_not_alerted(monkeypatch):
+    sent: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        sent.append(text)
+
+    monkeypatch.setattr("middlewares.notify_alert", fake_notify)
+
+    async def handler(_event, _data):
+        raise TelegramNetworkError(method=GetMe(), message="HTTP Client says - ClientOSError:")
+
+    result = await ErrorIsolationMiddleware()(handler, object(), {"app_bot": object(), "config": object()})
+    assert result is None
+    assert sent == []
+
+
+async def test_handler_bug_is_still_alerted(monkeypatch):
+    sent: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        sent.append(text)
+
+    monkeypatch.setattr("middlewares.notify_alert", fake_notify)
+
+    async def handler(_event, _data):
+        raise RuntimeError("db locked")
+
+    await ErrorIsolationMiddleware()(handler, object(), {"app_bot": object(), "config": object()})
+    assert len(sent) == 1
+    assert "Необработанная ошибка хендлера" in sent[0]
+    assert "db locked" in sent[0]
+
+
+async def test_dispatcher_network_error_is_not_alerted(monkeypatch):
+    sent: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        sent.append(text)
+
+    monkeypatch.setattr("bot.notify_alert", fake_notify)
+    event = SimpleNamespace(exception=TimeoutError("telegram.answerCallbackQuery timed out after 17.0s"))
+    await _on_error(event, object(), object(), None)
+    assert sent == []
 
 
 async def test_notify_alert_skipped_when_group_unbound(tmp_path):

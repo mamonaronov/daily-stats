@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime, timezone
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
 from aiogram.types import InlineKeyboardMarkup
 
 from config import Config
@@ -23,6 +23,11 @@ _NOTIFY_TIMEOUT = 15.0
 
 BOT_STARTED_TEXT = "✅ Бот запущен и готов к работе."
 BOT_STOPPED_TEXT = "⏹ Бот выключается."
+
+
+def is_transient_telegram_error(exc: BaseException) -> bool:
+    """Transport blips. The caller retries; they are not service failures."""
+    return isinstance(exc, (TelegramNetworkError, TimeoutError))
 
 
 def format_exception_reason(exc: BaseException) -> str:
