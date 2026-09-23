@@ -471,9 +471,9 @@ def daily_score_stats(user: User, kind: str, items, start: date, end: date) -> s
     lines = [
         title,
         f"Дней с записью: {len(values)}",
-        f"Среднее: {mean(values):.1f} · {score_text(int(round(mean(values))))}",
-        f"Минимум: {score_text(min(values))} · Максимум: {score_text(max(values))}",
-        "Оценки: " + ", ".join(f"{score_text(k)} — {dist[k]}" for k in sorted(dist)),
+        f"Среднее: {mean(values):.1f} · {spec.value_text(int(round(mean(values))))}",
+        f"Минимум: {spec.value_text(min(values))} · Максимум: {spec.value_text(max(values))}",
+        "Оценки: " + ", ".join(f"{spec.value_text(k)} — {dist[k]}" for k in sorted(dist)),
     ]
     return "\n".join(lines)
 

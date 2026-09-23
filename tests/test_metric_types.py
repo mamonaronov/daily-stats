@@ -7,6 +7,7 @@ from services.metric_types import (
     format_clock,
     format_period_value,
     metric_card_text,
+    metric_delete_prompt,
     parse_metric_number,
     parse_steps,
     parse_weight_kg,
@@ -72,6 +73,18 @@ def test_number_metric_card_text():
     created = created_metric_text(metric)
     assert "создана" in created
     assert "записать значение" in created
+
+
+def test_metric_delete_prompt_counts_records():
+    assert metric_delete_prompt("Вода", 0) == "Удалить метрику «Вода»?\nЗаписей нет.\nЭто нельзя отменить."
+    assert "1 запись" in metric_delete_prompt("Вода", 1)
+    assert "2 записи" in metric_delete_prompt("Вода", 2)
+    assert "5 записей" in metric_delete_prompt("Вода", 5)
+    assert "11 записей" in metric_delete_prompt("Вода", 11)
+    assert "21 запись" in metric_delete_prompt("Вода", 21)
+    pledge = metric_delete_prompt("Чтение", 3, pledge=True)
+    assert pledge.startswith("Удалить решение «Чтение»?")
+    assert "с ним исчезнут 3 записи" in pledge
 
 
 def test_format_clock():

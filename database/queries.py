@@ -1409,6 +1409,44 @@ class Repo:
         )
         return [(str(row["day"]), str(row["kind"])) for row in rows]
 
+    async def earliest_daily_score_days(self, telegram_id: int) -> dict[str, str]:
+        rows = await self.fetchall(
+            """
+            SELECT kind, MIN(day) AS day
+            FROM daily_scores
+            WHERE telegram_id = ?
+            GROUP BY kind
+            """,
+            (telegram_id,),
+        )
+        return {str(row["kind"]): str(row["day"]) for row in rows}
+
+    async def add_daily_score_skip(self, telegram_id: int, day: str, kind: str) -> None:
+        await self.conn.execute(
+            """
+            INSERT OR IGNORE INTO daily_score_skips (telegram_id, day, kind, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (telegram_id, day, kind, to_iso(now_utc())),
+        )
+        await self.conn.commit()
+
+    async def list_daily_score_skips_between(
+        self,
+        telegram_id: int,
+        start_day: str,
+        end_day: str,
+    ) -> list[tuple[str, str]]:
+        rows = await self.fetchall(
+            """
+            SELECT day, kind FROM daily_score_skips
+            WHERE telegram_id = ? AND day >= ? AND day <= ?
+            ORDER BY day ASC, id ASC
+            """,
+            (telegram_id, start_day, end_day),
+        )
+        return [(str(row["day"]), str(row["kind"])) for row in rows]
+
     async def add_weight(self, telegram_id: int, kilograms: float, occurred_at: str) -> int:
         return await self._insert(
             """
@@ -1518,6 +1556,38 @@ class Repo:
     async def update_metric(self, metric_id: int, telegram_id: int, **fields: Any) -> None:
         allowed = {"name", "data_type", "unit", "choices_json", "enabled", "pinned"}
         await self._update_fields("custom_metrics", allowed, metric_id, telegram_id, fields)
+
+    async def count_metric_values(self, metric_id: int, telegram_id: int) -> int:
+        row = await self.fetchone(
+            """
+            SELECT COUNT(*) AS c FROM custom_metric_values
+            WHERE metric_id = ? AND telegram_id = ?
+            """,
+            (metric_id, telegram_id),
+        )
+        return int(row["c"]) if row else 0
+
+    async def delete_metric(self, metric_id: int, telegram_id: int) -> bool:
+        """Delete one metric and every value that belongs to this user."""
+        if await self.get_metric(metric_id, telegram_id) is None:
+            return False
+        try:
+            await self.conn.execute(
+                """
+                DELETE FROM custom_metric_values
+                WHERE metric_id = ? AND telegram_id = ?
+                """,
+                (metric_id, telegram_id),
+            )
+            cur = await self.conn.execute(
+                "DELETE FROM custom_metrics WHERE id = ? AND telegram_id = ?",
+                (metric_id, telegram_id),
+            )
+            await self.conn.commit()
+        except Exception:
+            await self.conn.rollback()
+            raise
+        return cur.rowcount > 0
 
     async def add_metric_value(
         self,

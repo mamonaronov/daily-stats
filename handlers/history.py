@@ -675,7 +675,6 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         from datetime import date as date_type
 
         from services.daily_scores import spec_of
-        from utils.formatting import score_text
         from utils.time import format_date_long
 
         spec = spec_of(rec.kind)
@@ -683,7 +682,7 @@ async def entry_text(repo: Repo, user: User, kind: str, item_id: int, *, heading
         body = (
             f"{spec.emoji} {spec.label}\n"
             f"День: {format_date_long(day)}\n"
-            f"Оценка: {score_text(rec.score)}"
+            f"Оценка: {spec.value_text(rec.score)}"
         )
     elif kind == "wgt":
         from utils.formatting import format_kg

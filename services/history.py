@@ -130,7 +130,7 @@ async def build_timeline(repo: Repo, user: User, start: date, end: date) -> list
                 rec.id,
                 dt,
                 f"{spec.emoji} {spec.label}",
-                score_text(rec.score),
+                spec.value_text(rec.score),
                 {"all_day": True},
             )
         )

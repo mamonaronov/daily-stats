@@ -482,11 +482,32 @@ def daily_scores_day_kb(*, today_missing: int = 0, yesterday_missing: int = 0) -
     return with_nav(b)
 
 
-def score_gaps_kb(gaps: list[tuple[date, list[str]]], today: date) -> InlineKeyboardMarkup:
+def score_gaps_kb(
+    gaps: list[tuple[date, list[str]]],
+    today: date,
+    *,
+    page: int = 0,
+    pages: int = 1,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for day, keys in gaps:
         emojis = "".join(spec_of(key).emoji for key in keys)
-        b.row(_btn(f"{open_score_day_label(day, today)} · {emojis}", f"ds:gap:{day.isoformat()}"))
+        day_iso = day.isoformat()
+        b.row(_btn(f"{open_score_day_label(day, today)} · {emojis}", f"ds:gap:{day_iso}:{page}"))
+        b.row(
+            *[
+                _btn(f"{spec_of(key).emoji} ✖️", f"ds:sk:{day_iso}:{spec_of(key).code}:{page}")
+                for key in keys
+            ]
+        )
+    if pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if page > 0:
+            nav.append(_btn("«", f"ds:gpg:{page - 1}"))
+        nav.append(_btn(f"{page + 1}/{pages}", "noop"))
+        if page + 1 < pages:
+            nav.append(_btn("»", f"ds:gpg:{page + 1}"))
+        b.row(*nav)
     return with_nav(b)
 
 
@@ -501,7 +522,7 @@ def daily_scores_value_kb(
         row = [_btn(spec.emoji, "noop")]
         chosen = current.get(spec.key)
         for score in range(1, 6):
-            row.append(_btn(_selected(SCORE_EMOJI[score], chosen == score), f"ds:q:{spec.code}:{score}"))
+            row.append(_btn(_selected(spec.face(score), chosen == score), f"ds:q:{spec.code}:{score}"))
         clear = f"ds:x:{spec.code}" if chosen is not None else "noop"
         row.append(_btn("✖️", clear))
         b.row(*row)
@@ -1145,6 +1166,7 @@ def metric_card_kb(
             b.row(_btn("📍 Убрать с главной", f"cm:pin:{metric_id}"))
         elif can_pin:
             b.row(_btn("📌 На главную", f"cm:pin:{metric_id}"))
+        b.row(_btn("🗑 Удалить", f"cm:del:{metric_id}"))
     if back == NAV_METRICS:
         back_label = "⬅️ К метрикам"
     elif back == NAV_PLEDGES:
@@ -1152,6 +1174,13 @@ def metric_card_kb(
     else:
         back_label = "⬅️ Назад"
     b.row(_btn(back_label, back), _btn("🏠 Меню", NAV_MAIN))
+    return b.as_markup()
+
+
+def metric_delete_kb(metric_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(_btn("Да, удалить", f"cm:delok:{metric_id}"))
+    b.row(_btn("Отмена", f"cm:o:{metric_id}"))
     return b.as_markup()
 
 
@@ -1180,7 +1209,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(_btn("👥 Пользователи", "ad:users"), _btn("🔎 Поиск", "ad:search"))
     b.row(_btn("💰 Балансы", "ad:bal"), _btn("📋 Операции", "ad:ops"))
-    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🖴 Аптайм", "ad:vpn"))
+    b.row(_btn("📊 Статистика сервиса", "ad:stats"), _btn("🗄️ Аптайм", "ad:vpn"))
     b.row(_btn("🖱 Нажатия", "ad:clk"), _btn("⚙️ Настройки", "ad:cfg"))
     b.row(_btn("🗄 База данных", "ad:dbe"), _btn("📦 Бэкапы", "ad:bk"))
     b.row(_btn("📢 Рассылка", "ad:bc"))

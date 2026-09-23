@@ -17,7 +17,31 @@ async def test_migration_sets_user_version(tmp_path):
     await db.initialize()
     version = await db.user_version()
     await db.close()
-    assert version == config.required_db_version == 19
+    assert version == config.required_db_version == 21
+
+
+@pytest.mark.asyncio
+async def test_stress_scores_flip_onto_amount_scale(tmp_path):
+    from database.queries import Repo
+    from services.entries import upsert_daily_score
+    from utils.time import user_today
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    await db.set_user_version(20)
+    repo = Repo(db)
+    user = await repo.create_user(7, "stress-flip", "Аня", None, "UTC", 0, "23:00")
+    today = user_today("UTC")
+    _, stress_error, _ = await upsert_daily_score(repo, user, today, "stress", 5)
+    _, mood_error, _ = await upsert_daily_score(repo, user, today, "mood", 5)
+    assert stress_error is None and mood_error is None
+    await db.migrate()
+    stress = await repo.get_daily_score_by_day(user.telegram_id, today.isoformat(), "stress")
+    mood = await repo.get_daily_score_by_day(user.telegram_id, today.isoformat(), "mood")
+    await db.close()
+    assert stress is not None and stress.score == 1
+    assert mood is not None and mood.score == 5
 
 
 @pytest.mark.asyncio

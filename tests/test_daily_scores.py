@@ -10,12 +10,13 @@ from services.daily_scores import (
     list_open_score_gaps,
     missing_by_day,
     missing_keys_by_day,
+    missing_keys_since_first,
     missing_score_count,
     open_score_total,
     open_scores_button_label,
+    page_open_scores,
     parse_daily_score,
     score_day_is_due,
-    score_gap_days,
     spec_of,
 )
 from services.entries import clear_daily_score, undo_entry, upsert_daily_score
@@ -23,6 +24,17 @@ from services.history import build_timeline, format_timeline
 from services.statistics import render_stats
 from services.today import day_snapshot
 from utils.time import UTC, user_today
+
+
+def test_score_screen_does_not_share_the_happy_legend_with_stress():
+    from handlers.daily_scores import _value_text
+
+    day = date(2026, 9, 23)
+    text = _value_text(day, day, [spec_of("mood"), spec_of("stress")], {})
+    assert "Нажмите лицо. Ещё раз или ✖️ — снять." in text
+    assert "Лица:" not in text
+    assert "ужасно" not in text
+    assert "слева спокойно, справа сильнее" in text
 
 
 def test_parse_daily_score_range():
@@ -134,6 +146,9 @@ async def test_stress_is_sixth_daily_score(repo):
     spec = spec_of("stress")
     assert spec.label == "Стресс"
     assert spec.code == "st"
+    assert spec.face(1) == "😌"
+    assert spec.face(5) == "😫"
+    assert spec.word(5) == "очень сильно"
     user = await repo.create_user(95, "stress-sc", "Кира", None, "UTC", 0, "23:00")
     today = user_today("UTC")
     item_id, error, updated = await upsert_daily_score(repo, user, today, "stress", 2)
@@ -146,7 +161,8 @@ async def test_stress_is_sixth_daily_score(repo):
     assert snap.scores == {"stress": 2}
     shown = snap.as_text({"stress"})
     assert "😰" in shown
-    assert "плохо" in shown
+    assert "слабо" in shown
+    assert "плохо" not in shown
 
 
 @pytest.mark.asyncio
@@ -193,6 +209,39 @@ def test_missing_by_day_counts_only_open_days():
     assert missing_by_day(pairs, [], days) == {}
 
 
+def test_missing_since_first_recorded_of_each_kind():
+    keys = ["energy", "mood", "stress"]
+    pairs = [
+        ("2026-08-10", "mood"),
+        ("2026-08-12", "mood"),
+        ("2026-08-11", "energy"),
+    ]
+    today = date(2026, 8, 13)
+    assert missing_keys_since_first(pairs, keys, today) == {
+        date(2026, 8, 11): ["mood"],
+        date(2026, 8, 12): ["energy"],
+        date(2026, 8, 13): ["energy", "mood"],
+    }
+    skipped = {("2026-08-13", "mood")}
+    assert missing_keys_since_first(pairs, keys, today, skipped)[date(2026, 8, 13)] == ["energy"]
+    assert "stress" not in {
+        key for left in missing_keys_since_first(pairs, keys, today).values() for key in left
+    }
+    assert missing_keys_since_first([], keys, today) == {}
+
+
+def test_open_scores_page_clamps():
+    gaps = [(date(2026, 9, day), ["mood"]) for day in range(1, 10)]
+    shown, page, pages = page_open_scores(gaps, 0, size=4)
+    assert pages == 3
+    assert page == 0
+    assert len(shown) == 4
+    shown, page, pages = page_open_scores(gaps, 9, size=4)
+    assert page == 2
+    assert len(shown) == 1
+    assert page_open_scores([], 3) == ([], 0, 1)
+
+
 def test_today_waits_for_score_reminder_clock():
     today = date(2026, 9, 23)
     yesterday = today - timedelta(days=1)
@@ -203,16 +252,6 @@ def test_today_waits_for_score_reminder_clock():
     assert score_day_is_due(yesterday, today, "21:00", early)
     assert score_day_is_due(today, today, None, early)
     assert score_day_is_due(today, today, "nope", early)
-
-
-def test_score_gap_window_stops_at_registration():
-    today = date(2026, 9, 22)
-    assert score_gap_days(today)[0] == today - timedelta(days=13)
-    assert score_gap_days(today)[-1] == today
-    assert len(score_gap_days(today)) == 14
-    registered = date(2026, 9, 21)
-    assert score_gap_days(today, registered) == [registered, today]
-    assert score_gap_days(today, today + timedelta(days=1)) == []
 
 
 def test_open_scores_text_lists_forgotten_and_button_counts_them():
@@ -226,6 +265,7 @@ def test_open_scores_text_lists_forgotten_and_button_counts_them():
     assert "сегодня — ⚡ Энергия, 📈 Продуктивность" in text
     assert "вчера — 😊 Настроение" in text
     assert "Нажмите день" in text
+    assert "убирает запись" in text
     assert open_score_total(gaps) == 3
     assert open_scores_button_label(3) == "Неоценено · 3"
     assert open_scores_button_label(0) == "Всё оценено"
@@ -233,18 +273,28 @@ def test_open_scores_text_lists_forgotten_and_button_counts_them():
 
 
 @pytest.mark.asyncio
-async def test_open_score_gaps_skip_days_before_registration(repo):
+async def test_open_score_gaps_start_at_first_record_and_can_be_dismissed(repo):
     from services.ui_prefs import prefs_of, save_prefs
 
     user = await repo.create_user(98, "gaps", "Нина", None, "UTC", 0, "23:00")
     prefs = prefs_of(user)
-    prefs.tracked = {"mood", "energy"}
+    prefs.tracked = {"mood", "energy", "stress"}
     user = await save_prefs(repo, user, prefs)
     today = user_today(user.timezone)
-    await upsert_daily_score(repo, user, today, "mood", 4)
+    await upsert_daily_score(repo, user, today - timedelta(days=20), "mood", 3)
+    await upsert_daily_score(repo, user, today - timedelta(days=3), "energy", 4)
     gaps = await list_open_score_gaps(repo, user)
-    assert gaps == [(today, ["energy"])]
-    assert open_score_total(gaps) == 1
+    by_day = dict(gaps)
+    assert today - timedelta(days=20) not in by_day
+    assert by_day[today - timedelta(days=19)] == ["mood"]
+    assert by_day[today - timedelta(days=4)] == ["mood"]
+    assert by_day[today - timedelta(days=3)] == ["mood"]
+    assert by_day[today - timedelta(days=2)] == ["energy", "mood"]
+    assert all("stress" not in keys for _, keys in gaps)
+    await repo.add_daily_score_skip(user.telegram_id, (today - timedelta(days=2)).isoformat(), "energy")
+    await repo.add_daily_score_skip(user.telegram_id, (today - timedelta(days=2)).isoformat(), "energy")
+    gaps = await list_open_score_gaps(repo, user)
+    assert dict(gaps)[today - timedelta(days=2)] == ["mood"]
 
 
 @pytest.mark.asyncio
@@ -259,6 +309,8 @@ async def test_open_score_gaps_hide_today_until_reminder(repo, monkeypatch):
     prefs.tracked = {"mood", "day_rating"}
     user = await save_prefs(repo, user, prefs)
     await repo.set_daily_score_reminder(user.telegram_id, "21:00")
+    await upsert_daily_score(repo, user, date(2026, 9, 21), "mood", 4)
+    await upsert_daily_score(repo, user, date(2026, 9, 21), "day_rating", 4)
 
     early = datetime(2026, 9, 23, 0, 1, tzinfo=UTC)
     monkeypatch.setattr("utils.time.now_utc", lambda: early)

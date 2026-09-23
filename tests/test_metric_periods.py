@@ -118,3 +118,28 @@ async def test_period_isolation_and_stats(repo):
     assert "12:10" in custom[0].detail
     assert "12:40" in custom[0].detail
     assert "30 мин" in custom[0].detail
+
+
+@pytest.mark.asyncio
+async def test_delete_metric_removes_its_values_only(repo):
+    owner = await repo.create_user(58, "own", "Оля", None, "UTC", 0, "23:00")
+    other = await repo.create_user(59, "oth", "Ира", None, "UTC", 0, "23:00")
+    water = await repo.add_metric(owner.telegram_id, "Вода", "number", "мл", None)
+    kept = await repo.add_metric(owner.telegram_id, "Страницы", "number", None, None)
+    foreign = await repo.add_metric(other.telegram_id, "Вода", "number", "мл", None)
+    stamp = to_iso(_dt(2026, 8, 26, 12, 0))
+    await repo.add_metric_value(owner.telegram_id, water, stamp, value_number=250)
+    await repo.add_metric_value(owner.telegram_id, water, stamp, value_number=300)
+    kept_id = await repo.add_metric_value(owner.telegram_id, kept, stamp, value_number=12)
+    foreign_id = await repo.add_metric_value(other.telegram_id, foreign, stamp, value_number=100)
+    assert await repo.count_metric_values(water, owner.telegram_id) == 2
+    assert await repo.delete_metric(water, other.telegram_id) is False
+    assert await repo.get_metric(water, owner.telegram_id) is not None
+    assert await repo.delete_metric(water, owner.telegram_id) is True
+    assert await repo.get_metric(water, owner.telegram_id) is None
+    assert await repo.count_metric_values(water, owner.telegram_id) == 0
+    assert await repo.delete_metric(water, owner.telegram_id) is False
+    assert await repo.get_metric(kept, owner.telegram_id) is not None
+    assert await repo.get_metric_value(kept_id, owner.telegram_id) is not None
+    assert await repo.get_metric(foreign, other.telegram_id) is not None
+    assert await repo.get_metric_value(foreign_id, other.telegram_id) is not None
