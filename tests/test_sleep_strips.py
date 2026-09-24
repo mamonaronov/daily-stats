@@ -192,6 +192,7 @@ def test_each_day_keeps_the_quality_of_the_wake_in_that_window():
     )
     assert strip is not None
     assert [row.qualities for row in strip.rows if row.segments] == [(2,), (5,)]
+    assert [row.marks[0].duration_minutes for row in strip.rows if row.segments] == [8 * 60, 8 * 60]
     assert any(not row.segments and row.qualities == () for row in strip.rows)
 
 
@@ -204,6 +205,7 @@ def test_same_day_naps_list_qualities_in_wake_order():
     filled = [row for row in strip.rows if row.segments]
     assert len(filled) == 1
     assert filled[0].qualities == (5, 2)
+    assert [mark.duration_minutes for mark in filled[0].marks] == [8 * 60, 90]
 
 
 def test_missing_quality_stays_blank():
@@ -212,6 +214,7 @@ def test_missing_quality_stays_blank():
     strip = build_sleep_strip([rec], "UTC", day, day, _at(day, 20))
     assert strip is not None
     assert [row.qualities for row in strip.rows] == [() for _ in strip.rows]
+    assert [mark.duration_minutes for row in strip.rows if row.marks for mark in row.marks] == [8 * 60]
 
 
 def test_split_night_shows_quality_on_the_wake_row():
@@ -229,6 +232,21 @@ def test_split_night_shows_quality_on_the_wake_row():
     assert len(filled) == 2
     assert filled[0].qualities == ()
     assert filled[1].qualities == (3,)
+    assert filled[0].marks == ()
+    assert filled[1].marks[0].duration_minutes == 26 * 60
+
+
+def test_strip_mark_pairs_duration_with_its_quality():
+    from services.charts import _mark_pieces
+    from services.sleep_strips import SleepStripMark
+
+    pieces = _mark_pieces(
+        (
+            SleepStripMark(duration_minutes=8 * 60, quality=5),
+            SleepStripMark(duration_minutes=90, quality=2),
+        )
+    )
+    assert [text for text, _color in pieces] == ["8 ч", "  ", "5 отлично", "  ·  ", "1 ч 30 мин", "  ", "2 плохо"]
 
 
 def test_gap_day_without_sleep_is_kept():
