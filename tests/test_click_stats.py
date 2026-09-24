@@ -86,11 +86,13 @@ def test_admin_clicks_kb_callback_limit():
 def test_backup_list_skips_clicks_and_vpn(tmp_path):
     vpn = tmp_path / "vpn.sqlite3"
     clicks = tmp_path / "clicks.sqlite3"
+    load = tmp_path / "load.sqlite3"
     real = tmp_path / "backup_20260902_120000.sqlite3"
-    for path in (vpn, clicks, real):
+    for path in (vpn, clicks, load, real):
         path.write_bytes(b"sqlite")
     assert is_managed_sqlite_backup(vpn) is False
     assert is_managed_sqlite_backup(clicks) is False
+    assert is_managed_sqlite_backup(load) is False
     assert is_managed_sqlite_backup(real) is True
 
 

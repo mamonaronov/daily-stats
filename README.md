@@ -73,7 +73,7 @@ Telegram  →  aiogram Dispatcher  →  handlers  →  services  →  SQLite (ai
                                APScheduler (списания, backup, бэкап в Telegram)
 ```
 
-- Слой БД: `database/` — подключение, WAL, миграции, backup/restore, параметризованные запросы. Пинги VPN — отдельный `vpn.sqlite3`; нажатия кнопок — отдельный `clicks.sqlite3`. Оба файла не входят в бэкапы
+- Слой БД: `database/` — подключение, WAL, миграции, backup/restore, параметризованные запросы. Пинги VPN — отдельный `vpn.sqlite3`; нажатия кнопок — отдельный `clicks.sqlite3`; load average сервера — отдельный `load.sqlite3`. Эти файлы не входят в бэкапы
 - Бизнес-логика: `services/` — баланс, биллинг, статистика, графики
 - Telegram: `handlers/` + `keyboards/` + `states/`
 - Пользователи изолированы: все выборки и изменения идут с `telegram_id` текущего пользователя
@@ -233,6 +233,8 @@ docker run --rm --network telegram-proxy curlimages/curl -sS --max-time 8 \
 | `DB_PATH` | нет | `/app/data/database.sqlite3` | Путь к БД дневника **внутри контейнера** |
 | `VPN_DB_PATH` | нет | рядом с `DB_PATH`, файл `vpn.sqlite3` | Отдельная БД пингов VPN-монитора. В бэкапы не входит |
 | `CLICKS_DB_PATH` | нет | рядом с `DB_PATH`, файл `clicks.sqlite3` | Отдельная БД нажатий кнопок (кто, какая кнопка, когда). В бэкапы не входит |
+| `LOAD_DB_PATH` | нет | рядом с `DB_PATH`, файл `load.sqlite3` | Отдельная БД load average сервера. В бэкапы не входит |
+| `LOAD_LOG_KEEP_DAYS` | нет | `31` | Сколько дней замеров load average хранить |
 | `VPN_LOG_KEEP_DAYS` | нет | `31` | Сколько дней сырых пингов хранить; старше удаляются, затем `VACUUM` |
 | `BACKUP_PATH` | нет | `/app/backups` | Каталог backup внутри контейнера |
 | `BACKUP_INTERVAL_HOURS` | нет | `1` | Период автоматического backup на диск |
@@ -305,7 +307,7 @@ Backup идёт через SQLite Online Backup API: в копию попада�
 - при graceful shutdown (`SIGTERM` / `docker compose stop`) — `shutdown_...`. По умолчанию Docker ждёт 30s (`stop_grace_period`), затем SIGKILL. Чтобы ждать бэкап сколько угодно: `docker compose stop -t -1 bot` или `docker compose down -t -1`
 - при ошибке старта, если возможно — `crash_...`
 
-Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются. Пинги VPN живут в отдельном `vpn.sqlite3`, нажатия кнопок — в `clicks.sqlite3` (по умолчанию оба в `./data`) и **не входят** ни в копии на диск, ни в архив в Telegram.
+Имена: `{prefix}_YYYYMMDD_HHMMSS.sqlite3` в `./backups`. Хранятся `BACKUP_KEEP` последних файлов, остальные удаляются. Пинги VPN живут в отдельном `vpn.sqlite3`, нажатия кнопок — в `clicks.sqlite3`, load average — в `load.sqlite3` (по умолчанию все в `./data`) и **не входят** ни в копии на диск, ни в архив в Telegram.
 
 Отдельно в привязанную группу уходит архив `.tgz` (gzip-tar, сжатие однопоточным **gzip**; расширение одно, чтобы Telegram/Ark не принимали файл за «просто .gz»): снимок БД + `.env` + конфиги (`docker-compose.yml`, `docker-compose.proxy.yml`, `Dockerfile`, `config.py`, `deploy/` и т.п.). Имя файла: `daily-stats-backup_01-08-2026_10-10-10_{short-hash}_{тема-коммита}_db{версия}.tgz` (дата и время в поясе владельца). Коммит — тот, что был **собран в образ** (`docker compose build` / `./deploy.sh` передают `GIT_COMMIT` и `GIT_COMMIT_TITLE`). Сообщение **без звука** (`disable_notification`). Интервал — `TELEGRAM_BACKUP_INTERVAL_MINUTES`, по умолчанию **30 минут**. Отсчёт идёт от последней **успешной** отправки (время пишется в `system_info`). Если с тех пор прошло больше интервала — в том числе после рестарта — архив уходит сразу, и таймер стартует заново. `0` выключает автоотправку. Пока группа не привязана, задание пропускается. Владелец добавляет бота в группу (или пишет там `/backup_here`) — архивы начинают уходить туда. В личку владельцу архив приходит только по кнопке **📤 Сделать бэкап сейчас**. Если файл `.env` в контейнере не читается (права 600), entrypoint копирует его в `/app/.env.runtime` для архива. Если и это недоступно — в архив попадает снимок переменных из окружения.
 

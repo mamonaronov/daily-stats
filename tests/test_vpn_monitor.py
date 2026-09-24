@@ -493,6 +493,7 @@ def test_vpn_monitor_config_from_env(monkeypatch):
     assert cfg.vpn_log_keep_days == 31
     assert cfg.vpn_db_path.name == "vpn.sqlite3"
     assert cfg.clicks_db_path.name == "clicks.sqlite3"
+    assert cfg.load_db_path.name == "load.sqlite3"
 
 
 def test_vpn_monitor_job_is_not_scheduled_immediately(tmp_path):
@@ -527,6 +528,7 @@ def test_admin_vpn_kb_callback_limit():
     assert "adv:all:n" in datas
     assert "advl:24h" in datas
     assert "advc:24h" in datas
+    assert "adld:24h" in datas
     assert all(len(data.encode()) <= 64 for data in datas)
     labels = [btn.text for row in kb.inline_keyboard for btn in row]
     assert any(text == "[Ноды]" for text in labels)
@@ -543,6 +545,7 @@ def test_admin_vpn_kb_callback_limit():
     assert any(text == "[30 мин]" for text in half_labels)
     assert any(text and "Логи за 30 мин" in text for text in half_labels)
     assert any(text and "Картинки за 30 мин" in text for text in half_labels)
+    assert any(text and "Load avg за 30 мин" in text for text in half_labels)
 
     week = admin_vpn_kb("7d", "s")
     week_datas = [btn.callback_data for row in week.inline_keyboard for btn in row]

@@ -71,6 +71,7 @@ class Config:
     db_path: Path
     vpn_db_path: Path
     clicks_db_path: Path
+    load_db_path: Path
     backup_path: Path
     backup_interval_hours: int
     backup_keep: int
@@ -85,6 +86,7 @@ class Config:
     mihomo_api_secret: str | None = None
     mihomo_proxy_group: str = "AUTO"
     vpn_log_keep_days: int = 31
+    load_log_keep_days: int = 31
     telegram_backup_interval_minutes: int = 30
     telegram_backup_root: Path = PROJECT_ROOT
     spam_button_window_seconds: int = 8
@@ -117,6 +119,9 @@ def load_config() -> Config:
         clicks_db_path=Path(
             os.getenv("CLICKS_DB_PATH", "").strip() or str(db_path.with_name("clicks.sqlite3"))
         ),
+        load_db_path=Path(
+            os.getenv("LOAD_DB_PATH", "").strip() or str(db_path.with_name("load.sqlite3"))
+        ),
         backup_path=backup_path,
         backup_interval_hours=_int("BACKUP_INTERVAL_HOURS", 1),
         backup_keep=_int("BACKUP_KEEP", 14),
@@ -131,6 +136,7 @@ def load_config() -> Config:
         mihomo_api_secret=_optional("MIHOMO_API_SECRET"),
         mihomo_proxy_group=os.getenv("MIHOMO_PROXY_GROUP", "AUTO").strip() or "AUTO",
         vpn_log_keep_days=_int("VPN_LOG_KEEP_DAYS", 31),
+        load_log_keep_days=_int("LOAD_LOG_KEEP_DAYS", 31),
         telegram_backup_interval_minutes=_telegram_backup_interval_minutes(),
         telegram_backup_root=Path(os.getenv("TELEGRAM_BACKUP_ROOT", "").strip() or str(PROJECT_ROOT)),
         spam_button_window_seconds=max(1, _int("SPAM_BUTTON_WINDOW_SECONDS", 8)),

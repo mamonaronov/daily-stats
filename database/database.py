@@ -12,6 +12,7 @@ import aiosqlite
 
 from config import Config
 from database.clicks_database import ClicksDatabase
+from database.load_database import LoadDatabase
 from database.vpn_database import (
     VpnDatabase,
     diary_vpn_rowcount,
@@ -48,7 +49,7 @@ _SKIP_BACKUP_PREFIXES = (
     "rejected-restore",
     "incoming-restore",
 )
-_SKIP_BACKUP_NAMES = frozenset({"vpn.sqlite3", "clicks.sqlite3"})
+_SKIP_BACKUP_NAMES = frozenset({"vpn.sqlite3", "clicks.sqlite3", "load.sqlite3"})
 
 
 def is_managed_sqlite_backup(path: Path) -> bool:
@@ -105,6 +106,7 @@ class Database:
         self._conn: aiosqlite.Connection | None = None
         self.vpn_db: VpnDatabase | None = None
         self.clicks_db: ClicksDatabase | None = None
+        self.load_db: LoadDatabase | None = None
         self._vacuum_diary_after_vpn_move = False
 
     @property
@@ -134,6 +136,12 @@ class Database:
             except Exception:
                 logger.exception("Clicks database close failed")
             self.clicks_db = None
+        if self.load_db is not None:
+            try:
+                await self.load_db.close()
+            except Exception:
+                logger.exception("Load database close failed")
+            self.load_db = None
         if self._conn is not None:
             try:
                 await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -240,6 +248,12 @@ class Database:
         if self.clicks_db is None:
             self.clicks_db = ClicksDatabase(self.config)
             await self.clicks_db.initialize()
+
+    async def _init_load_database(self) -> None:
+        if self.load_db is None:
+            self.load_db = LoadDatabase(self.config)
+            await self.load_db.initialize()
+        await self.load_db.prune_retained(self.config.load_log_keep_days)
 
     async def _finish_vpn_move(self) -> None:
         if self._vacuum_diary_after_vpn_move:
@@ -385,6 +399,7 @@ class Database:
                 await self.restore_from(backup)
         await self._init_vpn_database()
         await self._init_clicks_database()
+        await self._init_load_database()
         await self.migrate()
         if not await self.integrity_ok():
             raise DatabaseUnrecoverableError("Database failed integrity_check after migrate")

@@ -68,6 +68,19 @@ def test_seconds_human():
     assert seconds_human(26 * 3600) == "1 д 2 ч"
 
 
+def test_parse_loadavg(tmp_path):
+    from utils.uptime import format_loadavg, host_loadavg, parse_loadavg
+
+    assert parse_loadavg("0.42 0.31 0.28 1/200 1234\n") == (0.42, 0.31, 0.28)
+    assert parse_loadavg("nope") is None
+    assert format_loadavg((1.2, 0.5, 0.1)) == "1.20, 0.50, 0.10"
+    assert format_loadavg(None) == "—"
+    path = tmp_path / "loadavg"
+    path.write_text("1.50 1.25 1.00 2/100 9\n", encoding="utf-8")
+    assert host_loadavg(path) == (1.5, 1.25, 1.0)
+    assert host_loadavg(tmp_path / "missing") is None
+
+
 def test_host_uptime_seconds(tmp_path):
     from utils.uptime import host_uptime_seconds
 
@@ -98,6 +111,7 @@ def test_uptime_report_lines(monkeypatch):
 
     monkeypatch.setattr(uptime, "bot_uptime_seconds", lambda: 90)
     monkeypatch.setattr(uptime, "host_uptime_seconds", lambda: 26 * 3600)
+    monkeypatch.setattr(uptime, "host_loadavg", lambda: (0.42, 0.31, 0.28))
     monkeypatch.setattr(uptime, "app_build_identity", lambda: ("deadbeef", "fix: uptime <commit>"))
     lines = uptime.uptime_report_lines()
     assert len(lines) == 1
@@ -107,8 +121,9 @@ def test_uptime_report_lines(monkeypatch):
     rows = body.splitlines()
     assert rows[0].endswith("Аптайм бота: 1 мин 30 с")
     assert rows[1].endswith("Аптайм сервера: 1 д 2 ч")
-    assert rows[2].endswith("Коммит: fix: uptime <commit> (deadbeef)")
-    assert rows[3].endswith(f"Версия БД: {REQUIRED_DB_VERSION}")
+    assert rows[2].endswith("Load avg: 0.42, 0.31, 0.28")
+    assert rows[3].endswith("Коммит: fix: uptime <commit> (deadbeef)")
+    assert rows[4].endswith(f"Версия БД: {REQUIRED_DB_VERSION}")
     assert len({row.index(":") for row in rows}) == 1
     extra = uptime.uptime_report_lines([("Возраст сервиса", "3 д")])
     extra_body = html.unescape(extra[0].removeprefix("<pre>").removesuffix("</pre>"))

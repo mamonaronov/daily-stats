@@ -11,6 +11,46 @@ from utils.time import to_iso, now_utc
 
 
 @pytest.mark.asyncio
+async def test_load_samples_stay_out_of_diary_backup(tmp_path, monkeypatch):
+    import sqlite3
+
+    from services.load_samples import capture_server_load
+
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    monkeypatch.setattr(
+        "services.load_samples.host_loadavg",
+        lambda: (0.5, 0.4, 0.3),
+    )
+    try:
+        assert db.load_db is not None
+        assert db.load_db.path == config.load_db_path
+        text = await capture_server_load(db)
+        assert text == "0.50, 0.40, 0.30"
+        latest = await db.load_db.latest()
+        assert latest == (0.5, 0.4, 0.3)
+        rows = await db.load_db.list_between("2000-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00")
+        assert len(rows) == 1
+        assert rows[0][1:] == (0.5, 0.4, 0.3)
+        async with db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='load_samples'"
+        ) as cur:
+            assert await cur.fetchone() is None
+        backup = await db.backup(prefix="loadtest")
+        conn = sqlite3.connect(backup)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='load_samples'"
+            ).fetchone()
+            assert row is None
+        finally:
+            conn.close()
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_migration_sets_user_version(tmp_path):
     config = make_config(tmp_path)
     db = Database(config)

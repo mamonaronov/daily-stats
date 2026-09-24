@@ -39,6 +39,8 @@ from services.broadcast import (
     send_broadcast,
 )
 from services.click_stats import admin_click_summary_lines
+from services.load_charts import build_load_chart
+from services.load_samples import capture_server_load
 from services.statistics import render_stats
 from services.telegram_backup import (
     backup_interval_caption,
@@ -787,9 +789,10 @@ async def _vpn_report(repo: Repo, config: Config, period_key: str, *, now=None, 
     summary["service_down"] = service_down
     summary["server_off"] = server_off
     extra = await _admin_status_pairs(repo, config, end)
+    load_avg = await capture_server_load(repo.db)
 
     lines = ["🛡 <b>VPN / задержка бота</b>", ""]
-    lines.extend(uptime_report_lines(extra))
+    lines.extend(uptime_report_lines(extra, load_avg=load_avg))
 
     total = summary["total"]
     fail = summary["fail_count"]
@@ -889,6 +892,48 @@ async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     period, view, rounded = _parse_vpn_view(cb.data)
     text = await _vpn_report(repo, config, period, view=view)
     await safe_edit(cb.message, text, admin_vpn_kb(period, view, rounded=rounded))
+
+
+@router.callback_query(F.data.startswith("adld:"))
+async def admin_load_chart(cb: CallbackQuery, config: Config, repo: Repo) -> None:
+    if not await _owner(cb, config):
+        return
+    raw = cb.data.split(":", 1)[1] if cb.data else "24h"
+    load_db = repo.db.load_db
+    if load_db is None:
+        await cb.answer("Нет замеров load avg", show_alert=True)
+        return
+    _key, start, end, title = await _load_window(load_db, raw)
+    tz_name = await _owner_timezone(repo, config)
+    await cb.answer("Строю график")
+    if cb.message is None:
+        return
+    try:
+        chart = await build_load_chart(load_db, start, end, title, tz_name)
+    except Exception:
+        logger.exception("Load chart failed")
+        await safe_send(cb.message.answer, "Не удалось построить график load avg.")
+        return
+    if chart is None:
+        await safe_send(cb.message.answer, "Нет замеров load avg за этот период.")
+        return
+    caption, png = chart
+    await safe_send(
+        cb.message.answer_document,
+        png_file(png, "load-avg.png"),
+        caption=caption[:1024],
+    )
+
+
+async def _load_window(load_db, period_key: str):
+    key, delta, title = _vpn_period(period_key)
+    end = now_utc()
+    if delta is None:
+        earliest = await load_db.earliest_at()
+        start = parse_iso(earliest) if earliest else end
+    else:
+        start = end - delta
+    return key, start, end, title
 
 
 @router.callback_query(F.data.startswith("advc:"))

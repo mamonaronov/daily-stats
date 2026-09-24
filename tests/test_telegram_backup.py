@@ -376,6 +376,7 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
         assert any(name.endswith("database.sqlite3") or name == "./database.sqlite3" for name in names)
         assert not any("vpn.sqlite3" in name for name in names)
         assert not any("clicks.sqlite3" in name for name in names)
+        assert not any("load.sqlite3" in name for name in names)
         extracted = next((tmp_path / "extracted").rglob("database.sqlite3"))
         import sqlite3
 
@@ -385,6 +386,10 @@ async def test_create_archive_contains_db_env_configs(tmp_path, monkeypatch):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='vpn_latency_samples'"
             ).fetchone()
             assert row is None
+            load_row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='load_samples'"
+            ).fetchone()
+            assert load_row is None
         finally:
             conn.close()
         assert any(name.endswith(".env") or name == "./.env" for name in names)

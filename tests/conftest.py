@@ -20,6 +20,7 @@ def make_config(tmp_path: Path) -> Config:
         db_path=tmp_path / "database.sqlite3",
         vpn_db_path=tmp_path / "vpn.sqlite3",
         clicks_db_path=tmp_path / "clicks.sqlite3",
+        load_db_path=tmp_path / "load.sqlite3",
         backup_path=tmp_path / "backups",
         backup_interval_hours=6,
         backup_keep=5,
