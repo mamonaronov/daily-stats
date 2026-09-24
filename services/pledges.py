@@ -261,24 +261,35 @@ async def load_progress(repo: Repo, user: User, metric: CustomMetric, today: dat
     return progress_for(metric, values, today or user_today(user.timezone), user.timezone)
 
 
-async def next_open_dates(repo: Repo, user: User, metrics) -> dict[int, date]:
+async def pledge_edge_dates(
+    repo: Repo, user: User, metrics
+) -> tuple[dict[int, date], dict[int, date]]:
+    """Next open day and latest closed day for each scheduled pledge."""
     pledges = [
         metric
         for metric in metrics
         if getattr(metric, "data_type", None) == "pledge" and getattr(metric, "starts_on", None)
     ]
     if not pledges:
-        return {}
+        return {}, {}
     grouped: dict[int, list] = defaultdict(list)
     for rec in await repo.list_pledge_values(user.telegram_id):
         grouped[rec.metric_id].append(rec)
     today = user_today(user.timezone)
-    found: dict[int, date] = {}
+    nxt: dict[int, date] = {}
+    undo: dict[int, date] = {}
     for metric in pledges:
         progress = progress_for(metric, grouped.get(metric.id, []), today, user.timezone)
         if progress.next_open is not None:
-            found[metric.id] = progress.next_open
-    return found
+            nxt[metric.id] = progress.next_open
+        if progress.last_closed is not None:
+            undo[metric.id] = progress.last_closed
+    return nxt, undo
+
+
+async def next_open_dates(repo: Repo, user: User, metrics) -> dict[int, date]:
+    nxt, _undo = await pledge_edge_dates(repo, user, metrics)
+    return nxt
 
 
 async def pledge_today_lines(repo: Repo, user: User) -> tuple[str, ...]:

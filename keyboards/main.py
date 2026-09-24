@@ -1027,18 +1027,29 @@ def pledge_weekdays_kb(mask: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def pledges_hub_kb(metrics, writable: bool, *, pledge_next: dict[int, date] | None = None) -> InlineKeyboardMarkup:
+def pledges_hub_kb(
+    metrics,
+    writable: bool,
+    *,
+    pledge_next: dict[int, date] | None = None,
+    pledge_undo: dict[int, date] | None = None,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for metric in metrics:
-        name = metric.name or "Решение"
-        label = f"Открыть «{name}»"
+        name = (metric.name or "Решение")[:20]
         if not metric.enabled:
-            label = f"{label} (выкл)"
-        b.row(_btn(label, f"cm:o:{metric.id}"))
-        if writable and metric.enabled and pledge_next:
+            b.row(_btn(f"{name} (выкл)", f"cm:o:{metric.id}"))
+            continue
+        row = [_btn(name, f"cm:o:{metric.id}")]
+        if writable and pledge_next:
             nxt = pledge_next.get(metric.id)
             if nxt is not None:
-                b.row(_btn(f"Отметить {format_date(nxt)}", f"pl:q:{metric.id}"))
+                row.append(_btn(format_date(nxt), f"pl:q:{metric.id}"))
+        if writable and pledge_undo:
+            prev = pledge_undo.get(metric.id)
+            if prev is not None:
+                row.append(_btn(f"↩ {format_date(prev)}", f"pl:u:{metric.id}"))
+        b.row(*row)
     if writable:
         b.row(_btn("➕ Создать решение", "pl:new"))
     return with_nav(b)
