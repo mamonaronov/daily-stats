@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
 from config import Config
 from database.queries import Repo
-from services.alerts import format_alert, is_transient_telegram_error, notify_alert
+from services.alerts import format_alert, is_stale_callback_error, is_transient_telegram_error, notify_alert
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,8 @@ class ErrorIsolationMiddleware(BaseMiddleware):
         except Exception as exc:
             if is_transient_telegram_error(exc):
                 logger.warning("Handler skipped after a Telegram network error: %s", exc)
+            elif is_stale_callback_error(exc):
+                logger.info("Callback query expired before it was answered: %s", exc)
             else:
                 logger.exception("Handler error")
                 bot = data.get("app_bot") or data.get("bot")
@@ -99,6 +101,8 @@ class ErrorIsolationMiddleware(BaseMiddleware):
                         format_alert("handler", "Необработанная ошибка хендлера", exc=exc),
                         db=repo.db if repo is not None else None,
                     )
+            if is_stale_callback_error(exc):
+                return None
             if isinstance(event, CallbackQuery):
                 try:
                     await event.answer("Произошла ошибка. Попробуйте ещё раз.", show_alert=True)

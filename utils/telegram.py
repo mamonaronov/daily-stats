@@ -7,9 +7,25 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
+
+from services.alerts import is_stale_callback_error
 
 logger = logging.getLogger(__name__)
+
+
+async def answer_callback(cb: CallbackQuery, text: str | None = None, *, show_alert: bool = False) -> None:
+    """Ack a button tap. An expired query is ignored so the handler can continue."""
+    try:
+        if text:
+            await cb.answer(text, show_alert=show_alert)
+        else:
+            await cb.answer()
+    except TelegramBadRequest as exc:
+        if is_stale_callback_error(exc):
+            logger.info("Callback query expired before it was answered: %s", exc)
+            return
+        raise
 
 
 async def hide_reply_keyboard(message: Message | None) -> None:

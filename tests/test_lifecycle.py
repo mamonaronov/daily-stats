@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.methods import GetMe
 
 from bot import _on_error
@@ -274,6 +274,41 @@ async def test_handler_network_error_is_not_alerted(monkeypatch):
     assert sent == []
 
 
+async def test_handler_stale_callback_is_not_alerted(monkeypatch):
+    sent: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        sent.append(text)
+
+    monkeypatch.setattr("middlewares.notify_alert", fake_notify)
+
+    async def handler(_event, _data):
+        raise TelegramBadRequest(
+            method=GetMe(),
+            message="Bad Request: query is too old and response timeout expired or query ID is invalid",
+        )
+
+    result = await ErrorIsolationMiddleware()(handler, object(), {"app_bot": object(), "config": object()})
+    assert result is None
+    assert sent == []
+
+
+async def test_handler_bad_request_is_still_alerted(monkeypatch):
+    sent: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        sent.append(text)
+
+    monkeypatch.setattr("middlewares.notify_alert", fake_notify)
+
+    async def handler(_event, _data):
+        raise TelegramBadRequest(method=GetMe(), message="Bad Request: chat not found")
+
+    await ErrorIsolationMiddleware()(handler, object(), {"app_bot": object(), "config": object()})
+    assert len(sent) == 1
+    assert "Необработанная ошибка хендлера" in sent[0]
+
+
 async def test_handler_bug_is_still_alerted(monkeypatch):
     sent: list[str] = []
 
@@ -289,6 +324,23 @@ async def test_handler_bug_is_still_alerted(monkeypatch):
     assert len(sent) == 1
     assert "Необработанная ошибка хендлера" in sent[0]
     assert "db locked" in sent[0]
+
+
+async def test_dispatcher_stale_callback_is_not_alerted(monkeypatch):
+    sent: list[str] = []
+
+    async def fake_notify(_bot, _config, text, **_kwargs):
+        sent.append(text)
+
+    monkeypatch.setattr("bot.notify_alert", fake_notify)
+    event = SimpleNamespace(
+        exception=TelegramBadRequest(
+            method=GetMe(),
+            message="Bad Request: query is too old and response timeout expired or query ID is invalid",
+        )
+    )
+    await _on_error(event, object(), object(), None)
+    assert sent == []
 
 
 async def test_dispatcher_network_error_is_not_alerted(monkeypatch):
