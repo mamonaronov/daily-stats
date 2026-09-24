@@ -30,6 +30,7 @@ from middlewares import (
 from services.alerts import (
     format_alert,
     format_backup_problems,
+    is_stale_callback_error,
     is_transient_telegram_error,
     notify_alert,
     notify_owner,
@@ -147,6 +148,9 @@ async def _on_error(event, bot: Bot, config, db: Database | None = None) -> None
     exc = event.exception
     if is_transient_telegram_error(exc):
         logger.warning("Dispatcher skipped a Telegram network error: %s", exc)
+        return
+    if is_stale_callback_error(exc):
+        logger.info("Dispatcher skipped an expired callback query: %s", exc)
         return
     logger.exception("Dispatcher error")
     await notify_alert(bot, config, format_alert("dispatcher", "Ошибка диспетчера", exc=exc), db=db)

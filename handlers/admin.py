@@ -59,7 +59,7 @@ from services.vpn_monitor import (
 from states.diary import AdminSG
 from utils.callbacks import NAV_ADMIN
 from utils.formatting import balance_coverage_block, colon_block, money, pre_html, seconds_human
-from utils.telegram import png_file, safe_edit, safe_send, text_file
+from utils.telegram import answer_callback, png_file, safe_edit, safe_send, text_file
 from utils.time import add_days, format_dt, now_utc, parse_iso, range_bounds_utc, to_iso, user_today
 from utils.uptime import host_uptime_seconds, uptime_report_lines
 
@@ -885,9 +885,9 @@ async def _owner_timezone(repo: Repo, config: Config) -> str:
 async def admin_vpn(cb: CallbackQuery, config: Config, repo: Repo) -> None:
     if not await _owner(cb, config):
         return
+    await answer_callback(cb)
     period, view, rounded = _parse_vpn_view(cb.data)
     text = await _vpn_report(repo, config, period, view=view)
-    await cb.answer()
     await safe_edit(cb.message, text, admin_vpn_kb(period, view, rounded=rounded))
 
 

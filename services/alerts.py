@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime, timezone
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
 from aiogram.types import InlineKeyboardMarkup
 
 from config import Config
@@ -28,6 +28,14 @@ BOT_STOPPED_TEXT = "⏹ Бот выключается."
 def is_transient_telegram_error(exc: BaseException) -> bool:
     """Transport blips. The caller retries; they are not service failures."""
     return isinstance(exc, (TelegramNetworkError, TimeoutError))
+
+
+def is_stale_callback_error(exc: BaseException) -> bool:
+    """Callback was already answered or expired. Not a service failure."""
+    if not isinstance(exc, TelegramBadRequest):
+        return False
+    text = str(exc).lower()
+    return "query is too old" in text or "query id is invalid" in text
 
 
 def format_exception_reason(exc: BaseException) -> str:
