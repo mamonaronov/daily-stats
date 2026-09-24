@@ -13,7 +13,7 @@ from database.queries import Repo
 from handlers.common import require_active, require_writable
 from handlers.custom_metrics import _load_pledge, _run_pledge_action
 from keyboards.main import back_kb, pledges_hub_kb
-from services.pledges import next_open_dates
+from services.pledges import pledge_edge_dates
 from services.users import can_write
 from states.diary import CustomMetricSG
 from utils.callbacks import NAV_PLEDGES
@@ -25,14 +25,15 @@ router = Router(name="pledges")
 PLEDGES_EMPTY = (
     "📆 <b>Хорошие решения</b>\n\n"
     "Это обещание на выбранные дни: читать, бегать, не курить.\n\n"
-    "Когда день сделан, нажмите «Отметить …». "
+    "Когда день сделан, нажмите кнопку с датой. "
     "Засчитывается самый ранний ещё не отмеченный день, не дальше сегодня.\n\n"
     "Пока пусто. Нажмите «Создать решение»."
 )
 PLEDGES_HELP = (
-    "Кнопки под каждым решением:\n"
-    "• <b>Открыть</b> — карточка: сколько сделано, отметить все дни до сегодня, убрать последнюю отметку\n"
-    "• <b>Отметить дата</b> — засчитать этот день сделанным\n\n"
+    "В строке решения:\n"
+    "• <b>название</b> — карточка: сколько сделано и отметить все дни до сегодня\n"
+    "• <b>дата</b> — засчитать этот день сделанным\n"
+    "• <b>↩ дата</b> — снять последнюю отметку, если отметили день, который ещё не сделан\n\n"
     "Засчитывается самый ранний ещё не отмеченный день, не дальше сегодня."
 )
 NAME_PROMPT = "Как назвать хорошее решение?\n\nНапример: читать, бегать."
@@ -72,9 +73,9 @@ async def show_pledges(target: CallbackQuery, repo: Repo, user: User, state: FSM
     if state:
         await state.clear()
     metrics = [item for item in await repo.list_metrics(user.telegram_id) if item.data_type == "pledge"]
-    pledge_next = await next_open_dates(repo, user, metrics)
+    pledge_next, pledge_undo = await pledge_edge_dates(repo, user, metrics)
     text = pledges_menu_text(metrics, pledge_next, user_today(user.timezone))
-    markup = pledges_hub_kb(metrics, can_write(user), pledge_next=pledge_next)
+    markup = pledges_hub_kb(metrics, can_write(user), pledge_next=pledge_next, pledge_undo=pledge_undo)
     await safe_edit(target.message, text, markup)
 
 
@@ -110,6 +111,24 @@ async def pledge_close_from_hub(
         return
     notice = await _run_pledge_action(cb, repo, user, metric, "next")
     if notice and notice.startswith("Закрыто"):
+        await cb.answer(notice)
+        await show_pledges(cb, repo, user, state)
+        return
+    await cb.answer(notice or "Не получилось", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("pl:u:"))
+async def pledge_undo_from_hub(
+    cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    metric = await _load_pledge(cb, repo, user)
+    if metric is None:
+        return
+    notice = await _run_pledge_action(cb, repo, user, metric, "undo")
+    if notice and notice.startswith("Снято"):
         await cb.answer(notice)
         await show_pledges(cb, repo, user, state)
         return

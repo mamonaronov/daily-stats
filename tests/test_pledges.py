@@ -113,7 +113,7 @@ async def test_creating_pledge_returns_to_the_list(repo):
     assert "Хорошие решения" in text
     assert "Чтение" in text
     labels = [btn.text for row in markup.inline_keyboard for btn in row]
-    assert "Открыть «Чтение»" in labels
+    assert "Чтение" in labels
     assert "➕ Создать решение" in labels
     assert "⬅️ К решениям" not in labels
 
