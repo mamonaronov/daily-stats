@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
+from matplotlib.font_manager import FontProperties
 from matplotlib.lines import Line2D
 
 from database.models import EventMarker, EventPeriod, User
@@ -25,12 +26,13 @@ from services.sleep_strips import (
     PHASE_COLORS,
     PHASE_LABELS,
     SleepStrip,
+    SleepStripMark,
     build_sleep_strip,
     strip_title,
 )
 from services.statistics import daily_event_counts, daily_volume_ml, load_period
 from services.ui_prefs import prefs_of
-from utils.formatting import SCORE_LABELS
+from utils.formatting import SCORE_LABELS, duration_human
 from utils.quantity import milliliters_of
 from utils.time import daterange, format_date, parse_iso, to_user, user_now
 
@@ -198,8 +200,8 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
     fig_h = min(22.0, max(3.4, bar_h * n + 2.0))
     fig, ax = plt.subplots(figsize=(11.4, fig_h), facecolor=BG)
     apply_dark(fig, ax, grid=False)
-    scored = any(row.qualities for row in rows)
-    fig.subplots_adjust(left=0.15, right=0.82 if scored else 0.985, top=0.96, bottom=0.2)
+    noted = any(row.marks for row in rows)
+    fig.subplots_adjust(left=0.15, right=0.74 if noted else 0.985, top=0.96, bottom=0.2)
     ys = list(range(n))
     ax.invert_yaxis()
     ax.set_xlim(-0.4, 24.4)
@@ -221,7 +223,7 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
                 zorder=3,
                 clip_on=True,
             )
-        _draw_strip_quality(ax, y, row, n)
+        _draw_strip_marks(ax, fig, y, row.marks, n)
     _draw_strip_hour_overlay(ax, n)
     step = 1 if n <= 40 else 2 if n <= 80 else max(1, n // 25)
     ax.set_yticks(ys[::step])
@@ -247,27 +249,45 @@ def _sleep_strip_png(strip: SleepStrip) -> bytes:
     return _png(fig, tight=False, dpi=160)
 
 
-def _quality_label(scores: tuple[int, ...]) -> str:
-    return " · ".join(f"{score} {SCORE_LABELS.get(score, str(score))}" for score in scores)
+def _mark_pieces(marks: tuple[SleepStripMark, ...]) -> list[tuple[str, str]]:
+    pieces: list[tuple[str, str]] = []
+    for mark in marks:
+        if pieces:
+            pieces.append(("  ·  ", AXIS))
+        if mark.duration_minutes is not None:
+            pieces.append((duration_human(mark.duration_minutes), FG))
+        if mark.quality is not None:
+            if mark.duration_minutes is not None:
+                pieces.append(("  ", AXIS))
+            label = f"{mark.quality} {SCORE_LABELS.get(mark.quality, str(mark.quality))}"
+            pieces.append((label, _QUALITY_COLOR.get(mark.quality, FG)))
+    return pieces
 
 
-def _draw_strip_quality(ax, y: int, row, n: int) -> None:
-    if not row.qualities:
+def _draw_strip_marks(ax, fig, y: int, marks: tuple[SleepStripMark, ...], n: int) -> None:
+    pieces = _mark_pieces(marks)
+    if not pieces:
         return
-    color = FG
-    if len(set(row.qualities)) == 1:
-        color = _QUALITY_COLOR.get(row.qualities[0], FG)
-    ax.text(
-        24.55,
-        y,
-        _quality_label(row.qualities),
-        ha="left",
-        va="center",
-        fontsize=9 if n <= 40 else 8,
-        color=color,
-        clip_on=False,
-        zorder=5,
-    )
+    fontsize = 9 if n <= 40 else 8
+    font = FontProperties(family=plt.rcParams["font.family"], size=fontsize)
+    renderer = fig.canvas.get_renderer()
+    cursor = 10.0
+    for text, color in pieces:
+        ax.annotate(
+            text,
+            xy=(24.4, y),
+            xytext=(cursor, 0),
+            textcoords="offset points",
+            ha="left",
+            va="center",
+            fontsize=fontsize,
+            color=color,
+            clip_on=False,
+            zorder=5,
+            annotation_clip=False,
+        )
+        width_px, _, _ = renderer.get_text_width_height_descent(text, font, False)
+        cursor += width_px * 72 / fig.dpi
 
 
 def _strip_line_width(fig_h: float, n: int) -> float:

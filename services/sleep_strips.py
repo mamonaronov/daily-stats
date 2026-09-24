@@ -61,12 +61,19 @@ class SleepStripSeg:
 
 
 @dataclass(frozen=True, slots=True)
+class SleepStripMark:
+    duration_minutes: int | None = None
+    quality: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SleepStripRow:
     start: datetime
     end: datetime
     label: str
     segments: tuple[SleepStripSeg, ...]
     qualities: tuple[int, ...] = ()
+    marks: tuple[SleepStripMark, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +177,7 @@ def _assemble_strip(
         return None
     flat = [seg for _record, segs in nights for seg in segs]
     rows = tuple(
-        _row_for_window(window, flat, _qualities_in_window(window, nights, tz_name))
+        _row_for_window(window, flat, _marks_in_window(window, nights, tz_name))
         for window in windows
     )
     if not any(row.segments for row in rows):
@@ -363,27 +370,40 @@ def _trim_empty_edges(rows: list[SleepStripRow]) -> list[SleepStripRow]:
     return rows
 
 
-def _qualities_in_window(
+def _asleep_minutes(
+    record: SleepRecord,
+    segs: list[tuple[datetime, datetime, str]],
+) -> int | None:
+    if record.duration_minutes is not None:
+        return record.duration_minutes
+    seconds = sum((end - start).total_seconds() for start, end, phase in segs if phase == PHASE_ASLEEP)
+    if seconds <= 0:
+        return None
+    return int(round(seconds / 60))
+
+
+def _marks_in_window(
     window: tuple[datetime, datetime],
     nights: list[tuple[SleepRecord, list[tuple[datetime, datetime, str]]]],
     tz_name: str,
-) -> tuple[int, ...]:
+) -> tuple[SleepStripMark, ...]:
     start, end = window
-    scored: list[tuple[datetime, int]] = []
+    found: list[tuple[datetime, SleepStripMark]] = []
     for record, segs in nights:
-        if record.quality is None:
+        duration = _asleep_minutes(record, segs)
+        if duration is None and record.quality is None:
             continue
         moment = _local(record.wake_time, tz_name) or segs[-1][1]
         if start < moment <= end:
-            scored.append((moment, record.quality))
-    scored.sort(key=lambda item: item[0])
-    return tuple(score for _moment, score in scored)
+            found.append((moment, SleepStripMark(duration_minutes=duration, quality=record.quality)))
+    found.sort(key=lambda item: item[0])
+    return tuple(mark for _moment, mark in found)
 
 
 def _row_for_window(
     window: tuple[datetime, datetime],
     segments: list[tuple[datetime, datetime, str]],
-    qualities: tuple[int, ...] = (),
+    marks: tuple[SleepStripMark, ...] = (),
 ) -> SleepStripRow:
     start, end = window
     clipped: list[SleepStripSeg] = []
@@ -404,7 +424,8 @@ def _row_for_window(
         end=end,
         label=_window_label(start, end),
         segments=tuple(clipped),
-        qualities=qualities,
+        qualities=tuple(mark.quality for mark in marks if mark.quality is not None),
+        marks=marks,
     )
 
 
