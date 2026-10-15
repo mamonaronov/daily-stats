@@ -243,6 +243,8 @@ class Database:
             self.conn, self.vpn_db, self.config.vpn_log_keep_days
         )
         self._vacuum_diary_after_vpn_move = legacy_rows > 0
+        if self.vpn_db is not None:
+            await self.vpn_db.enforce_size_cap()
 
     async def _init_clicks_database(self) -> None:
         if self.clicks_db is None:
@@ -262,6 +264,7 @@ class Database:
             self._vacuum_diary_after_vpn_move = False
         if self.vpn_db is not None:
             await self.vpn_db.prune_retained(self.config.vpn_log_keep_days)
+            await self.vpn_db.enforce_size_cap()
 
     async def _close_backup_conn(self, conn: aiosqlite.Connection | None) -> None:
         if conn is None:

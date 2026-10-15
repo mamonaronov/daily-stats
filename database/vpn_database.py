@@ -9,6 +9,12 @@ from pathlib import Path
 import aiosqlite
 
 from config import Config
+from database.file_cap import (
+    enforce_table_cap,
+    high_water_bytes,
+    on_disk_bytes,
+    prefer_incremental_autovacuum,
+)
 from utils.time import now_utc, to_iso
 
 logger = logging.getLogger(__name__)
@@ -78,6 +84,8 @@ class VpnDatabase:
         await self.conn.executescript(_VPN_SCHEMA_SQL)
         await self.conn.execute(f"PRAGMA user_version={VPN_DB_VERSION}")
         await self.conn.commit()
+        await prefer_incremental_autovacuum(self.conn, self.path)
+        await self.enforce_size_cap()
         logger.info("VPN database ready path=%s", self.path)
 
     async def close(self) -> None:
@@ -91,14 +99,45 @@ class VpnDatabase:
         self._conn = None
 
     async def _apply_pragmas(self) -> None:
+        # auto_vacuum before WAL, otherwise a new file keeps auto_vacuum=NONE.
+        await self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         await self.conn.execute("PRAGMA journal_mode=WAL")
         await self.conn.execute("PRAGMA busy_timeout=5000")
         await self.conn.execute("PRAGMA synchronous=NORMAL")
         await self.conn.execute("PRAGMA temp_store=MEMORY")
         await self.conn.execute("PRAGMA wal_autocheckpoint=1000")
+        await self.conn.execute("PRAGMA journal_size_limit=67108864")
         await self.conn.commit()
 
+    def _size_limit(self) -> int:
+        raw = getattr(self.config, "telemetry_db_max_bytes", 0)
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            return 0
+
+    async def enforce_size_cap(self, *, force: bool = False, max_bytes: int | None = None) -> int:
+        limit = self._size_limit() if max_bytes is None else max(0, int(max_bytes))
+        return await enforce_table_cap(
+            self.conn,
+            self.path,
+            table="vpn_latency_samples",
+            label="VPN",
+            max_bytes=limit,
+            force=force,
+        )
+
+    async def ensure_within_cap(self) -> None:
+        limit = self._size_limit()
+        if limit <= 0 or on_disk_bytes(self.path) <= high_water_bytes(limit):
+            return
+        try:
+            await self.enforce_size_cap()
+        except Exception:
+            logger.exception("VPN size cap failed")
+
     async def vacuum(self) -> None:
+        await self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         await vacuum_sqlite(self.conn)
 
     async def prune_older_than(self, cutoff_iso: str) -> int:

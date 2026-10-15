@@ -66,6 +66,18 @@ def test_spam_alert_defaults_and_env(monkeypatch):
     assert cfg.spam_button_count == 12
 
 
+def test_telemetry_db_max_bytes(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")
+    monkeypatch.delenv("TELEMETRY_DB_MAX_MB", raising=False)
+    monkeypatch.setattr("config.load_dotenv", lambda: None)
+    assert load_config().telemetry_db_max_bytes == 500 * 1024 * 1024
+    monkeypatch.setenv("TELEMETRY_DB_MAX_MB", "0")
+    assert load_config().telemetry_db_max_bytes == 0
+    monkeypatch.setenv("TELEMETRY_DB_MAX_MB", "128")
+    assert load_config().telemetry_db_max_bytes == 128 * 1024 * 1024
+
+
 def test_clicks_db_path_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("BOT_TOKEN", "1:test")
     monkeypatch.setenv("OWNER_TELEGRAM_ID", "1")

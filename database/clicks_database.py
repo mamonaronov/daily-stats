@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
 from config import Config
+from database.file_cap import (
+    enforce_table_cap,
+    high_water_bytes,
+    is_sqlite_full,
+    on_disk_bytes,
+    prefer_incremental_autovacuum,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +75,8 @@ class ClicksDatabase:
         await self.conn.executescript(_CLICKS_SCHEMA_SQL)
         await self.conn.execute(f"PRAGMA user_version={CLICKS_DB_VERSION}")
         await self.conn.commit()
+        await prefer_incremental_autovacuum(self.conn, self.path)
+        await self.enforce_size_cap()
         logger.info("Clicks database ready path=%s", self.path)
 
     async def close(self) -> None:
@@ -80,14 +90,44 @@ class ClicksDatabase:
         self._conn = None
 
     async def _apply_pragmas(self) -> None:
+        # auto_vacuum before WAL, otherwise a new file keeps auto_vacuum=NONE.
+        await self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         await self.conn.execute("PRAGMA journal_mode=WAL")
         await self.conn.execute("PRAGMA busy_timeout=5000")
         await self.conn.execute("PRAGMA synchronous=NORMAL")
         await self.conn.execute("PRAGMA temp_store=MEMORY")
         await self.conn.execute("PRAGMA wal_autocheckpoint=1000")
+        await self.conn.execute("PRAGMA journal_size_limit=67108864")
         await self.conn.commit()
 
-    async def record(
+    def _size_limit(self) -> int:
+        raw = getattr(self.config, "telemetry_db_max_bytes", 0)
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            return 0
+
+    async def enforce_size_cap(self, *, force: bool = False, max_bytes: int | None = None) -> int:
+        limit = self._size_limit() if max_bytes is None else max(0, int(max_bytes))
+        return await enforce_table_cap(
+            self.conn,
+            self.path,
+            table="button_clicks",
+            label="Clicks",
+            max_bytes=limit,
+            force=force,
+        )
+
+    async def ensure_within_cap(self) -> None:
+        limit = self._size_limit()
+        if limit <= 0 or on_disk_bytes(self.path) <= high_water_bytes(limit):
+            return
+        try:
+            await self.enforce_size_cap()
+        except Exception:
+            logger.exception("Clicks size cap failed")
+
+    async def _insert_click(
         self,
         *,
         telegram_id: int,
@@ -114,6 +154,47 @@ class ClicksDatabase:
         )
         await self.conn.commit()
         return int(cur.lastrowid)
+
+    async def record(
+        self,
+        *,
+        telegram_id: int,
+        clicked_at: str,
+        button_kind: str,
+        callback_data: str,
+        button_text: str | None,
+        is_owner: bool,
+    ) -> int:
+        await self.ensure_within_cap()
+        try:
+            row_id = await self._insert_click(
+                telegram_id=telegram_id,
+                clicked_at=clicked_at,
+                button_kind=button_kind,
+                callback_data=callback_data,
+                button_text=button_text,
+                is_owner=is_owner,
+            )
+        except sqlite3.OperationalError as exc:
+            if not is_sqlite_full(exc):
+                raise
+            logger.warning("Clicks database hit the size cap; pruning oldest clicks")
+            try:
+                await self.conn.rollback()
+            except Exception:
+                logger.exception("Clicks rollback after a full database failed")
+            await self.enforce_size_cap(force=True)
+            row_id = await self._insert_click(
+                telegram_id=telegram_id,
+                clicked_at=clicked_at,
+                button_kind=button_kind,
+                callback_data=callback_data,
+                button_text=button_text,
+                is_owner=is_owner,
+            )
+        # The row just written can be what crosses the high-water mark.
+        await self.ensure_within_cap()
+        return row_id
 
     async def _count(self, sql: str, params: tuple[Any, ...] = ()) -> int:
         async with self.conn.execute(sql, params) as cur:

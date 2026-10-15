@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import re
+import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Iterable
@@ -13,6 +14,7 @@ from typing import Any, Iterable
 import aiosqlite
 
 from database.database import Database
+from database.file_cap import is_sqlite_full
 from database.models import (
     ActivityRecord,
     AlcoholRecord,
@@ -1929,16 +1931,45 @@ LEFT JOIN event_markers e ON e.id = p.end_marker_id AND e.telegram_id = p.telegr
         error: str | None,
         host_uptime_s: float | None = None,
     ) -> int:
-        cur = await self.vpn_conn.execute(
-            """
-            INSERT INTO vpn_latency_samples
-                (measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (measured_at, 1 if ok else 0, latency_ms, node_name, subscription, error, host_uptime_s),
-        )
-        await self.vpn_conn.commit()
-        return int(cur.lastrowid)
+        vpn_db = self.db.vpn_db
+
+        async def write() -> int:
+            cur = await self.vpn_conn.execute(
+                """
+                INSERT INTO vpn_latency_samples
+                    (measured_at, ok, latency_ms, node_name, subscription, error, host_uptime_s)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    measured_at,
+                    1 if ok else 0,
+                    latency_ms,
+                    node_name,
+                    subscription,
+                    error,
+                    host_uptime_s,
+                ),
+            )
+            await self.vpn_conn.commit()
+            return int(cur.lastrowid)
+
+        if vpn_db is not None:
+            await vpn_db.ensure_within_cap()
+        try:
+            row_id = await write()
+        except sqlite3.OperationalError as exc:
+            if vpn_db is None or not is_sqlite_full(exc):
+                raise
+            logger.warning("VPN database hit the size cap; pruning oldest samples")
+            try:
+                await self.vpn_conn.rollback()
+            except Exception:
+                logger.exception("VPN rollback after a full database failed")
+            await vpn_db.enforce_size_cap(force=True)
+            row_id = await write()
+        if vpn_db is not None:
+            await vpn_db.ensure_within_cap()
+        return row_id
 
     async def prune_vpn_samples(self, keep_days: int | None = None) -> int:
         vpn_db = self.db.vpn_db

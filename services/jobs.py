@@ -278,6 +278,18 @@ async def cleanup_job(repo: Repo) -> None:
                 logger.info("Load samples pruned: %s", deleted)
     except Exception:
         logger.exception("Load sample prune failed")
+    try:
+        clicks = repo.db.clicks_db
+        if clicks is not None:
+            await clicks.enforce_size_cap()
+    except Exception:
+        logger.exception("Click database size cap failed")
+    try:
+        vpn_db = repo.db.vpn_db
+        if vpn_db is not None:
+            await vpn_db.enforce_size_cap()
+    except Exception:
+        logger.exception("VPN database size cap failed")
 
 
 async def load_sample_job(db: Database) -> None:

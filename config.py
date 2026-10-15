@@ -8,6 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from database.file_cap import TELEMETRY_DB_MAX_BYTES
+
 
 REQUIRED_DB_VERSION = 21
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -53,6 +55,14 @@ def _telegram_backup_interval_minutes() -> int:
     return 30
 
 
+def _telemetry_db_max_bytes() -> int:
+    """0 disables the per-file cap. Otherwise mebibytes (1024**2), matching ls -lh."""
+    mb = _int("TELEMETRY_DB_MAX_MB", 500)
+    if mb <= 0:
+        return 0
+    return mb * 1024 * 1024
+
+
 def _bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -96,6 +106,7 @@ class Config:
     spam_daily_entries: int = 80
     spam_user_rows: int = 5000
     spam_alert_cooldown_minutes: int = 30
+    telemetry_db_max_bytes: int = TELEMETRY_DB_MAX_BYTES
 
 
 def load_config() -> Config:
@@ -146,4 +157,5 @@ def load_config() -> Config:
         spam_daily_entries=max(0, _int("SPAM_DAILY_ENTRIES", 80)),
         spam_user_rows=max(0, _int("SPAM_USER_ROWS", 5000)),
         spam_alert_cooldown_minutes=max(0, _int("SPAM_ALERT_COOLDOWN_MINUTES", 30)),
+        telemetry_db_max_bytes=_telemetry_db_max_bytes(),
     )
