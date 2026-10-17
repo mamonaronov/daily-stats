@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from config import Config
 from database.models import User
 from database.queries import Repo
-from handlers.common import prompt_with_hint, require_writable, show_main
+from handlers.common import prompt_with_hint, reject_future_day, require_writable, show_main
 from keyboards.main import (
     ago_pick_kb,
     back_kb,
@@ -36,6 +36,7 @@ from utils.time import (
     parse_hhmm,
     parse_minutes_ago,
     parse_when_text,
+    to_user,
     user_today,
 )
 
@@ -78,6 +79,8 @@ async def _finish(
     is_owner: bool,
     when: datetime,
 ) -> None:
+    if await reject_future_day(event, to_user(when, user.timezone).date(), user.timezone):
+        return
     data = await state.get_data()
     purpose = data.get("time_purpose")
     if purpose == "slp_wake":
@@ -238,7 +241,10 @@ async def _apply_edit(repo: Repo, user: User, purpose: str, when: datetime) -> s
     iso = to_iso(when)
     rec = None
     field = None
-    if kind in {"sb", "slp_bed", "sa"}:
+    if kind == "sb":
+        rec = await repo.get_sleep(item_id, user.telegram_id)
+        field = "bedtime"
+    elif kind in {"slp_bed", "sa"}:
         rec = await repo.get_sleep(item_id, user.telegram_id)
         field = "phone_away_at"
     elif kind == "sp":
@@ -571,6 +577,8 @@ async def pick_date(cb: CallbackQuery, state: FSMContext, db_user: User | None) 
     except ValueError:
         await cb.answer()
         return
+    if await reject_future_day(cb, day, user.timezone):
+        return
     await state.update_data(picked_date=day.isoformat())
     await state.set_state(TimePickSG.hour)
     await cb.answer()
@@ -758,6 +766,8 @@ async def hour_date_shortcut(cb: CallbackQuery, state: FSMContext, db_user: User
         day = parse_calendar_token(token, today)
     except ValueError:
         await cb.answer()
+        return
+    if await reject_future_day(cb, day, tz):
         return
     await state.update_data(picked_date=day.isoformat())
     await cb.answer()

@@ -30,6 +30,62 @@ _BACKUP_CLOSE_TIMEOUT_SECONDS = 2.0
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
+def split_sql(sql: str) -> list[str]:
+    """Split a script on semicolons that are outside quotes and comments."""
+    statements: list[str] = []
+    buf: list[str] = []
+    i = 0
+    length = len(sql)
+    in_single = False
+    in_double = False
+    while i < length:
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < length else ""
+        if not in_single and not in_double and ch == "-" and nxt == "-":
+            i += 2
+            while i < length and sql[i] != "\n":
+                i += 1
+            continue
+        if not in_single and not in_double and ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < length and not (sql[i] == "*" and sql[i + 1] == "/"):
+                i += 1
+            i = min(i + 2, length)
+            continue
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == ";" and not in_single and not in_double:
+            stmt = "".join(buf).strip()
+            if stmt:
+                statements.append(stmt)
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
+def _foreign_keys_pragma(stmt: str) -> str | None:
+    compact = " ".join(stmt.split()).lower()
+    if not compact.startswith("pragma foreign_keys"):
+        return None
+    if compact.endswith("off") or compact.endswith("= 0") or compact.endswith("=0"):
+        return "off"
+    return "on"
+
+
 class DatabaseError(RuntimeError):
     pass
 
@@ -220,8 +276,7 @@ class Database:
             sql = path.read_text(encoding="utf-8")
             logger.info("Applying migration %s", path.name)
             try:
-                await self.conn.executescript(sql)
-                await self.set_user_version(version)
+                await self._apply_migration(version, sql)
             except Exception:
                 logger.exception("Migration %s failed", path.name)
                 raise DatabaseError(f"Migration {path.name} failed") from None
@@ -230,6 +285,49 @@ class Database:
             raise DatabaseError(f"Migrations finished at {final}, required {required}")
         logger.info("Migrations complete, version=%s", final)
         await self._finish_vpn_move()
+
+    async def _apply_migration(self, version: int, sql: str) -> None:
+        """Run one migration and its version bump in a single transaction.
+
+        executescript commits before the script and between statements, so a
+        crash during DROP/RENAME can leave the table gone. foreign_keys must
+        change outside a transaction; everything else rolls back together.
+        """
+        fk_off: list[str] = []
+        body: list[str] = []
+        fk_on: list[str] = []
+        for stmt in split_sql(sql):
+            kind = _foreign_keys_pragma(stmt)
+            if kind == "off":
+                fk_off.append(stmt)
+            elif kind == "on":
+                fk_on.append(stmt)
+            else:
+                body.append(stmt)
+        for stmt in fk_off:
+            await self.conn.execute(stmt)
+        if fk_off:
+            await self.conn.commit()
+        try:
+            await self.conn.commit()
+            await self.conn.execute("BEGIN IMMEDIATE")
+            for stmt in body:
+                await self.conn.execute(stmt)
+            await self.conn.execute(f"PRAGMA user_version={int(version)}")
+            await self.conn.commit()
+        except Exception:
+            try:
+                await self.conn.rollback()
+            except Exception:
+                logger.exception("Migration rollback failed")
+            raise
+        finally:
+            for stmt in fk_on:
+                await self.conn.execute(stmt)
+            if fk_off and not fk_on:
+                await self.conn.execute("PRAGMA foreign_keys=ON")
+            if fk_off or fk_on:
+                await self.conn.commit()
 
     async def _init_vpn_database(self) -> None:
         if self.vpn_db is None:

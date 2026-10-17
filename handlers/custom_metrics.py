@@ -1000,16 +1000,50 @@ async def metric_add(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
     prompt = value_prompt(metric.name, metric.data_type, metric.unit)
     if spec.key == "boolean":
         await cb.answer()
-        await safe_edit(cb.message, prompt, bool_kb(f"cm:o:{metric_id}"))
+        await safe_edit(cb.message, prompt, bool_kb(f"cm:o:{metric_id}", metric_id=metric_id))
         return
     if spec.key == "choice":
         choices = json.loads(metric.choices_json or "[]")
         await cb.answer()
-        await safe_edit(cb.message, prompt, choices_kb(choices, f"cm:o:{metric_id}"))
+        await safe_edit(cb.message, prompt, choices_kb(choices, f"cm:o:{metric_id}", metric_id=metric_id))
         return
     await state.set_state(CustomMetricSG.value)
     await cb.answer()
     await safe_edit(cb.message, prompt, _value_markup(spec.key, metric.unit, metric_id))
+
+
+def _callback_metric_id(data: str) -> int | None:
+    parts = data.split(":")
+    if len(parts) < 4 or not parts[3].lstrip("-").isdigit():
+        return None
+    return int(parts[3])
+
+
+async def _bind_callback_metric(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    user: User,
+    metric_id: int | None,
+) -> bool:
+    if metric_id is None:
+        data = await state.get_data()
+        if "metric_id" not in data:
+            await cb.answer(UNAVAILABLE, show_alert=True)
+            return False
+        return True
+    metric = await repo.get_metric(metric_id, user.telegram_id)
+    if metric is None or not metric.enabled:
+        await cb.answer(UNAVAILABLE, show_alert=True)
+        return False
+    await state.update_data(
+        metric_id=metric.id,
+        metric_name=metric.name,
+        data_type=metric.data_type,
+        choices_json=metric.choices_json,
+        unit=metric.unit,
+    )
+    return True
 
 
 async def _apply_picked_value(cb: CallbackQuery, state: FSMContext, extra: dict) -> None:
@@ -1021,15 +1055,31 @@ async def _apply_picked_value(cb: CallbackQuery, state: FSMContext, extra: dict)
 
 
 @router.callback_query(F.data.startswith("cm:v:"))
-async def metric_bool(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(cb, db_user) is None:
+async def metric_bool(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    if not await _bind_callback_metric(cb, state, repo, user, _callback_metric_id(cb.data)):
         return
     await _apply_picked_value(cb, state, {"value_bool": int(cb.data.split(":")[2])})
 
 
 @router.callback_query(F.data.startswith("cm:ch:"))
-async def metric_choice(cb: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
-    if await require_writable(cb, db_user) is None:
+async def metric_choice(
+    cb: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    db_user: User | None,
+) -> None:
+    user = await require_writable(cb, db_user)
+    if user is None:
+        return
+    if not await _bind_callback_metric(cb, state, repo, user, _callback_metric_id(cb.data)):
         return
     data = await state.get_data()
     choices = json.loads(data.get("choices_json") or "[]")

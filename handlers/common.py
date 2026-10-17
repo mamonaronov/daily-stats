@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 from datetime import date
 
 from aiogram.fsm.context import FSMContext
@@ -23,6 +24,9 @@ from keyboards.main import (
 from services.users import access_message, can_write, write_block_message
 from utils.formatting import balance_runway, money
 from utils.telegram import hide_reply_keyboard, safe_edit
+
+FUTURE_DAY_NOTICE = "Нельзя выбрать будущий день."
+_request_owner: contextvars.ContextVar[bool] = contextvars.ContextVar("request_owner", default=False)
 
 TZ_PROMPT = "Выберите часовой пояс. Он нужен для статистики и границ дня."
 TZ_RESTORE_PROMPT = (
@@ -189,6 +193,27 @@ async def require_active(event: CallbackQuery | Message, user: User | None) -> U
     return user
 
 
+def set_request_owner(is_owner: bool) -> None:
+    _request_owner.set(is_owner)
+
+
+def request_is_owner() -> bool:
+    return _request_owner.get()
+
+
+async def reject_future_day(event: CallbackQuery | Message, day: date, tz_name: str) -> bool:
+    """Answer and return True when day is after the user's today."""
+    from utils.time import user_today
+
+    if day <= user_today(tz_name):
+        return False
+    if isinstance(event, CallbackQuery):
+        await event.answer(FUTURE_DAY_NOTICE, show_alert=True)
+    else:
+        await event.answer(FUTURE_DAY_NOTICE)
+    return True
+
+
 async def require_writable(event: CallbackQuery | Message, user: User | None) -> User | None:
     user = await require_active(event, user)
     if user is None:
@@ -199,7 +224,11 @@ async def require_writable(event: CallbackQuery | Message, user: User | None) ->
             await event.answer()
             from services.ui_prefs import prefs_of
 
-            await safe_edit(event.message, blocked, main_menu(user, False, tracked=prefs_of(user).tracked))
+            await safe_edit(
+                event.message,
+                blocked,
+                main_menu(user, request_is_owner(), tracked=prefs_of(user).tracked),
+            )
         else:
             await event.answer(blocked)
         return None

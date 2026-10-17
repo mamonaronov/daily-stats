@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 _TELEGRAM_BACKUP_START_DELAY = timedelta(seconds=5)
 _TELEGRAM_BACKUP_RETRY = timedelta(minutes=15)
 _BILLING_JOB_TIMEOUT = 30.0
+_billing_task: asyncio.Task | None = None
 _TELEGRAM_BACKUP_SEND_TIMEOUT = 180.0
 _VPN_MONITOR_JOB_SLACK = 5.0
 _LOAD_SAMPLE_INTERVAL_SECONDS = 60
@@ -172,21 +174,41 @@ def setup_scheduler(scheduler: AsyncIOScheduler, bot: Bot, repo: Repo, db: Datab
         )
 
 
-async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
+def _log_abandoned_billing(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
     try:
-        stats = await await_or_abandon(
-            run_billing_tick(repo),
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        logger.error("Billing tick failed after the job slot was released", exc_info=exc)
+
+
+async def billing_job(repo: Repo, config: Config, bot: Bot) -> None:
+    """Return on timeout without cancelling the tick, and do not start a second one."""
+    global _billing_task
+    if _billing_task is not None and not _billing_task.done():
+        logger.warning("Billing tick still running, skip")
+        return
+    _billing_task = asyncio.create_task(run_billing_tick(repo), name="billing_tick")
+    done, _pending = await asyncio.wait({_billing_task}, timeout=_BILLING_JOB_TIMEOUT)
+    if _billing_task not in done:
+        logger.warning(
+            "Billing job timed out after %.0fs; tick keeps running",
             _BILLING_JOB_TIMEOUT,
-            name="billing_job",
         )
-        logger.info("Billing tick %s", stats)
-    except TimeoutError:
-        logger.warning("Billing job timed out after %.0fs", _BILLING_JOB_TIMEOUT)
+        _billing_task.add_done_callback(_log_abandoned_billing)
+        return
+    try:
+        stats = _billing_task.result()
     except Exception as exc:
         logger.exception("Billing tick failed")
         await notify_alert(
             bot, config, format_alert("billing", "Сбой ежедневного списания", exc=exc), db=repo.db
         )
+        return
+    logger.info("Billing tick %s", stats)
 
 
 async def backup_job(db: Database, bot: Bot, config: Config) -> None:

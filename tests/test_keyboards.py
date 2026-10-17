@@ -487,6 +487,8 @@ def test_saved_entry_actions_use_undo():
     confirm = dict(_pairs(confirm_remove_kb("cig", 7, undo=True)))
     assert confirm["Отменить"] == "unok:cig:7"
     assert confirm["Оставить"] == "sv:cig:7"
+    kept = dict(_pairs(confirm_remove_kb("cig", 7, undo=True, hist="2026-08-08:2026-08-15:0")))
+    assert kept["Оставить"] == "sv:cig:7:2026-08-08:2026-08-15:0"
     onset = dict(_pairs(sleep_onset_kb("wu", 3)))
     assert onset["🗑 Отменить"] == "un:wu:3"
     assert onset["Позже"] == "slp:later:wu:3"
@@ -655,11 +657,12 @@ def test_stats_period_kb_has_all_time():
     from keyboards.main import stats_period_kb
 
     pairs = _pairs(stats_period_kb())
-    assert ("Всё время", "stp:all") in pairs
-    assert ("30 дней", "stp:30") in pairs
-    assert ("С даты", "stp:since") in pairs
-    assert ("С метки", "stp:marker") in pairs
-    assert ("📆 Период", "stp:range") in pairs
+    assert ("Всё время", "st:all") in pairs
+    assert ("30 дней", "st:30") in pairs
+    assert ("С даты", "st:since") in pairs
+    assert ("С метки", "st:marker") in pairs
+    assert ("📆 Период", "st:range") in pairs
+    assert ("Сегодня", "st:today") in pairs
     assert all(data and len(data.encode()) <= 64 for _, data in pairs)
 
 
@@ -944,6 +947,12 @@ def test_entry_actions_repeat_and_history_back():
     scores = dict(_pairs(entry_actions("dsc", 4, True, undo=True)))
     assert scores["✏️ Изменить"] == "ds:e:4"
     assert scores["🗑 Отменить"] == "un:dsc:4"
+    night = dict(_pairs(entry_actions("slp", 3, True)))
+    assert "✏️ Изменить" not in night
+    assert night["🗑 Удалить"] == "rm:slp:3"
+    custom = dict(_pairs(entry_actions("cm", 5, True)))
+    assert "✏️ Изменить" not in custom
+    assert custom["🗑 Удалить"] == "rm:cm:5"
 
 
 def test_history_day_kb_paginates_and_neighbors():

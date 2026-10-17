@@ -29,6 +29,7 @@ from keyboards.main import (
     with_nav,
 )
 from services import balance as balance_svc
+from services.billing import process_user
 from services.balance import format_finance_stats, operation_label
 from services.broadcast import (
     AUDIENCE_LABELS,
@@ -472,6 +473,12 @@ async def _apply_admin_op(
         return
     await state.clear()
     user = await repo.get_user(target)
+    if user is not None and action in {"credit", "gift", "set"}:
+        try:
+            await process_user(repo, user)
+        except Exception:
+            logger.exception("Billing after balance change failed for %s", target)
+        user = await repo.get_user(target) or user
     if isinstance(event, Message):
         await event.answer("Операция записана в журнал.")
     if user:

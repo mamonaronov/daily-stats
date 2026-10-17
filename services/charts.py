@@ -135,6 +135,10 @@ def _apply_day_axis(ax, xs: list[str]) -> list[int]:
     return idx
 
 
+def _gap(value: float | None) -> float:
+    return float("nan") if value is None else value
+
+
 def _line(
     title: str,
     xs: list[str],
@@ -430,19 +434,19 @@ def _render_charts(data: dict, user: User, start: date, end: date, selected: lis
         charts.append(
             (
                 "Длительность сна",
-                _line("Длительность сна, ч", labels, [dur[d] or 0 for d in days], "часы", **overlay),
+                _line("Длительность сна, ч", labels, [_gap(dur[d]) for d in days], "часы", **overlay),
             )
         )
         charts.append(
             (
                 "Засыпание",
-                _line("Время засыпания", labels, [beds[d] or 0 for d in days], "час суток", **overlay),
+                _line("Время засыпания", labels, [_gap(beds[d]) for d in days], "час суток", **overlay),
             )
         )
         charts.append(
             (
                 "Пробуждение",
-                _line("Время пробуждения", labels, [wakes[d] or 0 for d in days], "час суток", **overlay),
+                _line("Время пробуждения", labels, [_gap(wakes[d]) for d in days], "час суток", **overlay),
             )
         )
 
@@ -541,17 +545,15 @@ def _render_charts(data: dict, user: User, start: date, end: date, selected: lis
         grouped[item.metric_id].append(item)
     for metric_id, items in grouped.items():
         name = items[0].metric_name or "метрика"
-        series = {d: 0.0 for d in days}
+        series = {d: float("nan") for d in days}
         buckets: dict[date, list[float]] = defaultdict(list)
         for item in items:
             day = to_user(parse_iso(item.occurred_at), user.timezone).date()
             if day in series and item.value_number is not None:
                 buckets[day].append(item.value_number)
-        for day in days:
-            if items[0].data_type == "period":
-                series[day] = sum(buckets[day]) if buckets[day] else 0.0
-            else:
-                series[day] = mean(buckets[day]) if buckets[day] else 0.0
+        period = items[0].data_type == "period"
+        for day, values in buckets.items():
+            series[day] = sum(values) if period else mean(values)
         unit = "мин" if items[0].data_type == "period" else "значение"
         charts.append((name, _line(name, labels, [series[d] for d in days], unit, **overlay)))
     return charts

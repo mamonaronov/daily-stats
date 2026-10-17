@@ -56,6 +56,8 @@ class UserMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        from handlers.common import set_request_owner
+
         tg_user = data.get("event_from_user") or _extract_user(event)
         repo: Repo | None = data.get("repo")
         if tg_user is not None and repo is not None:
@@ -72,6 +74,7 @@ class UserMiddleware(BaseMiddleware):
         else:
             data["db_user"] = None
             data["is_owner"] = False
+        set_request_owner(bool(data["is_owner"]))
         return await handler(event, data)
 
 

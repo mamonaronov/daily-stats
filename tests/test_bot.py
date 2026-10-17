@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import GetMe
 
@@ -229,19 +230,27 @@ async def test_billing_job_releases_slot_when_tick_hangs(monkeypatch):
 
     from services import jobs as jobs_mod
 
+    calls = 0
+
     async def hanging_billing(repo):
-        try:
-            await asyncio.sleep(10)
-        except asyncio.CancelledError:
-            await asyncio.sleep(0.4)
-            raise
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(10)
 
     monkeypatch.setattr(jobs_mod, "run_billing_tick", hanging_billing)
     monkeypatch.setattr(jobs_mod, "_BILLING_JOB_TIMEOUT", 0.05)
+    jobs_mod._billing_task = None
     started = time.monotonic()
     await jobs_mod.billing_job(object(), object(), object())
     assert time.monotonic() - started < 0.3
-    await asyncio.sleep(0.5)
+    await jobs_mod.billing_job(object(), object(), object())
+    assert calls == 1
+    task = jobs_mod._billing_task
+    assert task is not None and not task.done()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    jobs_mod._billing_task = None
 
 
 def test_vpn_monitor_job_timeout_stays_below_interval():

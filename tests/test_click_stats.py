@@ -30,6 +30,8 @@ def test_classify_button_kinds():
     assert classify_button("ad:clk") == "admin"
     assert classify_button("adclk:7") == "admin"
     assert classify_button("adclkj:today") == "admin"
+    assert classify_button("st:today") == "stats"
+    assert classify_button("st:yesterday") == "stats"
     assert classify_button("stp:yesterday") == "stats"
     assert classify_button("stp:all") == "stats"
     assert classify_button("stp:since") == "stats"

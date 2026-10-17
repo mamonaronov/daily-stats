@@ -678,11 +678,11 @@ def _recent_rows(builder: InlineKeyboardBuilder, recent: list[tuple[str, str]] |
 
 def stats_period_kb(recent: list[tuple[str, str]] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("Сегодня", "stp:today"), _btn("Вчера", "stp:yesterday"))
-    b.row(_btn("7 дней", "stp:7"), _btn("14 дней", "stp:14"))
-    b.row(_btn("30 дней", "stp:30"), _btn("Всё время", "stp:all"))
-    b.row(_btn("С даты", "stp:since"), _btn("С метки", "stp:marker"))
-    b.row(_btn("📆 Период", "stp:range"))
+    b.row(_btn("Сегодня", "st:today"), _btn("Вчера", "st:yesterday"))
+    b.row(_btn("7 дней", "st:7"), _btn("14 дней", "st:14"))
+    b.row(_btn("30 дней", "st:30"), _btn("Всё время", "st:all"))
+    b.row(_btn("С даты", "st:since"), _btn("С метки", "st:marker"))
+    b.row(_btn("📆 Период", "st:range"))
     _recent_rows(b, recent)
     return with_nav(b)
 
@@ -905,6 +905,10 @@ def _hist_tail(hist: str | None) -> str:
     return f":{hist}" if hist else ""
 
 
+# Night summary and custom values have their own screens; the generic time editor corrupts or rejects them.
+_NO_TIME_EDIT = frozenset({"slp", "cm", "cme"})
+
+
 def entry_actions(
     kind: str,
     item_id: int,
@@ -919,7 +923,9 @@ def entry_actions(
     if writable:
         delete_label = "🗑 Отменить" if undo else "🗑 Удалить"
         delete_cb = f"un:{kind}:{item_id}{tail}" if undo else f"rm:{kind}:{item_id}{tail}"
-        if kind == "stp":
+        if kind in _NO_TIME_EDIT:
+            b.row(_btn(delete_label, delete_cb))
+        elif kind == "stp":
             b.row(_btn("✏️ Изменить", f"stp:e:{item_id}"), _btn(delete_label, delete_cb))
         elif kind == "dsc":
             b.row(_btn("✏️ Изменить", f"ds:e:{item_id}"), _btn(delete_label, delete_cb))
@@ -945,7 +951,7 @@ def confirm_remove_kb(
     b = InlineKeyboardBuilder()
     tail = _hist_tail(hist)
     if undo:
-        b.row(_btn("Отменить", f"unok:{kind}:{item_id}{tail}"), _btn("Оставить", f"sv:{kind}:{item_id}"))
+        b.row(_btn("Отменить", f"unok:{kind}:{item_id}{tail}"), _btn("Оставить", f"sv:{kind}:{item_id}{tail}"))
     else:
         b.row(
             _btn("Удалить", f"rmok:{kind}:{item_id}{tail}"),
@@ -1195,9 +1201,10 @@ def metric_delete_kb(metric_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def bool_kb(back: str | None = None) -> InlineKeyboardMarkup:
+def bool_kb(back: str | None = None, *, metric_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(_btn("✅ Да", "cm:v:1"), _btn("✖️ Нет", "cm:v:0"))
+    token = f":{metric_id}" if metric_id is not None else ""
+    b.row(_btn("✅ Да", f"cm:v:1{token}"), _btn("✖️ Нет", f"cm:v:0{token}"))
     if back:
         b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
     else:
@@ -1205,10 +1212,16 @@ def bool_kb(back: str | None = None) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def choices_kb(choices: list[str], back: str | None = None) -> InlineKeyboardMarkup:
+def choices_kb(
+    choices: list[str],
+    back: str | None = None,
+    *,
+    metric_id: int | None = None,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    token = f":{metric_id}" if metric_id is not None else ""
     for idx, choice in enumerate(choices):
-        b.row(_btn(choice, f"cm:ch:{idx}"))
+        b.row(_btn(choice, f"cm:ch:{idx}{token}"))
     if back:
         b.row(_btn("✖️ Отмена", back), _btn("🏠 Меню", NAV_MAIN))
     else:

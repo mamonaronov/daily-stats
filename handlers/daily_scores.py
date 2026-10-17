@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable
+from handlers.common import reject_future_day, require_writable
 from keyboards.main import calendar_kb, daily_scores_day_kb, daily_scores_value_kb, score_gaps_kb
 from services import entries
 from services.daily_scores import (
@@ -128,6 +128,8 @@ async def _ask_values(
     toast: str | None = None,
     back: str = ENTRY_DS,
 ) -> None:
+    if await reject_future_day(event, day, user.timezone):
+        return
     keys = await _score_keys(user, extra_kind)
     if not keys:
         text = "Нет выбранных оценок. Включите их в Настройках → Выбор метрик."

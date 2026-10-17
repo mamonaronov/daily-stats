@@ -51,6 +51,29 @@ async def test_load_samples_stay_out_of_diary_backup(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_failed_migration_rolls_back(tmp_path):
+    config = make_config(tmp_path)
+    db = Database(config)
+    await db.initialize()
+    version = await db.user_version()
+    sql = """
+    CREATE TABLE migration_probe (id INTEGER PRIMARY KEY);
+    INSERT INTO migration_probe (id) VALUES (1);
+    INSERT INTO missing_table (id) VALUES (1);
+    """
+    try:
+        with pytest.raises(Exception):
+            await db._apply_migration(version + 1, sql)
+        assert await db.user_version() == version
+        async with db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='migration_probe'"
+        ) as cur:
+            assert await cur.fetchone() is None
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_migration_sets_user_version(tmp_path):
     config = make_config(tmp_path)
     db = Database(config)

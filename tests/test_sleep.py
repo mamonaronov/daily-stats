@@ -450,6 +450,27 @@ def test_onset_prompt_phone_only_and_empty():
     assert bed_times_hint(_user_tz(), None) == ""
 
 
+@pytest.mark.asyncio
+async def test_edit_bedtime_does_not_invent_phone_away(repo):
+    from datetime import datetime, timezone
+
+    from handlers.time_pick import _apply_edit
+
+    user = await repo.create_user(44, "bed", "Bed", None, "UTC", 0, "23:00")
+    item_id = await repo.add_sleep(
+        user.telegram_id,
+        bedtime="2026-08-16T23:00:00+00:00",
+    )
+    new_bed = datetime(2026, 8, 16, 22, 15, tzinfo=timezone.utc)
+    error = await _apply_edit(repo, user, f"edit:sb:{item_id}", new_bed)
+    assert error is None
+    rec = await repo.get_sleep(item_id, user.telegram_id)
+    assert rec is not None
+    assert rec.phone_away_at is None
+    assert rec.phone_in_bed_at is None
+    assert rec.bedtime.startswith("2026-08-16T22:15:00")
+
+
 def test_onset_prompt_legacy_bedtime():
     rec = SimpleNamespace(phone_in_bed_at=None, phone_away_at=None, bedtime="2026-08-16T23:00:00+00:00")
     assert bed_times_hint(_user_tz(), rec) == "Лёг спать: 16 августа 23:00"

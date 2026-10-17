@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 
 from database.models import User
 from database.queries import Repo
-from handlers.common import require_writable
+from handlers.common import reject_future_day, require_writable
 from handlers.history import show_saved_entry
 from keyboards.main import calendar_kb, steps_day_kb, steps_value_kb
 from services import entries
@@ -81,6 +81,8 @@ async def _save_steps(
             await event.answer("Сначала выберите день.")
         return
     day = date.fromisoformat(raw_day)
+    if await reject_future_day(event, day, user.timezone):
+        return
     item_id, error, updated = await entries.upsert_steps(repo, user, day, count)
     if error:
         if isinstance(event, CallbackQuery):
@@ -157,6 +159,8 @@ async def steps_got_date(cb: CallbackQuery, state: FSMContext, repo: Repo, db_us
         day = parse_calendar_token(token, user_today(user.timezone))
     except ValueError:
         await cb.answer()
+        return
+    if await reject_future_day(cb, day, user.timezone):
         return
     await _ask_value(cb, state, repo, user, day)
 

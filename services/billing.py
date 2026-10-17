@@ -18,6 +18,15 @@ def charge_key(telegram_id: int, day: date) -> str:
     return f"daily:{telegram_id}:{day.isoformat()}"
 
 
+def settle_key(telegram_id: int, day: date) -> str:
+    return f"daily:{telegram_id}:{day.isoformat()}:paid"
+
+
+def _day_is_paid(user: User, day: date) -> bool:
+    paid = user.paid_until_date
+    return bool(paid and paid >= day.isoformat())
+
+
 def days_to_charge(user: User, today: date) -> list[date]:
     if user.last_charge_date:
         start = date.fromisoformat(user.last_charge_date) + timedelta(days=1)
@@ -25,17 +34,27 @@ def days_to_charge(user: User, today: date) -> list[date]:
         from utils.time import local_date_of, parse_iso
 
         start = local_date_of(parse_iso(user.registered_at), user.timezone)
-    if start > today:
-        return []
     days: list[date] = []
-    current = start
-    while current <= today:
-        days.append(current)
-        current += timedelta(days=1)
+    if start <= today:
+        current = start
+        while current <= today:
+            days.append(current)
+            current += timedelta(days=1)
+    # An insufficient attempt marks the day charged without paid_until.
+    # After a later top-up the same local day still has to be billed.
+    if (
+        user.daily_price > 0
+        and user.last_charge_date == today.isoformat()
+        and not _day_is_paid(user, today)
+        and today not in days
+    ):
+        days.append(today)
     return days
 
 
 async def charge_user_for_day(repo: Repo, user: User, day: date) -> str:
+    if _day_is_paid(user, day):
+        return "duplicate"
     key = charge_key(user.telegram_id, day)
     if user.daily_price <= 0:
         applied, before, after = await repo.apply_balance_change(
@@ -49,6 +68,33 @@ async def charge_user_for_day(repo: Repo, user: User, day: date) -> str:
             last_charge_date=day.isoformat(),
         )
         return "free" if applied else "duplicate"
+
+    existing = await repo.get_operation_by_key(key)
+    if existing is not None:
+        fresh = await repo.get_user(user.telegram_id)
+        if fresh is None or _day_is_paid(fresh, day):
+            return "duplicate"
+        if fresh.balance < fresh.daily_price:
+            return "insufficient"
+        applied, before, after = await balance_svc.debit(
+            repo,
+            fresh.telegram_id,
+            fresh.daily_price,
+            comment=f"Ежедневное списание за {day.isoformat()}",
+            performed_by=SYSTEM_ACTOR,
+            idempotency_key=settle_key(fresh.telegram_id, day),
+            paid_until_date=day.isoformat(),
+            last_charge_date=day.isoformat(),
+        )
+        logger.info(
+            "Settled user %s day=%s %s -> %s applied=%s",
+            fresh.telegram_id,
+            day,
+            before,
+            after,
+            applied,
+        )
+        return "charged" if applied else "duplicate"
 
     if user.balance >= user.daily_price:
         applied, before, after = await balance_svc.debit(

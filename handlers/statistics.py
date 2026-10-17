@@ -145,7 +145,7 @@ async def stats_root(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: 
     await safe_edit(cb.message, "📊 Статистика\nСначала выберите период:", await period_keyboard(repo, user))
 
 
-@router.callback_query(F.data.startswith("stp:"))
+@router.callback_query(F.data.startswith("st:"))
 async def stats_period(cb: CallbackQuery, state: FSMContext, repo: Repo, db_user: User | None) -> None:
     user = await require_active(cb, db_user)
     if user is None:

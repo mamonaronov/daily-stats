@@ -136,6 +136,7 @@ async def sleep_entry(
     user = await require_writable(cb, db_user)
     if user is None:
         return
+    await state.clear()
     sleep = await repo.latest_sleep(user.telegram_id)
     await cb.answer()
     await safe_edit(cb.message, "😴 Сон", sleep_actions_kb(sleep, prefs_of(user).tracked))
